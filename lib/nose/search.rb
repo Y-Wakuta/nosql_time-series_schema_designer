@@ -2,6 +2,7 @@
 
 require_relative 'search/constraints'
 require_relative 'search/problem'
+require_relative 'search/problem_graph'
 require_relative 'search/results'
 
 require 'logging'
@@ -84,7 +85,7 @@ module NoSE
       def search_result(query_weights, indexes, solver_params, trees,
                         update_plans)
         # Solve the LP using MIPPeR
-        result = solve_mipper query_weights.keys, indexes, **solver_params
+        result = solve_mipper query_weights.keys, indexes, trees, **solver_params
 
         result.workload = @workload
         result.plans_from_trees trees
@@ -119,9 +120,9 @@ module NoSE
 
       # Solve the index selection problem using MIPPeR
       # @return [Results]
-      def solve_mipper(queries, indexes, data)
+      def solve_mipper(queries, indexes, trees, data)
         # Construct and solve the ILP
-        problem = Problem.new queries, @workload.updates, data, @objective
+        problem = ProblemGraph.new queries, trees, @workload.updates, data, @objective
         problem.solve
 
         # We won't get here if there's no valdi solution
