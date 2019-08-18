@@ -185,6 +185,7 @@ module NoSE
         @model = MIPPeR::CbcModel.new
 
         add_variables
+        calculate_edge_cost
         prepare_sort_costs
         @model.update
 
@@ -356,6 +357,29 @@ module NoSE
         cost_expr += sort_var * sort_cost unless sort_cost.nil?
 
         cost_expr
+      end
+
+      # convert C_ij to C_e (temporary way)
+      def calculate_edge_cost()
+        @edge_costs = {}
+        @edge_vars.each do |query, edge_var|
+          @edge_costs[query] = {}
+          @data[:costs][query].each do |index, cost|
+            edge_var.each do |from, edge|
+              edge.each do |to, var|
+                next unless to.is_a? Plans::IndexLookupPlanStep
+
+                # suppose that there is no dag edge.
+                # TODO: use 'from' tag to specify cost for the target edge. this is difficult by using C_ij, so we can directly calculate C_e at cost estimation step
+                # TODO: in paper of NoSE, Fig 6 allows dag query plan in CF5. ask prof. mior is this ok or not.
+                if to.index == index
+                  @edge_costs[query][from] = {}
+                  @edge_costs[query][from][to] = cost
+                end
+              end
+            end
+          end
+        end
       end
     end
 
