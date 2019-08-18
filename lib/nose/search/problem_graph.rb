@@ -125,15 +125,24 @@ module NoSE
       # Get the cost of all queries in the workload
       # @return [MIPPeR::LinExpr]
       def total_cost
-        cost = @queries.reduce(MIPPeR::LinExpr.new) do |expr, query|
-          expr.add(@indexes.reduce(MIPPeR::LinExpr.new) do |subexpr, index|
-            subexpr.add total_query_cost(@data[:costs][query][index],
-                                         @query_vars[index][query],
-                                         @sort_costs[query][index],
-                                         @sort_vars[query][index])
-          end)
-        end
+        cost = MIPPeR::LinExpr.new
+        @queries.each do |query|
+          subexpr = MIPPeR::LinExpr.new
+          @indexes.each do |index|
+            @edge_vars[query].each do |from, edge|
+              edge.each do |to, var|
+                if to.index == index and not @edge_costs[query][from][to].nil? # TODO: decide by @edge_costs[query][from][to].nil? is dangerous because this based on only one path to 'to' exists. But this is not true.
+                  subexpr += total_query_cost(@edge_costs[query][from][to],
+                                               var,
+                                               @sort_costs[query][index],
+                                               @sort_vars[query][index])
+                end
+              end
+            end
+          end
 
+          cost += subexpr
+        end
         cost = add_update_costs cost
         cost
       end
