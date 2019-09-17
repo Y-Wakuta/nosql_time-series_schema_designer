@@ -90,10 +90,6 @@ module NoSE
         cost
       end
 
-      def get_indexes_by_query(query)
-        return @data[:costs][query].map{|k, _| k}
-      end
-
       private
 
       # Build the ILP by creating all the variables and constraints

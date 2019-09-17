@@ -2,40 +2,44 @@
 
 module NoSE
   module Search
-    # 各クエリにおいて、始点から１つのみ経路が作成されることを保証
-    class OnePathConstraint < Constraint
+    class ConstraintGraph < Constraint
+      def self.enumerate_edge(edge_var)
+        edge_var.map do |from, edge|
+          edge.map do |to , var|
+            [from, to, var]
+          end
+        end.flatten(1)
+      end
+
+      def self.get_indexes_by_query(problem,query)
+        return problem.data[:costs][query].map{|k, _| k}
+      end
+    end
+
+    # Guarantee that only one path starts from the root node in each query
+    class OnePathConstraint < ConstraintGraph
       def self.apply(problem_graph)
         problem_graph.edge_vars.each do |query, edge_var|
-          start_edges = []
-          edge_var.each do |from, edge|
-            edge.each do |to, var|
-              if from.is_a?(Plans::RootPlanStep)
-                start_edges << var
-              end
-            end
-          end
-          start_paths = start_edges.map{|se| se * 1.0}.inject(:+)
-          constr = MIPPeR::Constraint.new start_paths, :==, 1, "StartOnePathConstraint of #{query}"
+          start_vars = enumerate_edge(edge_var).select{|from,_,_| from.is_a? Plans::RootPlanStep}.map{|_, _, var| var * 1.0}
+          start_paths = start_vars.inject(:+)
+          constr = MIPPeR::Constraint.new start_paths, :==, 1, "StartOnePathConstraint of #{query.text}"
           problem_graph.model << constr
         end
       end
     end
 
     # Guarantee that the number of nodes entering and leaving is the same
-    class SameIOConstraint < Constraint
-
+    class SameIOConstraint < ConstraintGraph
       def self.apply(problem_graph)
         problem_graph.edge_vars.each do |query, edge_var|
-          problem_graph.get_indexes_by_query(query).each do |index|
+          get_indexes_by_query(problem_graph, query).each do |index|
             incoming_edges = MIPPeR::LinExpr.new
             outgoing_edges = MIPPeR::LinExpr.new
-            edge_var.each do |from, edge|
-              edge.each do |to, var|
-                if to.is_a?(Plans::IndexLookupPlanStep) and to.index == index
-                  incoming_edges += var * 1
-                elsif from.is_a?(Plans::IndexLookupPlanStep) and from.index == index
-                  outgoing_edges += var * (-1)
-                end
+            enumerate_edge(edge_var).each do |from, to, var|
+              if to.is_a?(Plans::IndexLookupPlanStep) and to.index == index
+                incoming_edges += var * 1
+              elsif from.is_a?(Plans::IndexLookupPlanStep) and from.index == index
+                outgoing_edges += var * (-1)
               end
             end
 
@@ -49,26 +53,23 @@ module NoSE
     end
 
     # guarantee that if one of incomming edge is used, the index is also used
-    class PlanEdgeConstraints < Constraint
+    class PlanEdgeConstraints < ConstraintGraph
       def self.apply(problem_graph)
-        edge_vars = problem_graph.edge_vars
-        index_vars = problem_graph.index_vars
 
-        whole_edge_num = edge_vars.size # the number which is larger than whole number of edges
-        edge_vars.each do |query, edge_vars|
-          target_index_vars = index_vars.select{|ind, _| problem_graph.get_indexes_by_query(query).include? ind}
+        # the number which is larger than whole number of edges
+        whole_edge_count = problem_graph.edge_vars.map{|_, edge_var| edge_var.map{|_, edge| edge.map{|_, var| var}}}.flatten.size
+
+        problem_graph.edge_vars.each do |query, edge_var|
+          target_index_vars = problem_graph.index_vars.select{|ind, _| get_indexes_by_query(problem_graph, query).include? ind}
           target_index_vars.each do |index, index_var|
             incoming_edge_vars = []
-            edge_vars.each do |from, edge|
-              edge.each do |to , var|
-                next unless to.is_a? Plans::IndexLookupPlanStep
-                incoming_edge_vars.append(var) if to.index == index
-              end
+            enumerate_edge(edge_var).each do |_, to, var|
+              next unless to.is_a? Plans::IndexLookupPlanStep
+              incoming_edge_vars << var if to.index == index
             end
 
             incoming_edges_lin = incoming_edge_vars.map{|iev| iev * 1.0}.inject(:+)
-            #constr = MIPPeR::Constraint.new incoming_edges_lin + (index_var * (-whole_edge_num)), :<=, 0, "plan_edge for #{index.hash_str}"
-            constr = MIPPeR::Constraint.new incoming_edges_lin + (index_var * (-100)), :<=, 0, "plan_edge for #{index.hash_str}"
+            constr = MIPPeR::Constraint.new incoming_edges_lin + index_var * (-whole_edge_count), :<=, 0, "plan_edge for #{index.hash_str}. #{incoming_edge_vars.size} incoming edges"
             problem_graph.model << constr
           end
         end
