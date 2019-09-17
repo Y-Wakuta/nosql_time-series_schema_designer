@@ -153,8 +153,8 @@ module NoSE
               end
             end
           end
-          start_one_path = start_edges.map{|se| se * 1.0}.inject(:+)
-          constr = MIPPeR::Constraint.new start_one_path, :==, 1, "StartOnePathConstraint of #{query}"
+          start_paths = start_edges.map{|se| se * 1.0}.inject(:+)
+          constr = MIPPeR::Constraint.new start_paths, :==, 1, "StartOnePathConstraint of #{query}"
           problem_graph.model << constr
         end
       end
@@ -182,53 +182,35 @@ module NoSE
         end
       end
 
-      def self.sample(problem_graph)
-        edge_var = problem_graph.edge_vars.map{|k, v| v.map{|k1, v1| v1.map{|k2, v2| v2}}}.flatten[0]
-        constr = MIPPeR::Constraint.new edge_var * 1.0, :==, 1
-        problem_graph.model << constr
-      end
-
       def self.apply(problem_graph)
         start_one_path(problem_graph)
         last_one_path(problem_graph)
-        #sample(problem_graph)
       end
     end
 
     # Guarantee that the number of nodes entering and leaving is the same
     class SameIOConstraint < Constraint
 
-      def self.get_io_edge_vars(edge_vars, index)
-        incoming_edges = MIPPeR::LinExpr.new
-        outgoing_edges = MIPPeR::LinExpr.new
-        outgoing_edges_count = 0
-        edge_vars.each do |query, edge_var|
-          edge_var.each do |from, edge|
-            edge.each do |to, var|
-              if to.is_a?(Plans::IndexLookupPlanStep) and to.index == index
-                incoming_edges += var * 1.0
-              elsif from.is_a?(Plans::IndexLookupPlanStep) and from.index == index
-                outgoing_edges += var * (-1.0)
-                outgoing_edges_count += 1
+      def self.apply(problem_graph)
+        problem_graph.edge_vars.each do |query, edge_var|
+          problem_graph.get_indexes_by_query(query).each do |index|
+            incoming_edges = MIPPeR::LinExpr.new
+            outgoing_edges = MIPPeR::LinExpr.new
+            edge_var.each do |from, edge|
+              edge.each do |to, var|
+                if to.is_a?(Plans::IndexLookupPlanStep) and to.index == index
+                  incoming_edges += var * 1
+                elsif from.is_a?(Plans::IndexLookupPlanStep) and from.index == index
+                  outgoing_edges += var * (-1)
+                end
               end
             end
+
+            next if outgoing_edges.terms.size == 0 # if no edge go out from the index, the index is the last step of the plan
+
+            constr = MIPPeR::Constraint.new incoming_edges + outgoing_edges , :==, 0, "io_same constraint for #{index.hash_str}"
+            problem_graph.model << constr
           end
-        end
-        if outgoing_edges_count == 0 # if no edge go out from the index, the index is the last step of the plan
-          return nil
-        end
-        [incoming_edges, outgoing_edges]
-      end
-
-      def self.apply(problem_graph)
-        edge_vars = problem_graph.edge_vars
-        index_vars = problem_graph.index_vars
-        index_vars.each do |index, _|
-          incoming_vars, outgoing_var = get_io_edge_vars(edge_vars, index)
-          next if incoming_vars.nil? and outgoing_var.nil?
-
-          constr = MIPPeR::Constraint.new incoming_vars + outgoing_var, :==, 0, "io_same constraint for #{index.hash_str}"
-          problem_graph.model << constr
         end
       end
     end

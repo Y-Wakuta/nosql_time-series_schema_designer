@@ -90,6 +90,10 @@ module NoSE
         cost
       end
 
+      def get_indexes_by_query(query)
+        return @data[:costs][query].map{|k, _| k}
+      end
+
       private
 
       # Build the ILP by creating all the variables and constraints
@@ -109,8 +113,6 @@ module NoSE
 
         log_model 'Model'
       end
-
-      private
 
       # make edge_vars from adjacency matrix
       def add_edge_variables
@@ -174,6 +176,5 @@ module NoSE
         end
       end
     end
-
   end
 end
