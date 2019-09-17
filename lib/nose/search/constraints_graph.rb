@@ -4,8 +4,7 @@ module NoSE
   module Search
     # 各クエリにおいて、始点から１つのみ経路が作成されることを保証
     class OnePathConstraint < Constraint
-
-      def self.start_one_path(problem_graph)
+      def self.apply(problem_graph)
         problem_graph.edge_vars.each do |query, edge_var|
           start_edges = []
           edge_var.each do |from, edge|
@@ -19,34 +18,6 @@ module NoSE
           constr = MIPPeR::Constraint.new start_paths, :==, 1, "StartOnePathConstraint of #{query}"
           problem_graph.model << constr
         end
-      end
-
-      # guarantee only one path enter the last node for each query
-      def self.last_one_path(problem_graph)
-        problem_graph.edge_vars.each do |query, edge_var|
-          edges_to_last = [] # クエリごとにある index について、その index を from にもつ edge が１つも無い場合に、そのノードに入っている edge をリストに追加。それらの変数の和が1になるようにする
-          problem_graph.index_vars.map{|index, var| index}.each do |index|
-            incoming_edges = []
-            edge_var.each do |from, edge|
-              edge.each do |to, var|
-                if to.is_a?(Plans::IndexLookupPlanStep) and to.index == index
-                  incoming_edges << var
-                elsif from.is_a?(Plans::IndexLookupPlanStep) and from.index == index
-                  incoming_edges = [] # if same edges out go from step that has the index, the step is not the last step
-                end
-              end
-            end
-            edges_to_last << incoming_edges unless incoming_edges.empty?
-          end
-
-          constr = MIPPeR::Constraint.new edges_to_last.flatten.map{|e| e * 1.0}.inject(:+), :==, 1, "LastOnePathConstraint of #{query}"
-          problem_graph.model << constr
-        end
-      end
-
-      def self.apply(problem_graph)
-        start_one_path(problem_graph)
-      #  last_one_path(problem_graph)
       end
     end
 
