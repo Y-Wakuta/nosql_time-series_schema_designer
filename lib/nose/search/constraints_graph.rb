@@ -5,13 +5,13 @@ module NoSE
     class ConstraintGraph < Constraint
       def self.enumerate_edge(edge_var)
         edge_var.map do |from, edge|
-          edge.map do |to , var|
+          edge.map do |to, var|
             [from, to, var]
           end
         end.flatten(1)
       end
 
-      def self.get_indexes_by_query(problem,query)
+      def self.get_indexes_by_query(problem, query)
         return problem.data[:costs][query].map{|k, _| k}
       end
     end
@@ -20,8 +20,10 @@ module NoSE
     class OnePathConstraint < ConstraintGraph
       def self.apply(problem_graph)
         problem_graph.edge_vars.each do |query, edge_var|
-          start_vars = enumerate_edge(edge_var).select{|from,_,_| from.is_a? Plans::RootPlanStep}.map{|_, _, var| var * 1.0}
-          start_paths = start_vars.inject(:+)
+          start_paths = enumerate_edge(edge_var)
+                         .select{|from, _, _| from.is_a? Plans::RootPlanStep}
+                         .map{|_, _, var| var * 1.0}
+                         .inject(:+)
           constr = MIPPeR::Constraint.new start_paths, :==, 1, "StartOnePathConstraint of #{query.text}"
           problem_graph.model << constr
         end
@@ -57,10 +59,15 @@ module NoSE
       def self.apply(problem_graph)
 
         # the number which is larger than whole number of edges
-        whole_edge_count = problem_graph.edge_vars.map{|_, edge_var| edge_var.map{|_, edge| edge.map{|_, var| var}}}.flatten.size
+        whole_edge_count = problem_graph
+                             .edge_vars
+                             .map{|_, edge_var| edge_var.map{|_, edge| edge.map{|_, var| var}}}
+                             .flatten.size
 
         problem_graph.edge_vars.each do |query, edge_var|
-          target_index_vars = problem_graph.index_vars.select{|ind, _| get_indexes_by_query(problem_graph, query).include? ind}
+          target_index_vars = problem_graph
+                                .index_vars
+                                .select{|ind, _| get_indexes_by_query(problem_graph, query).include? ind}
           target_index_vars.each do |index, index_var|
             incoming_edge_vars = []
             enumerate_edge(edge_var).each do |_, to, var|
@@ -68,7 +75,9 @@ module NoSE
               incoming_edge_vars << var if to.index == index
             end
 
-            incoming_edges_lin = incoming_edge_vars.map{|iev| iev * 1.0}.inject(:+)
+            incoming_edges_lin = incoming_edge_vars
+                                   .map{|iev| iev * 1.0}
+                                   .inject(:+)
             constr = MIPPeR::Constraint.new incoming_edges_lin + index_var * (-whole_edge_count), :<=, 0, "plan_edge for #{index.hash_str}. #{incoming_edge_vars.size} incoming edges"
             problem_graph.model << constr
           end

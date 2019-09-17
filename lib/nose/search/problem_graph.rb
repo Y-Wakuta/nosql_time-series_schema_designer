@@ -74,6 +74,8 @@ module NoSE
           @indexes.each do |index|
             @edge_vars[query].each do |from, edge|
               edge.each do |to, var|
+                next if to.is_a? Plans::FilterPlanStep or to.is_a? Plans::LimitPlanStep
+
                 if to.index == index and not @edge_costs[query][from][to].nil? # TODO: decide by @edge_costs[query][from][to].nil? is dangerous because this based on only one path to 'to' exists. But this is not true.
                   subexpr += total_query_cost(@edge_costs[query][from][to],
                                                var,
