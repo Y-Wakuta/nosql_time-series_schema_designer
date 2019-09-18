@@ -9,6 +9,7 @@ require_relative 'search/results'
 require 'logging'
 require 'ostruct'
 require 'tempfile'
+require 'benchmark'
 
 module NoSE
   # ILP construction and schema search
@@ -86,7 +87,7 @@ module NoSE
       def search_result(query_weights, indexes, solver_params, trees,
                         update_plans)
         # Solve the LP using MIPPeR
-        result = solve_mipper query_weights.keys, indexes, trees, **solver_params
+        result = solve_mipper query_weights.keys, indexes, trees, true, **solver_params
 
         result.workload = @workload
         result.plans_from_trees trees
@@ -121,10 +122,17 @@ module NoSE
 
       # Solve the index selection problem using MIPPeR
       # @return [Results]
-      def solve_mipper(queries, indexes, trees, data)
+      def solve_mipper(queries, indexes, trees, is_graph_based, data)
         # Construct and solve the ILP
-        problem = ProblemGraph.new queries, trees, @workload.updates, data, @objective
-        problem.solve
+        problemBase = Problem.new queries, @workload.updates, data, @objective
+        problemGraph = ProblemGraph.new queries, trees, @workload.updates, data, @objective
+        Benchmark.bm do |x|
+          x.report("nose") { problemBase.solve }
+          x.report("graph")  { problemGraph.solve }
+        end
+
+        problem = is_graph_based ? problemGraph : problemBase
+       # problem.solve
 
         # We won't get here if there's no valdi solution
         @logger.debug 'Found solution with total cost ' \
