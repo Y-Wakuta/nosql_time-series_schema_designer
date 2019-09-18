@@ -120,7 +120,7 @@ module NoSE
           adjacency_matrix.each do |from, nodes|
             @edge_vars[query][from] = {}
             nodes.each do |to|
-              edge_name = from.to_s + " -> " + to.to_s
+              edge_name = "(" + (from.is_a?(Plans::IndexLookupPlanStep) ? from.index.key : "RootStep") + " to " + (to.is_a?(Plans::IndexLookupPlanStep) ? to.index.key : to.to_s) + ")"
               var = MIPPeR::Variable.new 0, 1, 0, :binary, edge_name
               @model << var
               @edge_vars[query][from][to] = var
@@ -165,7 +165,7 @@ module NoSE
                 # TODO: use 'from' tag to specify cost for the target edge. this is difficult by using C_ij, so we can directly calculate C_e at cost estimation step
                 # TODO: in paper of NoSE, Fig 6 allows dag query plan in CF5. ask prof. mior is this ok or not.
                 if to.index == index
-                  @edge_costs[query][from] = {}
+                  @edge_costs[query][from] = {} if @edge_costs[query][from].nil?
                   @edge_costs[query][from][to] = cost
                 end
               end
