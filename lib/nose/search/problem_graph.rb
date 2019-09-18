@@ -83,16 +83,19 @@ module NoSE
         cost = MIPPeR::LinExpr.new
         @queries.each do |query|
           subexpr = MIPPeR::LinExpr.new
-          @indexes.each do |index|
+          get_indexes_by_query(query).each do |index|
             @edge_vars[query].each do |from, edge|
               edge.each do |to, var|
                 next if to.is_a? Plans::FilterPlanStep or to.is_a? Plans::LimitPlanStep
 
+                if to.is_a? Plans::SortPlanStep
+                  subexpr += var * @sort_costs[query][from.index]
+                  next
+                end
+
                 if to.index == index and not @edge_costs[query][from][to].nil? # TODO: decide by @edge_costs[query][from][to].nil? is dangerous because this based on only one path to 'to' exists. But this is not true.
-                  subexpr += total_query_cost(@edge_costs[query][from][to],
-                                               var,
-                                               @sort_costs[query][index],
-                                               @sort_vars[query][index])
+                  step_cost = @edge_costs[query][from][to].last * 1.0
+                  subexpr += var * step_cost
                 end
               end
             end
@@ -102,6 +105,30 @@ module NoSE
         end
         cost = add_update_costs cost
         cost
+      end
+
+      # Prepare variables and constraints to account for the cost of sorting
+      # @return [void]
+      def prepare_sort_costs
+        @sort_costs = {}
+        @sort_vars = {}
+        @data[:costs].each do |query, index_costs|
+          @sort_costs[query] = {}
+          @sort_vars[query] = {}
+
+          index_costs.each do |index, (steps, _)|
+            sort_step = steps.find { |s| s.is_a?(Plans::SortPlanStep) }
+            next if sort_step.nil?
+
+            @sort_costs[query][index] ||= sort_step.cost
+            q = @queries.index query
+
+            name = "s#{q}" if ENV['NOSE_LOG'] == 'debug'
+            sort_var = MIPPeR::Variable.new 0, 1, 0, :binary, name
+            @sort_vars[query][index] ||= sort_var
+            @model << sort_var
+          end
+        end
       end
 
       private
