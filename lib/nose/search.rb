@@ -137,9 +137,27 @@ module NoSE
           "Selected indexes:\n" + selected_indexes.map do |index|
             "#{indexes.index index} #{index.inspect}"
           end.join("\n")
+
+          trees.each do |tree|
+            puts("=" + tree.query.text)
+            show_tree(tree)
+          end
         end
 
         problem.result
+      end
+
+      def show_tree(tree)
+        show_children(tree.root, 0)
+      end
+
+      def show_children(node, indents)
+        return if node.children.empty? or not node.is_a? Plans::IndexLookupPlanStep
+
+        node.children.each do |child|
+          puts("  " * indents + child.index.hash_str)
+          show_children(child, indents + 1)
+        end
       end
 
       # Produce the cost of updates in the workload

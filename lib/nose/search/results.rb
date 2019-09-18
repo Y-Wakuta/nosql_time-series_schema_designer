@@ -110,9 +110,9 @@ module NoSE
         plan = tree.find do |tree_plan|
           tree_plan.indexes.to_set == @query_indexes[query]
         end
-        plan.instance_variable_set :@workload, @workload
 
         fail InvalidResultsException if plan.nil?
+        plan.instance_variable_set :@workload, @workload
         plan
       end
 

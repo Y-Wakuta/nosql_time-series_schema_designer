@@ -19,9 +19,7 @@ module NoSE
           edge_var.each do |from, edge|
             edge.each do |to, var|
               next unless var.value
-
-              @query_indexes[query].add from unless from.is_a? Plans::RootPlanStep or from.is_a? Plans::FilterPlanStep or from.is_a? Plans::SortPlanStep
-              @query_indexes[query].add to unless to.is_a? Plans::RootPlanStep or to.is_a? Plans::FilterPlanStep or to.is_a? Plans::SortPlanStep
+             @query_indexes[query].add to
             end
           end
         end

@@ -25,6 +25,18 @@ module NoSE
         super(queries, updates, data, objective)
       end
 
+      def enumerate_edge(edge_var)
+        edge_var.map do |from, edge|
+          edge.map do |to, var|
+            [from, to, var]
+          end
+        end.flatten(1)
+      end
+
+      def get_indexes_by_query(query)
+        return @data[:costs][query].map{|k, _| k}
+      end
+
       ## 隣接行列に実際にノードを追加
       def add_node(query, node1, node2)
         if @adjacency_matrices[query].has_key?(node1) then

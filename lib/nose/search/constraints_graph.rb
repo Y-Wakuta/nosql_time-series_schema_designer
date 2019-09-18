@@ -2,28 +2,15 @@
 
 module NoSE
   module Search
-    class ConstraintGraph < Constraint
-      def self.enumerate_edge(edge_var)
-        edge_var.map do |from, edge|
-          edge.map do |to, var|
-            [from, to, var]
-          end
-        end.flatten(1)
-      end
-
-      def self.get_indexes_by_query(problem, query)
-        return problem.data[:costs][query].map{|k, _| k}
-      end
-    end
 
     # Guarantee that only one path starts from the root node in each query
-    class OnePathConstraint < ConstraintGraph
+    class OnePathConstraint < Constraint
       def self.apply(problem_graph)
         problem_graph.edge_vars.each do |query, edge_var|
-          start_paths = enumerate_edge(edge_var)
-                         .select{|from, _, _| from.is_a? Plans::RootPlanStep}
-                         .map{|_, _, var| var * 1.0}
-                         .inject(:+)
+          start_paths = problem_graph.enumerate_edge(edge_var)
+                          .select{|from, _, _| from.is_a? Plans::RootPlanStep}
+                          .map{|_, _, var| var * 1.0}
+                          .inject(:+)
           constr = MIPPeR::Constraint.new start_paths, :==, 1, "StartOnePathConstraint of #{query.text}"
           problem_graph.model << constr
         end
@@ -31,13 +18,13 @@ module NoSE
     end
 
     # Guarantee that the number of nodes entering and leaving is the same
-    class SameIOConstraint < ConstraintGraph
+    class SameIOConstraint < Constraint
       def self.apply(problem_graph)
         problem_graph.edge_vars.each do |query, edge_var|
-          get_indexes_by_query(problem_graph, query).each do |index|
+          problem_graph.get_indexes_by_query(query).each do |index|
             incoming_edges = MIPPeR::LinExpr.new
             outgoing_edges = MIPPeR::LinExpr.new
-            enumerate_edge(edge_var).each do |from, to, var|
+            problem_graph.enumerate_edge(edge_var).each do |from, to, var|
               if to.is_a?(Plans::IndexLookupPlanStep) and to.index == index
                 incoming_edges += var * 1
               elsif from.is_a?(Plans::IndexLookupPlanStep) and from.index == index
@@ -55,7 +42,7 @@ module NoSE
     end
 
     # guarantee that if one of incomming edge is used, the index is also used
-    class PlanEdgeConstraints < ConstraintGraph
+    class PlanEdgeConstraints < Constraint
       def self.apply(problem_graph)
 
         # the number which is larger than whole number of edges
@@ -67,10 +54,10 @@ module NoSE
         problem_graph.edge_vars.each do |query, edge_var|
           target_index_vars = problem_graph
                                 .index_vars
-                                .select{|ind, _| get_indexes_by_query(problem_graph, query).include? ind}
+                                .select{|ind, _| problem_graph.get_indexes_by_query(query).include? ind}
           target_index_vars.each do |index, index_var|
             incoming_edge_vars = []
-            enumerate_edge(edge_var).each do |_, to, var|
+            problem_graph.enumerate_edge(edge_var).each do |_, to, var|
               next unless to.is_a? Plans::IndexLookupPlanStep
               incoming_edge_vars << var if to.index == index
             end
