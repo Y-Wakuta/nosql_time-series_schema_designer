@@ -37,6 +37,26 @@ module NoSE
             constr = MIPPeR::Constraint.new incoming_edges + outgoing_edges , :==, 0, "io_same constraint for #{index.hash_str}"
             problem_graph.model << constr
           end
+
+          # iterate for FilterPlanStep or SortPlanStep
+          problem_graph.enumerate_edge(edge_var).each do |_, to, _|
+            next if not (to.is_a? Plans::FilterPlanStep or to.is_a? Plans::SortPlanStep)
+
+            # collect vars of incoming edges
+            incomes = problem_graph.enumerate_edge(edge_var)
+              .select{|_, income_to, _| to == income_to}
+              .map{|_, _, var| var * 1.0}
+              .inject(:+)
+
+            # collect vars of outgoing edges
+            outgos = problem_graph.enumerate_edge(edge_var)
+                        .select{|outgo_from, _, _| to == outgo_from}
+                        .map{|_, _, var| var * (-1.0)}
+                        .inject(:+)
+
+            constr = MIPPeR::Constraint.new incomes + outgos , :==, 0, "io_same constraint for non-IndexLookupStep"
+            problem_graph.model << constr
+          end
         end
       end
     end
