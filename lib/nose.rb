@@ -23,6 +23,7 @@ require_relative 'nose/search'
 require_relative 'nose/statements'
 require_relative 'nose/timing'
 require_relative 'nose/workload'
+require_relative 'nose/time_depend_workload'
 
 require_relative 'nose/serialize'
 
