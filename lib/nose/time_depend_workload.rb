@@ -84,7 +84,6 @@ module NoSE
   class TimeDependGroupDSL < GroupDSL
     attr_reader :frequencies
     # get frequcny array
-    # Input: "1.1, 3.4, 5.2, ...."
     def F(statement,frequencies_str)
       freq = frequencies_str.split(",").map{|s| s.to_f}
       @frequencies = {} if @frequencies.nil?

@@ -143,12 +143,18 @@ module NoSE
 
     context "add frequency type for the statement"  do
       it "specify the frequency type" do
-        weights = td_workload_by_type.statement_weights.select{|q, _| q.text == query}.map{|_, weights| weights}
+        weights = td_workload_by_type
+                    .statement_weights
+                    .select{|q, _| q.text == query}
+                    .map{|_, weights| weights}
         expect(weights.first.size).to eq time_steps
       end
 
       it "specify the frequency array" do
-        weights = td_workload_by_array.statement_weights.select{|q, _| q.text == query}.map{|_, weights| weights}
+        weights = td_workload_by_array
+                    .statement_weights
+                    .select{|q, _| q.text == query}
+                    .map{|_, weights| weights}
         expect(weights.first.size).to eq freq_array.split(",").size
       end
     end
