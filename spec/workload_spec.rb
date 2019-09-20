@@ -102,4 +102,61 @@ module NoSE
       )
     end
   end
+
+  describe TimeDependWorkload do
+    let(:time_steps)       { 5 }
+    let(:query) {'SELECT Foo.Bar FROM Foo WHERE Foo.Id = ?'}
+    let(:td_workload_by_type) {
+      q = query
+      ts = time_steps
+      TimeDependWorkload.new do
+        TimeSteps ts
+
+        Entity 'Foo' do
+          ID 'Id'
+          String 'Bar'
+        end
+
+        Group 'Test1', 0.5, :increase do
+          Q q
+        end
+      end
+    }
+
+    let(:freq_array){"1.2,1.3,1.4"}
+    let(:td_workload_by_array) {
+      q = query
+      fa = freq_array
+      TimeDependWorkload.new do
+
+        Entity 'Foo' do
+          ID 'Id'
+          String 'Bar'
+        end
+
+        Group 'Test1', 0.5, :increase do
+          Q q
+          F q, fa
+        end
+      end
+    }
+
+    context "add frequency type for the statement"  do
+      it "specify the frequency type" do
+        weights = td_workload_by_type
+                    .statement_weights
+                    .select{|q, _| q.text == query}
+                    .map{|_, weights| weights}
+        expect(weights.first.size).to eq time_steps
+      end
+
+      it "specify the frequency array" do
+        weights = td_workload_by_array
+                    .statement_weights
+                    .select{|q, _| q.text == query}
+                    .map{|_, weights| weights}
+        expect(weights.first.size).to eq freq_array.split(",").size
+      end
+    end
+  end
 end
