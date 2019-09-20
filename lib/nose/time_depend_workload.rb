@@ -13,6 +13,7 @@ module NoSE
       @statement_weights = { default: {} }
       @model = model || Model.new
       @mix = :default
+      @timesteps = 5
 
       set_dummy_functions
 
@@ -21,10 +22,11 @@ module NoSE
     end
 
     def set_dummy_functions
-      @dummy_functions = {}
-      @dummy_functions[:increase] = Proc.new{|seed| (0..100).map{|t| (0.1 * t + seed).round(2)}}
-      @dummy_functions[:decrease] = Proc.new{|seed| (0..100).map{|t| (-0.1 * t + seed).round(2)}}
-      @dummy_functions[:static] = Proc.new{|seed| (0..100).map{|_| seed}}
+      @dummy_functions = {
+        :increase => Proc.new{|seed| (1..@timesteps).map{|t| (0.1 * t + seed).round(2)}},
+        :decrease => Proc.new{|seed| (1..@timesteps).map{|t| (-0.1 * t + seed).round(2)}},
+        :static => Proc.new{|seed| (1..@timesteps).map{|_| seed}}
+      }
     end
 
     # Add a new {Statement} to the workload or parse a string
@@ -41,10 +43,15 @@ module NoSE
         @statement_weights[mix] = {} unless @statement_weights.key? mix
         @statement_weights[mix][statement] = frequencies.nil? ? @dummy_functions[function_type].call(weight) : frequencies
       end
+
+      # ensure that all query has the same # of timesteps
+      fail if @statement_weights[mix].map{|_, weights| weights.size}.uniq.size > 1
     end
 
+  end
 
-    class TimeDependWorkloadDSL <  WorkloadDSL
+
+  class TimeDependWorkloadDSL < WorkloadDSL
 
       def Q(statement, weight = 1.0, frequencies, function_type, group: nil, label: nil, **mixes)
         fail 'Statements require a workload' if @workload.nil?
@@ -67,9 +74,12 @@ module NoSE
           Q(statement, weight, frequency, function_type,**mixes, group: name)
         end
       end
+
+      def TimeSteps(timestep)
+        @timesteps = timestep
+      end
     end
 
-  end
 
   class TimeDependGroupDSL < GroupDSL
     attr_reader :frequencies

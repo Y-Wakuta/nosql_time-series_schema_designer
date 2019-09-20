@@ -7,6 +7,7 @@ NoSE::TimeDependWorkload.new do
   # http://rubis.ow2.org/results/SB-BMP/Bidding/JBoss-SB-BMP-Bi-1500/perf.html#run_stat
   # http://rubis.ow2.org/results/SB-BMP/Browsing/JBoss-SB-BMP-Br-1500/perf.html#run_stat
   DefaultMix :browsing
+  TimeSteps 3
 
   Group 'UsersInfo', 1.0, :increase, browsing: 4.41,
         bidding: 2.48,
