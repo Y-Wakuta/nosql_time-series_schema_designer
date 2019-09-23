@@ -123,7 +123,7 @@ module NoSE
       end
     }
 
-    let(:freq_array){"1.2,1.3,1.4"}
+    let(:freq_array){[1.2,1.3,1.4]}
     let(:td_workload_by_array) {
       q = query
       fa = freq_array
@@ -155,7 +155,7 @@ module NoSE
                     .statement_weights
                     .select{|q, _| q.text == query}
                     .map{|_, weights| weights}
-        expect(weights.first.size).to eq freq_array.split(",").size
+        expect(weights.first.size).to eq freq_array.size
       end
     end
   end

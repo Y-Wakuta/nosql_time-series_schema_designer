@@ -13,7 +13,6 @@ module NoSE
       @statement_weights = { default: {} }
       @model = model || Model.new
       @mix = :default
-      @timesteps = 5
 
       set_dummy_functions
 
@@ -23,15 +22,15 @@ module NoSE
 
     def set_dummy_functions
       @dummy_functions = {
-        :increase => Proc.new{|seed| (1..@timesteps).map{|t| (0.1 * t + seed).round(2)}},
-        :decrease => Proc.new{|seed| (1..@timesteps).map{|t| (-0.1 * t + seed).round(2)}},
-        :static => Proc.new{|seed| (1..@timesteps).map{|_| seed}}
+        :increase => Proc.new{|seed, ts| (1..ts).map{|t| (0.1 * t + seed).round(2)}},
+        :decrease => Proc.new{|seed, ts| (1..ts).map{|t| (-0.1 * t + seed).round(2)}},
+        :static => Proc.new{|seed, ts| (1..ts).map{|_| seed}}
       }
     end
 
     # Add a new {Statement} to the workload or parse a string
     # @return [void]
-    def add_statement(statement, mixes = {}, frequencies, function_type,  group: nil, label: nil)
+    def add_statement(statement, mixes = {}, frequencies, function_type, timesteps, group: nil, label: nil)
       statement = Statement.parse(statement, @model,
                                   group: group, label: label) \
         if statement.is_a? String
@@ -41,7 +40,7 @@ module NoSE
       mixes = { default: 1.0 } if mixes.empty?
       mixes.each do |mix, weight|
         @statement_weights[mix] = {} unless @statement_weights.key? mix
-        @statement_weights[mix][statement] = frequencies.nil? ? @dummy_functions[function_type].call(weight) : frequencies
+        @statement_weights[mix][statement] = frequencies.nil? ? @dummy_functions[function_type].call(weight, timesteps) : frequencies
       end
 
       # ensure that all query has the same # of timesteps
@@ -53,12 +52,14 @@ module NoSE
 
   class TimeDependWorkloadDSL < WorkloadDSL
 
-      def Q(statement, weight = 1.0, frequencies, function_type, group: nil, label: nil, **mixes)
+    @timesteps = 5
+
+    def Q(statement, weight = 1.0, frequencies, function_type, group: nil, label: nil, **mixes)
         fail 'Statements require a workload' if @workload.nil?
 
         return if weight.zero? && mixes.empty?
         mixes = { default: weight } if mixes.empty?
-        @workload.add_statement statement, mixes, frequencies, function_type, group: group, label: label
+        @workload.add_statement statement, mixes, frequencies, function_type, @timesteps, group: group, label: label
       end
 
       # Allow grouping statements with an associated weight
@@ -84,8 +85,7 @@ module NoSE
   class TimeDependGroupDSL < GroupDSL
     attr_reader :frequencies
     # get frequcny array
-    def F(statement,frequencies_str)
-      freq = frequencies_str.split(",").map{|s| s.to_f}
+    def F(statement,freq)
       @frequencies = {} if @frequencies.nil?
       # we do not allow the same query has two array of frequencies
       fail if @frequencies.has_key? statement and @frequencies[statement] == freq
