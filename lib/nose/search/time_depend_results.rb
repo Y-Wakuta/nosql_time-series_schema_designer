@@ -74,18 +74,6 @@ module NoSE
         freeze
       end
 
-      # Set the query plans which should be used based on the entire tree
-      # @return [void]
-      def plans_from_trees(trees)
-        @plans = trees.map do |tree|
-          # Exclude support queries since they will be in update plans
-          query = tree.query
-          next if query.is_a?(SupportQuery)
-
-          select_plan tree
-        end.compact
-      end
-
       # Select the single query plan from a tree of plans
       # @return [Plans::QueryPlan]
       # @raise [InvalidResultsException]
@@ -119,16 +107,6 @@ module NoSE
         end
       end
 
-      # Ensure we only have necessary update plans which use available indexes
-      # @return [void]
-      def validate_update_indexes
-        @update_plans.each do |plan|
-          validate_query_indexes plan.query_plans
-          valid_plan = @indexes.include?(plan.index)
-          fail InvalidResultsException unless valid_plan
-        end
-      end
-
       # Check that the objective function has the expected value
       # @return [void]
       def validate_objective
@@ -144,20 +122,8 @@ module NoSE
           fail InvalidResultsException unless (cost - @total_cost).abs < 0.001
         elsif @problem.objective_type == Objective::SPACE
           #size = @indexes.sum_by(&:size)
-          size = @indexes.reduce(Set.new){|s, t| t}.map(&:size).inject(&:+)
-          fail InvalidResultsException unless (size - @total_size).abs < 0.001 # TODO: total_size は時刻ごとの配列にする必要があると思う
-        end
-      end
-
-      # Ensure that all the query plans use valid indexes
-      # @return [void]
-      def validate_query_indexes(plans)
-        plans.each do |plan|
-          plan.each do |step|
-            valid_plan = !step.is_a?(Plans::IndexLookupPlanStep) ||
-              @indexes.include?(step.index)
-            fail InvalidResultsException unless valid_plan
-          end
+          size = @indexes.map{|indexes_each_timestep| indexes_each_timestep.map(&:size).inject(&:+)}
+          fail InvalidResultsException unless size == @total_size # TODO: total_size は時刻ごとの配列にする必要があると思う
         end
       end
 
@@ -172,20 +138,6 @@ module NoSE
           end
         end
       end
-
-      # Validate the support query plans for each update
-      # @return [void]
-      def validate_update_plans
-        @update_plans.each do |plan|
-          plan.instance_variable_set :@workload, @workload
-
-          validate_query_plans plan.query_plans
-        end
-      end
-    end
-
-    # Thrown when a search produces invalid results
-    class InvalidResultsException < StandardError
     end
   end
 end

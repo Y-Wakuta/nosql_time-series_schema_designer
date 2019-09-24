@@ -14,7 +14,9 @@ NoSE::TimeDependWorkload.new do
         write_medium: 2.48,
         write_heavy: 2.48 do
     Q 'SELECT users.* FROM users WHERE users.id = ? -- 8'
+    F 'SELECT users.* FROM users WHERE users.id = ? -- 8', [0.9, 0.5, 0.01]
     Q 'SELECT users.* FROM users WHERE users.rating=? -- 12'
+    F 'SELECT users.* FROM users WHERE users.rating=? -- 12', [0.9, 0.5, 0.01]
   end
 
   Group 'ItemsInfo', 1.0, :increase, browsing: 8.82,
@@ -22,6 +24,8 @@ NoSE::TimeDependWorkload.new do
         write_medium: 4.96,
         write_heavy: 4.96 do
     Q 'SELECT items.* FROM items WHERE items.id=? -- 13'
+    F 'SELECT items.* FROM items WHERE items.id=? -- 13', [0.01, 0.5, 0.9]
     Q 'SELECT items.* FROM items WHERE items.quantity=? -- 13'
+    F 'SELECT items.* FROM items WHERE items.quantity=? -- 13', [0.01, 0.5, 0.9]
   end
 end

@@ -134,21 +134,20 @@ module NoSE
         @index_vars.each_value { |vars| vars.each_value {|var| @model << var }}
       end
 
-      # Deal with updates which do not require support queries
-      # @return [MIPPeR::LinExpr]
-      def add_update_costs(min_cost)
-        @updates.each do |update|
-          @indexes.each do |index|
-            index = index.to_id_graph if data[:by_id_graph]
-            next unless update.modifies_index?(index)
+      # Add all necessary constraints to the model
+      # @return [void]
+      def add_constraints
+        [
+          TimeDependIndexPresenceConstraints,
+          TimeDependSpaceConstraint,
+          TimeDependCompletePlanConstraints
+        ].each { |constraint| constraint.apply self }
 
-            min_cost.add @index_vars[index] *
-                           @data[:update_costs][update][index]
-          end
+        @logger.debug do
+          "Added #{@model.constraints.count} constraints to model"
         end
-
-        min_cost
       end
+
 
       # Get the total cost of the query for the objective function
       # @return [MIPPeR::LinExpr]
@@ -170,7 +169,8 @@ module NoSE
         result.indexes = selected_indexes
 
         # TODO: Update for indexes grouped by ID path
-        result.total_size = selected_indexes.reduce(Set.new){|s, t| t}.map(&:size).inject(&:+)
+        #result.total_size = selected_indexes.reduce(Set.new){|_, t| t}.map(&:size).inject(&:+)
+        result.total_size = selected_indexes.map{|sindex_each_timestep| sindex_each_timestep.map(&:size).inject(&:+)}
         result.total_cost = @objective_value
 
         result

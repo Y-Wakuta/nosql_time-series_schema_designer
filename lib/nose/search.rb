@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'search/constraints'
+require_relative 'search/time_depend_constraints'
 require_relative 'search/problem'
 require_relative 'search/time_depend_problem'
 require_relative 'search/results'
