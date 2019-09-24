@@ -272,7 +272,7 @@ module NoSE
 
             name = "q#{q}_#{index.key}_sort" if ENV['NOSE_LOG'] == 'debug'
             constr = MIPPeR::Constraint.new @sort_vars[query][index] * 1.0 +
-                                            @query_vars[index][query] * -1.0,
+                                              @query_vars[index][query] * -1.0,
                                             :>=, 0, name
             @model << constr
           end
@@ -302,7 +302,7 @@ module NoSE
             next unless update.modifies_index?(index)
 
             min_cost.add @index_vars[index] *
-                         @data[:update_costs][update][index]
+                           @data[:update_costs][update][index]
           end
         end
 
