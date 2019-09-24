@@ -135,8 +135,7 @@ module NoSE
         end
 
         Group 'Test1', 0.5, :increase do
-          Q q
-          F q, fa
+          Q q, fa
         end
       end
     }

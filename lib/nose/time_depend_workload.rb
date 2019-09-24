@@ -85,13 +85,13 @@ module NoSE
   class TimeDependGroupDSL < GroupDSL
     attr_reader :frequencies
     # get frequcny array
-    def F(statement,freq)
-      @frequencies = {} if @frequencies.nil?
-      # we do not allow the same query has two array of frequencies
-      fail if @frequencies.has_key? statement and @frequencies[statement] == freq
+    def Q(statement, freq = nil)
+          @statements << statement
+          return if freq.nil?
 
-      @frequencies[statement] = freq
+          @frequencies = {} if @frequencies.nil?
+          fail if @frequencies.has_key? statement and @frequencies[statement] == freq
+          @frequencies[statement] = freq
     end
   end
-
 end
