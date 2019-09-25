@@ -148,7 +148,6 @@ module NoSE
         end
       end
 
-
       # Get the total cost of the query for the objective function
       # @return [MIPPeR::LinExpr]
       def total_query_cost(cost, query_var, sort_cost, sort_var, ts)
@@ -175,8 +174,6 @@ module NoSE
 
         result
       end
-
     end
-
   end
 end

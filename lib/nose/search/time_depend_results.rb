@@ -55,23 +55,10 @@ module NoSE
         @total_cost = query_cost + update_cost
       end
 
-      # Validate that the results of the search are consistent
-      # @return [void]
-      def validate
-        validate_indexes
-        validate_query_indexes @plans
-        validate_update_indexes
-
-        #planned_queries = plans.reduce(Set.new){|_, plan_one_timestep| plan_one_timestep.map(&:query).to_set}
+      def validate_query_set
         planned_queries = plans.flatten(1).map(&:query).to_set
         fail InvalidResultsException unless \
           (@workload.queries.to_set - planned_queries).empty?
-        validate_query_plans @plans
-
-        validate_update_plans
-        validate_objective
-
-        freeze
       end
 
       # Select the single query plan from a tree of plans
@@ -107,24 +94,24 @@ module NoSE
         end
       end
 
-      # Check that the objective function has the expected value
-      # @return [void]
-      def validate_objective
-        if @problem.objective_type == Objective::COST
-          query_cost = @plans.reduce 0 do |sum, plan|
-            sum + @workload.statement_weights[plan.query] * plan.cost
-          end
-          update_cost = @update_plans.reduce 0 do |sum, plan|
-            sum + @workload.statement_weights[plan.statement] * plan.cost
-          end
-          cost = query_cost + update_cost
-
-          fail InvalidResultsException unless (cost - @total_cost).abs < 0.001
-        elsif @problem.objective_type == Objective::SPACE
-          #size = @indexes.sum_by(&:size)
-          size = @indexes.map{|indexes_each_timestep| indexes_each_timestep.map(&:size).inject(&:+)}
-          fail InvalidResultsException unless size == @total_size # TODO: total_size は時刻ごとの配列にする必要があると思う
+      def validate_cost_objective
+        query_cost = @plans.reduce 0 do |_, plan_all_timestep|
+          plan_all_timestep.each_with_index.map do |plan_each_timestep, ts|
+            @workload.statement_weights[plan_each_timestep.query][ts] * plan_each_timestep.cost
+          end.inject(&:+)
         end
+        update_cost = @update_plans.reduce 0 do |sum, plan|
+          sum + @workload.statement_weights[plan.statement] * plan.cost
+        end
+        cost = query_cost + update_cost
+
+        fail InvalidResultsException unless (cost - @total_cost).abs < 0.001
+      end
+
+
+      def validate_space_objective
+        size = @indexes.map{|indexes_each_timestep| indexes_each_timestep.map(&:size).inject(&:+)}
+        fail InvalidResultsException unless size == @total_size # TODO: total_size は時刻ごとの配列にする必要があると思う
       end
 
       # Validate the query plans from the original workload

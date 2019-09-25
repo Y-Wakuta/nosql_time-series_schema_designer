@@ -8,18 +8,10 @@ module NoSE
       def self.apply(problem)
         problem.indexes.each do |index|
           problem.queries.each_with_index do |query, q|
-            if problem.is_a?(TimeDependProblem)
-              (0...problem.timesteps).each do |ts|
-                name = "q#{q}_#{index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
-                constr = MIPPeR::Constraint.new problem.query_vars[index][query][ts] +
-                                                  problem.index_vars[index][ts] * -1,
-                                                :<=, 0, name
-                problem.model << constr
-              end
-            else
-              name = "q#{q}_#{index.key}_avail" if ENV['NOSE_LOG'] == 'debug'
-              constr = MIPPeR::Constraint.new problem.query_vars[index][query] +
-                                                problem.index_vars[index] * -1,
+            (0...problem.timesteps).each do |ts|
+              name = "q#{q}_#{index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              constr = MIPPeR::Constraint.new problem.query_vars[index][query][ts] +
+                                                problem.index_vars[index][ts] * -1,
                                               :<=, 0, name
               problem.model << constr
             end
@@ -48,11 +40,11 @@ module NoSE
     end
 
     # Constraints that force each query to have an available plan
-    class TimeDependCompletePlanConstraints < Constraint
+    class TimeDependCompletePlanConstraints < CompletePlanConstraints
       # Add the discovered constraints to the problem
       def self.add_query_constraints(query, q, constraints, problem, timestep)
         constraints.each do |entities, constraint|
-          name = "q#{q}_#{entities.map(&:name).join '_'}" \
+          name = "q#{q}_#{entities.map(&:name).join '_'}_#{timestep}" \
               if ENV['NOSE_LOG'] == 'debug'
 
           # If this is a support query, then we might not need a plan
@@ -84,52 +76,16 @@ module NoSE
         end]] * problem.timesteps
 
         query_constraints_whole_time.each_with_index do |query_constraints, ts|
-          # Add the sentinel entities at the end and beginning
-          last = Entity.new '__LAST__'
-          query_constraints[[entities.last, last]] = MIPPeR::LinExpr.new
-          first = Entity.new '__FIRST__'
-          query_constraints[[entities.first, first]] = MIPPeR::LinExpr.new
+          first, last = setup_query_constraints(query_constraints, entities)
 
           problem.data[:costs][query].each do |index, (steps, _)|
-            # All indexes should advance a step if possible unless
-            # this is either the last step from IDs to entity
-            # data or the first step going from data to IDs
-            index_step = steps.first
-            fail if entities.length > 1 && index.graph.size == 1 && \
-                  !(steps.last.state.answered? ||
-              index_step.parent.is_a?(Plans::RootPlanStep))
-
-            # Join each step in the query graph
             index_var = problem.query_vars[index][query][ts]
-            index_entities = index.graph.entities.sort_by do |entity|
-              entities.index entity
-            end
-            index_entities.each_cons(2) do |entity, next_entity|
-              # Make sure the constraints go in the correct direction
-              if query_constraints.key?([entity, next_entity])
-                query_constraints[[entity, next_entity]] += index_var
-              else
-                query_constraints[[next_entity, entity]] += index_var
-              end
-            end
+            construct_query_constraints(index, index_var, steps, entities, query_constraints, first, last)
 
-            # If this query has been answered, add the jump to the last step
-            query_constraints[[entities.last, last]] += index_var \
-            if steps.last.state.answered?
-
-            # If this index is the first step, add this index to the beginning
-            query_constraints[[entities.first, first]] += index_var \
-            if index_step.parent.is_a?(Plans::RootPlanStep)
-
-            # Ensure the previous index is available
-            parent_index = index_step.parent.parent_index
+            parent_index = steps.first.parent.parent_index
             next if parent_index.nil?
-
             parent_var = problem.query_vars[parent_index][query][ts]
-            name = "q#{q}_#{index.key}_parent" if ENV['NOSE_LOG'] == 'debug'
-            constr = MIPPeR::Constraint.new index_var * 1.0 + parent_var * -1.0,
-                                            :<=, 0, name
-            problem.model << constr
+            ensure_parent_index_available(index, index_var, parent_var, problem, q)
           end
 
           # Ensure we have exactly one index on each component of the query graph
