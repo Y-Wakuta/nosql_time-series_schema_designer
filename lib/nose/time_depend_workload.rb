@@ -48,7 +48,6 @@ module NoSE
       # ensure that all query has the same # of timesteps
       fail if @statement_weights[mix].map{|_, weights| weights.size}.uniq.size > 1
     end
-
   end
 
 

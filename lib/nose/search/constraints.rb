@@ -53,31 +53,24 @@ module NoSE
 
     # Constraints that force each query to have an available plan
     class CompletePlanConstraints < Constraint
-      # Add the discovered constraints to the problem
-      def self.add_query_constraints(query, q, constraints, problem)
-        constraints.each do |entities, constraint|
-          name = "q#{q}_#{entities.map(&:name).join '_'}" \
-              if ENV['NOSE_LOG'] == 'debug'
 
-          # If this is a support query, then we might not need a plan
-          if query.is_a? SupportQuery
-            # Find the index associated with the support query and make
-            # the requirement of a plan conditional on this index
-            index_var = if problem.data[:by_id_graph]
-                          problem.index_vars[query.index.to_id_graph]
-                        else
-                          problem.index_vars[query.index]
-                        end
-            next if index_var.nil?
+      # Add the sentinel entities at the end and beginning
+      def self.setup_query_constraints(query_constraints, entities)
+        last = Entity.new '__LAST__'
+        query_constraints[[entities.last, last]] = MIPPeR::LinExpr.new
+        first = Entity.new '__FIRST__'
+        query_constraints[[entities.first, first]] = MIPPeR::LinExpr.new
+        [first, last]
+      end
 
-            constr = MIPPeR::Constraint.new constraint + index_var * -1.0,
-                                            :==, 0, name
-          else
-            constr = MIPPeR::Constraint.new constraint, :==, 1, name
-          end
-
-          problem.model << constr
-        end
+      # All indexes should advance a step if possible unless
+      # this is either the last step from IDs to entity
+      # data or the first step going from data to IDs
+      def self.validate_index_4_query(index, steps, entities)
+        index_step = steps.first
+        fail if entities.length > 1 && index.graph.size == 1 && \
+                  !(steps.last.state.answered? ||
+          index_step.parent.is_a?(Plans::RootPlanStep))
       end
 
       # Join each step in the query graph
@@ -106,26 +99,6 @@ module NoSE
             if index_step.parent.is_a?(Plans::RootPlanStep)
       end
 
-
-      # Add the sentinel entities at the end and beginning
-      def self.setup_query_constraints(query_constraints, entities)
-        last = Entity.new '__LAST__'
-        query_constraints[[entities.last, last]] = MIPPeR::LinExpr.new
-        first = Entity.new '__FIRST__'
-        query_constraints[[entities.first, first]] = MIPPeR::LinExpr.new
-        [first, last]
-      end
-
-      # All indexes should advance a step if possible unless
-      # this is either the last step from IDs to entity
-      # data or the first step going from data to IDs
-      def self.validate_index_4_query(index, steps, entities)
-        index_step = steps.first
-        fail if entities.length > 1 && index.graph.size == 1 && \
-                  !(steps.last.state.answered? ||
-          index_step.parent.is_a?(Plans::RootPlanStep))
-      end
-
       def self.construct_query_constraints(index, index_var, steps, entities, query_constraints, first, last)
         validate_index_4_query(index, steps, entities)
         join_each_step(index, index_var, entities, query_constraints)
@@ -140,6 +113,32 @@ module NoSE
         problem.model << constr
       end
 
+      # Add the discovered constraints to the problem
+      def self.add_query_constraints(query, q, constraints, problem)
+        constraints.each do |entities, constraint|
+          name = "q#{q}_#{entities.map(&:name).join '_'}" \
+              if ENV['NOSE_LOG'] == 'debug'
+
+          # If this is a support query, then we might not need a plan
+          if query.is_a? SupportQuery
+            # Find the index associated with the support query and make
+            # the requirement of a plan conditional on this index
+            index_var = if problem.data[:by_id_graph]
+                          problem.index_vars[query.index.to_id_graph]
+                        else
+                          problem.index_vars[query.index]
+                        end
+            next if index_var.nil?
+
+            constr = MIPPeR::Constraint.new constraint + index_var * -1.0,
+                                            :==, 0, name
+          else
+            constr = MIPPeR::Constraint.new constraint, :==, 1, name
+          end
+
+          problem.model << constr
+        end
+      end
 
       # Add complete query plan constraints
       def self.apply_query(query, q, problem)

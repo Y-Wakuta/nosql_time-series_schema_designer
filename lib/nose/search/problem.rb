@@ -4,7 +4,7 @@ require 'logging'
 
 require 'mipper'
 begin
-  require 'mipper/cbc'
+  require 'mipper/gurobi'
 rescue LoadError
   # We can't use most search functionality, but it won't explode
   nil
@@ -165,7 +165,7 @@ module NoSE
       # @return [void]
       def setup_model
         # Set up solver environment
-        @model = MIPPeR::CbcModel.new
+        @model = MIPPeR::GurobiModel.new
 
         add_variables
         prepare_sort_costs

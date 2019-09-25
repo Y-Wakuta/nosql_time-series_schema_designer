@@ -71,9 +71,11 @@ module NoSE
       # Add complete query plan constraints
       def self.apply_query(query, q, problem)
         entities = query.join_order
-        query_constraints_whole_time = [Hash[entities.each_cons(2).map do |e, next_e|
-          [[e, next_e], MIPPeR::LinExpr.new]
-        end]] * problem.timesteps
+        query_constraints_whole_time = (0...problem.timesteps).map do |_|
+          Hash[entities.each_cons(2).map do |e, next_e|
+            [[e, next_e], MIPPeR::LinExpr.new]
+          end]
+        end
 
         query_constraints_whole_time.each_with_index do |query_constraints, ts|
           first, last = setup_query_constraints(query_constraints, entities)
