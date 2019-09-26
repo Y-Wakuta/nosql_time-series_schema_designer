@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
 require_relative 'search/constraints'
+require_relative 'search/time_depend_constraints'
 require_relative 'search/problem'
+require_relative 'search/time_depend_problem'
 require_relative 'search/results'
+require_relative 'search/time_depend_results'
 
 require 'logging'
 require 'ostruct'
@@ -121,7 +124,9 @@ module NoSE
       # @return [Results]
       def solve_mipper(queries, indexes, data)
         # Construct and solve the ILP
-        problem = Problem.new queries, @workload.updates, data, @objective
+        problem = @workload.is_a?(TimeDependWorkload) ? TimeDependProblem.new(queries, @workload.updates, data, @objective, @workload.timesteps)
+                    : Problem.new(queries, @workload.updates, data, @objective)
+
         problem.solve
 
         # We won't get here if there's no valdi solution
@@ -202,6 +207,17 @@ module NoSE
         [query_costs, tree]
       end
 
+      def is_same_cost(cost1, cost2)
+        if cost1.is_a?(Array) and cost2.is_a?(Array)
+          cost1.each_with_index do |c1,i|
+            return false unless (cost2[i] - c1).abs < 0.001
+          end
+          return true
+        else
+          return (cost1 - cost2).abs < 0.001
+        end
+      end
+
       # Store the costs and indexes for this plan in a nested hash
       # @return [void]
       def populate_query_costs(query_costs, steps_by_index, weight,
@@ -216,17 +232,21 @@ module NoSE
           index_step = steps.first
 
           # Calculate the cost for just these steps in the plan
-          cost = steps.sum_by(&:cost) * weight
+          cost = weight.is_a?(Array) ? weight.map{|w| steps.sum_by(&:cost) * w}
+                                     : steps.sum_by(&:cost) * weight
 
           # Don't count the cost for sorting at the end
           sort_step = steps.find { |s| s.is_a? Plans::SortPlanStep }
-          cost -= sort_step.cost * weight unless sort_step.nil?
+          unless sort_step.nil?
+           weight.is_a?(Array) ? weight.map.with_index{|w, i| cost[i] -= sort_step.cost * w}
+                               : (cost -= sort_step.cost * weight)
+          end
 
           if query_costs.key? index_step.index
             current_cost = query_costs[index_step.index].last
 
             # We must always have the same cost
-            if (current_cost - cost).abs >= 10E-6
+            if not is_same_cost(current_cost, cost)
               index = index_step.index
               p query
               puts "Index #{index.key} does not have equivalent cost"

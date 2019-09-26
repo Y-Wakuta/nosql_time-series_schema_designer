@@ -79,15 +79,19 @@ module NoSE
         validate_query_indexes @plans
         validate_update_indexes
 
-        planned_queries = plans.map(&:query).to_set
-        fail InvalidResultsException unless \
-          (@workload.queries.to_set - planned_queries).empty?
+        validate_query_set
         validate_query_plans @plans
 
         validate_update_plans
         validate_objective
 
         freeze
+      end
+
+      def validate_query_set
+        planned_queries = plans.map(&:query).to_set
+        fail InvalidResultsException unless \
+          (@workload.queries.to_set - planned_queries).empty?
       end
 
       # Set the query plans which should be used based on the entire tree
@@ -141,22 +145,30 @@ module NoSE
         end
       end
 
+      def validate_cost_objective
+        query_cost = @plans.reduce 0 do |sum, plan|
+          sum + @workload.statement_weights[plan.query] * plan.cost
+        end
+        update_cost = @update_plans.reduce 0 do |sum, plan|
+          sum + @workload.statement_weights[plan.statement] * plan.cost
+        end
+        cost = query_cost + update_cost
+
+        fail InvalidResultsException unless (cost - @total_cost).abs < 0.001
+      end
+
+      def validate_space_objective
+        size = @indexes.sum_by(&:size)
+        fail InvalidResultsException unless (size - @total_size).abs < 0.001
+      end
+
       # Check that the objective function has the expected value
       # @return [void]
       def validate_objective
         if @problem.objective_type == Objective::COST
-          query_cost = @plans.reduce 0 do |sum, plan|
-            sum + @workload.statement_weights[plan.query] * plan.cost
-          end
-          update_cost = @update_plans.reduce 0 do |sum, plan|
-            sum + @workload.statement_weights[plan.statement] * plan.cost
-          end
-          cost = query_cost + update_cost
-
-          fail InvalidResultsException unless (cost - @total_cost).abs < 0.001
+          validate_cost_objective
         elsif @problem.objective_type == Objective::SPACE
-          size = @indexes.sum_by(&:size)
-          fail InvalidResultsException unless (size - @total_size).abs < 0.001
+          validate_space_objective
         end
       end
 
