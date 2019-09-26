@@ -16,23 +16,13 @@ module NoSE
       @model = model || Model.new
       @mix = :default
 
-      set_dummy_functions
-
       # Apply the DSL
       TimeDependWorkloadDSL.new(self).instance_eval(&block) if block_given?
     end
 
-    def set_dummy_functions
-      @dummy_functions = {
-        :increase => Proc.new{|seed| (1..@timesteps).map{|t| (0.1 * t + seed).round(2)}},
-        :decrease => Proc.new{|seed| (1..@timesteps).map{|t| (-0.1 * t + seed).round(2)}},
-        :static => Proc.new{|seed| (1..@timesteps).map{|_| seed}}
-      }
-    end
-
     # Add a new {Statement} to the workload or parse a string
     # @return [void]
-    def add_statement(statement, mixes = {}, frequencies, function_type, group: nil, label: nil)
+    def add_statement(statement, frequencies, mixes = {}, group: nil, label: nil)
       statement = Statement.parse(statement, @model,
                                   group: group, label: label) \
         if statement.is_a? String
@@ -42,7 +32,8 @@ module NoSE
       mixes = { default: 1.0 } if mixes.empty?
       mixes.each do |mix, weight|
         @statement_weights[mix] = {} unless @statement_weights.key? mix
-        @statement_weights[mix][statement] = frequencies.nil? ? @dummy_functions[function_type].call(weight) : frequencies
+        fail if frequencies.nil?
+        @statement_weights[mix][statement] = frequencies
       end
 
       # ensure that all query has the same # of timesteps
@@ -58,7 +49,7 @@ module NoSE
 
         return if weight.zero? && mixes.empty?
         mixes = { default: weight } if mixes.empty?
-        @workload.add_statement statement, mixes, frequencies, function_type, group: group, label: label
+        @workload.add_statement statement, frequencies, mixes, group: group, label: label
       end
 
       # Allow grouping statements with an associated weight

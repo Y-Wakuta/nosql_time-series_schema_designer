@@ -159,7 +159,7 @@ module NoSE
           next if parent_index.nil?
 
           parent_var = problem.query_vars[parent_index][query]
-          ensure_parent_index_available(index, index_var, query_constraints, parent_var, problem, q)
+          ensure_parent_index_available(index, index_var, parent_var, problem, q)
         end
 
         # Ensure we have exactly one index on each component of the query graph

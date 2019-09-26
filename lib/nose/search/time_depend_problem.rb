@@ -17,6 +17,8 @@ module NoSE
       attr_accessor :timesteps
 
       def initialize(queries, updates, data, objective = Objective::COST, timesteps)
+        fail if timesteps.nil?
+
         @timesteps = timesteps
         super(queries, updates, data, objective)
       end
@@ -168,7 +170,6 @@ module NoSE
         result.indexes = selected_indexes
 
         # TODO: Update for indexes grouped by ID path
-        #result.total_size = selected_indexes.reduce(Set.new){|_, t| t}.map(&:size).inject(&:+)
         result.total_size = selected_indexes.map{|sindex_each_timestep| sindex_each_timestep.map(&:size).inject(&:+)}
         result.total_cost = @objective_value
 
