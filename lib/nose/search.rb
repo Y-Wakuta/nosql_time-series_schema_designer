@@ -125,7 +125,7 @@ module NoSE
       def solve_mipper(queries, indexes, data)
         # Construct and solve the ILP
         problem = @workload.is_a?(TimeDependWorkload) ? TimeDependProblem.new(queries, @workload.updates, data, @objective, @workload.timesteps)
-                                                      : Problem.new(queries, @workload.updates, data, @objective)
+                    : Problem.new(queries, @workload.updates, data, @objective)
 
         problem.solve
 
@@ -232,7 +232,8 @@ module NoSE
           index_step = steps.first
 
           # Calculate the cost for just these steps in the plan
-          cost = weight.is_a?(Array) ? weight.map{|w| steps.sum_by(&:cost) * w} : steps.sum_by(&:cost) * weight
+          cost = weight.is_a?(Array) ? weight.map{|w| steps.sum_by(&:cost) * w}
+                                     : steps.sum_by(&:cost) * weight
 
           # Don't count the cost for sorting at the end
           sort_step = steps.find { |s| s.is_a? Plans::SortPlanStep }
@@ -245,7 +246,6 @@ module NoSE
             current_cost = query_costs[index_step.index].last
 
             # We must always have the same cost
-           # if (current_cost - cost).abs >= 10E-6
             if not is_same_cost(current_cost, cost)
               index = index_step.index
               p query
