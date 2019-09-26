@@ -136,6 +136,40 @@ module NoSE
         @index_vars.each_value { |vars| vars.each_value {|var| @model << var }}
       end
 
+      # Prepare variables and constraints to account for the cost of sorting
+      # @return [void]
+      def prepare_sort_costs
+        @sort_costs = {}
+        @sort_vars = {}
+        @data[:costs].each do |query, index_costs|
+          @sort_costs[query] = {}
+          @sort_vars[query] = {}
+
+          index_costs.each do |index, (steps, _)|
+            sort_step = steps.find { |s| s.is_a?(Plans::SortPlanStep) }
+            next if sort_step.nil?
+
+            (0...@timesteps).each do |ts|
+              @sort_costs[query][index] = {} if @sort_costs[query][index].nil?
+              @sort_vars[query][index] = {} if @sort_vars[query][index].nil?
+              @sort_costs[query][index][ts] ||= sort_step.cost
+              q = @queries.index query
+
+              name = "s#{q}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              sort_var = MIPPeR::Variable.new 0, 1, 0, :binary, name
+              @sort_vars[query][index][ts] ||= sort_var
+              @model << sort_var
+
+              name = "q#{q}_#{index.key}_sort_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              constr = MIPPeR::Constraint.new @sort_vars[query][index][ts] * 1.0 +
+                                                @query_vars[index][query][ts] * -1.0,
+                                              :>=, 0, name
+              @model << constr
+            end
+          end
+        end
+      end
+
       # Add all necessary constraints to the model
       # @return [void]
       def add_constraints
@@ -157,7 +191,7 @@ module NoSE
         query_cost = cost.last[ts] * 1.0
 
         cost_expr = query_var[ts] * query_cost
-        cost_expr += sort_var * sort_cost unless sort_cost.nil?
+        cost_expr += sort_var[ts] * sort_cost[ts] unless sort_cost.nil?
 
         cost_expr
       end

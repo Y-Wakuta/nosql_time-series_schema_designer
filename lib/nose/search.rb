@@ -236,7 +236,10 @@ module NoSE
 
           # Don't count the cost for sorting at the end
           sort_step = steps.find { |s| s.is_a? Plans::SortPlanStep }
-          cost -= sort_step.cost * weight unless sort_step.nil?
+          unless sort_step.nil?
+           weight.is_a?(Array) ? weight.map.with_index{|w, i| cost[i] -= sort_step.cost * w}
+                               : (cost -= sort_step.cost * weight)
+          end
 
           if query_costs.key? index_step.index
             current_cost = query_costs[index_step.index].last
