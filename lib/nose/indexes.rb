@@ -112,7 +112,6 @@ module NoSE
     end
 
     def creation_cost(creation_cost)
-      # TODO: give creation_cost value from config file or command line
       creation_cost * @size
     end
 
