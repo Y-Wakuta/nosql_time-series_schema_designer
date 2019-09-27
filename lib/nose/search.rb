@@ -33,7 +33,7 @@ module NoSE
       # Search for optimal indices using an ILP which searches for
       # non-overlapping indices
       # @return [Results]
-      def search_overlap(indexes, max_space = Float::INFINITY)
+      def search_overlap(indexes, max_space = Float::INFINITY, creation_cost = 0)
         return if indexes.empty?
 
         # Get the costs of all queries and updates
@@ -48,7 +48,8 @@ module NoSE
           costs: costs,
           update_costs: update_costs,
           cost_model: @cost_model,
-          by_id_graph: @by_id_graph
+          by_id_graph: @by_id_graph,
+          creation_cost: creation_cost
         }
         search_result query_weights, indexes, solver_params, trees,
                       update_plans
@@ -125,7 +126,7 @@ module NoSE
       def solve_mipper(queries, indexes, data)
         # Construct and solve the ILP
         problem = @workload.is_a?(TimeDependWorkload) ? TimeDependProblem.new(queries, @workload.updates, data, @objective, @workload.timesteps)
-                    : Problem.new(queries, @workload.updates, data, @objective)
+                                                      : Problem.new(queries, @workload.updates, data, @objective)
 
         problem.solve
 

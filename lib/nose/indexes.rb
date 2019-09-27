@@ -111,6 +111,11 @@ module NoSE
       @all_fields.include? field
     end
 
+    def creation_cost(creation_cost)
+      # TODO: give creation_cost value from config file or command line
+      creation_cost * @size
+    end
+
     private
 
     # Initialize the hash function and freeze ourselves
@@ -177,11 +182,6 @@ module NoSE
 
       @entry_size = @all_fields.sum_by(&:size)
       @size = @entries * @entry_size
-    end
-
-    def creation_cost
-      creation_cost = 0.05 # TODO: give creation_cost value from config file or command line
-      creation_cost * calculate_size
     end
   end
 

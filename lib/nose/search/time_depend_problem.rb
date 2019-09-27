@@ -14,12 +14,13 @@ module NoSE
   module Search
     # A representation of a search problem as an ILP
     class TimeDependProblem < Problem
-      attr_accessor :timesteps
+      attr_accessor :timesteps, :migrate_vars
 
       def initialize(queries, updates, data, objective = Objective::COST, timesteps)
         fail if timesteps.nil?
 
         @timesteps = timesteps
+        @creation_cost = data[:creation_cost]
         super(queries, updates, data, objective)
       end
 
@@ -40,7 +41,17 @@ module NoSE
         end
 
         cost = add_update_costs cost
+        cost = add_migration_cost cost
         cost
+      end
+
+      def add_migration_cost(schema_cost)
+        @indexes.each do |index|
+          (1...@timesteps).each do |ts|
+            schema_cost.add @migrate_vars[index][ts] * index.creation_cost(@creation_cost)
+          end
+        end
+        schema_cost
       end
 
       # The total number of indexes
@@ -134,6 +145,22 @@ module NoSE
         end
 
         @index_vars.each_value { |vars| vars.each_value {|var| @model << var }}
+
+        add_migration_variables
+      end
+
+      def add_migration_variables
+        @migrate_vars = {}
+        @indexes.each do |index|
+          @migrate_vars[index] = {} if @migrate_vars[index].nil?
+          # we do not need migrate_vars for timestep 0
+          (1...@timesteps).each do |ts|
+            name = "s#{index.key}_#{ts - 1}_to_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+            var = MIPPeR::Variable.new 0, 1, 0, :binary, name
+            @model << var
+            @migrate_vars[index][ts] = var
+          end
+        end
       end
 
       # Prepare variables and constraints to account for the cost of sorting
@@ -176,7 +203,8 @@ module NoSE
         [
           TimeDependIndexPresenceConstraints,
           TimeDependSpaceConstraint,
-          TimeDependCompletePlanConstraints
+          TimeDependCompletePlanConstraints,
+          TimeDependMigrationConstraints
         ].each { |constraint| constraint.apply self }
 
         @logger.debug do
