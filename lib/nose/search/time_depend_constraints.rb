@@ -20,6 +20,20 @@ module NoSE
       end
     end
 
+    class TimeDependMigrationConstraints < Constraint
+      def self.apply(problem)
+        problem.indexes.each do |index|
+          (1...problem.timesteps).each do |ts|
+            constr = MIPPeR::Constraint.new(problem.migrate_vars[index][ts] * 1.0 +
+                                              problem.index_vars[index][ts] * -1.0 +
+                                              problem.index_vars[index][ts - 1] * 1.0,
+                                            :>=, 0, name)
+            problem.model << constr
+          end
+        end
+      end
+    end
+
     # The single constraint used to enforce a maximum storage cost
     class TimeDependSpaceConstraint < Constraint
       # Add space constraint if needed
