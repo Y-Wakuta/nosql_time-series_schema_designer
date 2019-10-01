@@ -45,6 +45,23 @@ module NoSE
         cost
       end
 
+      # Deal with updates which do not require support queries
+      # @return [MIPPeR::LinExpr]
+      def add_update_costs(min_cost)
+        @updates.each do |update|
+          @indexes.each do |index|
+            index = index.to_id_graph if data[:by_id_graph]
+            next unless update.modifies_index?(index)
+
+            (0...@timesteps).each do |ts|
+              min_cost.add @index_vars[index][ts] *
+                             @data[:update_costs][update][index][ts]
+            end
+          end
+        end
+        min_cost
+      end
+
       def add_migration_cost(schema_cost)
         @indexes.each do |index|
           (1...@timesteps).each do |ts|
@@ -81,7 +98,7 @@ module NoSE
 
 
       # Get the size of all indexes in the workload
-      # @return [MIPPeR::LinExpr]
+      # @return [Array]
       def total_size_each_timestep
         # TODO: Update for indexes grouped by ID path
         (0...@timesteps).map do |ts|

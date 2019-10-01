@@ -120,6 +120,17 @@ module NoSE
         plan
       end
 
+      def set_update_plans(update_plans)
+        # Select the relevant update plans
+        update_plans = update_plans.values.flatten(1).select do |plan|
+          @indexes.include? plan.index
+        end
+        update_plans.each do |plan|
+          plan.select_query_plans(&self.method(:select_plan))
+        end
+        @update_plans = update_plans
+      end
+
       private
 
       # Check that the indexes selected were actually enumerated
@@ -178,7 +189,7 @@ module NoSE
         plans.each do |plan|
           plan.each do |step|
             valid_plan = !step.is_a?(Plans::IndexLookupPlanStep) ||
-                         @indexes.include?(step.index)
+              @indexes.include?(step.index)
             fail InvalidResultsException unless valid_plan
           end
         end

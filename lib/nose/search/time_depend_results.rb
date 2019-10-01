@@ -55,6 +55,7 @@ module NoSE
         @total_cost = query_cost + update_cost
       end
 
+      # @return [void]
       def validate_query_set
         planned_queries = plans.flatten(1).map(&:query).to_set
         fail InvalidResultsException unless \
@@ -64,6 +65,7 @@ module NoSE
       # Select the single query plan from a tree of plans
       # @return [Plans::QueryPlan]
       # @raise [InvalidResultsException]
+      # TODO: change this to only one timestep is one choice
       def select_plan(tree)
         query = tree.query
         plan_all_times = (0...@problem.timesteps).map do |ts|
@@ -75,6 +77,24 @@ module NoSE
 
         fail InvalidResultsException if plan_all_times.any?{|plan| plan.nil?}
         plan_all_times
+      end
+
+      # Select the relevant update plans
+      # @return [void]
+      def set_update_plans(update_plans)
+        update_plans = (0...@timesteps).map do |ts|
+          update_plans.values.flatten(1).select do |plan|
+            @indexes[ts].include? plan.index
+          end.map{|plan| plan.dup}
+        end
+        update_plans.each do |plans_each_timestep|
+          plans_each_timestep.each do |plan|
+            plan.select_query_plans(&self.method(:select_plan))
+          end
+        end
+
+        # TODO: update_plans here need to be an array of timesteps
+        @update_plans = update_plans
       end
 
       private
@@ -94,6 +114,19 @@ module NoSE
         end
       end
 
+      # Ensure we only have necessary update plans which use available indexes
+      # @return [void]
+      def validate_update_indexes
+        @update_plans.each_with_index do |plans_each_time, ts|
+          plans_each_time.each do |plan|
+            validate_query_indexes plan.query_plans
+            valid_plan = @indexes[ts].include?(plan.index)
+            fail InvalidResultsException unless valid_plan
+          end
+        end
+      end
+
+      # @return [void]
       def validate_cost_objective
         query_cost = @plans.reduce 0 do |_, plan_all_timestep|
           plan_all_timestep.each_with_index.map do |plan_each_timestep, ts|
@@ -108,7 +141,7 @@ module NoSE
         fail InvalidResultsException unless (cost - @total_cost).abs < 0.001
       end
 
-
+      # @return [void]
       def validate_space_objective
         size = @indexes.map{|indexes_each_timestep| indexes_each_timestep.map(&:size).inject(&:+)}
         fail InvalidResultsException unless size == @total_size # TODO: total_size は時刻ごとの配列にする必要があると思う
@@ -122,6 +155,18 @@ module NoSE
           plan.each_with_index do |plan_one_step, ts|
             fail InvalidResultsException unless \
             plan_one_step.indexes.to_set == @query_indexes[plan_one_step.query][ts]
+          end
+        end
+      end
+
+      # Validate the support query plans for each update
+      # @return [void]
+      def validate_update_plans
+        @update_plans.each do |plans_each_time|
+          plans_each_time.each do |plan|
+            plan.instance_variable_set :@workload, @workload
+
+            validate_query_plans plan.query_plans
           end
         end
       end

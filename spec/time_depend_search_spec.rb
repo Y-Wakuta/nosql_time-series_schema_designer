@@ -68,6 +68,18 @@ module NoSE
         expect(increase_steps.first.steps.size).to eq increase_steps.last.steps.size
         expect(decrease_steps.first.steps.size).to eq decrease_steps.last.steps.size
       end
+
+      it 'Be able to treat with update' do
+        update = 'UPDATE users SET rating=? WHERE users.id=? -- 8'
+        td_workload.add_statement update, [9, 0.5, 0.01]
+        indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
+        result = Search.new(td_workload, cost_model).search_overlap indexes
+
+        update_steps = result.update_plans.select{|plan_all| plan_all.first.statement.text == update}.flatten(1)
+
+        expect(update_steps.size).to eq timesteps
+        expect(update_steps.first.update_steps.size).to eq update_steps.last.update_steps.size
+      end
     end
   end
 end

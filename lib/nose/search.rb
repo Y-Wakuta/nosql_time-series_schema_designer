@@ -78,8 +78,8 @@ module NoSE
           "Costs: \n" + pp_s(costs) + "\n" \
             "Search with queries:\n" + \
             query_weights.each_key.map.with_index do |query, i|
-              "#{i} #{query.inspect}"
-            end.join("\n")
+            "#{i} #{query.inspect}"
+          end.join("\n")
         end
       end
 
@@ -94,14 +94,7 @@ module NoSE
         result.plans_from_trees trees
         result.cost_model = @cost_model
 
-        # Select the relevant update plans
-        update_plans = update_plans.values.flatten(1).select do |plan|
-          result.indexes.include? plan.index
-        end
-        update_plans.each do |plan|
-          plan.select_query_plans(&result.method(:select_plan))
-        end
-        result.update_plans = update_plans
+        result.set_update_plans update_plans
 
         result.validate
 
@@ -126,7 +119,7 @@ module NoSE
       def solve_mipper(queries, indexes, data)
         # Construct and solve the ILP
         problem = @workload.is_a?(TimeDependWorkload) ? TimeDependProblem.new(queries, @workload.updates, data, @objective, @workload.timesteps)
-                                                      : Problem.new(queries, @workload.updates, data, @objective)
+                    : Problem.new(queries, @workload.updates, data, @objective)
 
         problem.solve
 
@@ -167,8 +160,9 @@ module NoSE
       def populate_update_costs(planner, statement, indexes,
                                 update_costs, update_plans)
         planner.find_plans_for_update(statement, indexes).each do |plan|
-          weight = @workload.statement_weights[statement]
-          update_costs[statement][plan.index] = plan.update_cost * weight
+          weights = @workload.statement_weights[statement]
+          update_costs[statement][plan.index] = weights.is_a?(Array) ? weights.map{|w| plan.update_cost * w}
+                                                  : weights
           update_plans[statement] << plan
         end
       end
@@ -234,13 +228,13 @@ module NoSE
 
           # Calculate the cost for just these steps in the plan
           cost = weight.is_a?(Array) ? weight.map{|w| steps.sum_by(&:cost) * w}
-                                     : steps.sum_by(&:cost) * weight
+                   : steps.sum_by(&:cost) * weight
 
           # Don't count the cost for sorting at the end
           sort_step = steps.find { |s| s.is_a? Plans::SortPlanStep }
           unless sort_step.nil?
-           weight.is_a?(Array) ? weight.map.with_index{|w, i| cost[i] -= sort_step.cost * w}
-                               : (cost -= sort_step.cost * weight)
+            weight.is_a?(Array) ? weight.map.with_index{|w, i| cost[i] -= sort_step.cost * w}
+              : (cost -= sort_step.cost * weight)
           end
 
           if query_costs.key? index_step.index

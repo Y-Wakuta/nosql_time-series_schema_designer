@@ -38,7 +38,7 @@ module NoSE
         # Update with fields specified in the settings and conditions
         # (rewrite from foreign keys to IDs if needed)
         @update_fields = if statement.is_a?(Connection) ||
-                            statement.is_a?(Delete)
+          statement.is_a?(Delete)
                            []
                          else
                            statement.settings.map(&:field)
@@ -153,7 +153,7 @@ module NoSE
       # The cost is the sum of all the query costs plus the update costs
       # @return [Fixnum]
       def cost
-        @query_plans.sum_by(&:cost) + update_cost
+        @query_plans.flatten(1).sum_by(&:cost) + update_cost
       end
 
       private
@@ -161,10 +161,22 @@ module NoSE
       # Add fields from support queries to those which should be updated
       # @return [void]
       def update_support_fields
+        return if @query_plans.size == 0
+
         # Add fields fetched from support queries
-        @update_fields += @query_plans.flat_map do |query_plan|
-          query_plan.query.select.to_a
-        end.compact
+        if @query_plans[0].is_a?(Array) # time-depend workload
+          fields = @query_plans.flat_map do |query_plan_all_time|
+            query_plan_all_time.map do |query_plan|
+              query_plan.query.select.to_a
+            end
+          end.flatten(1).compact
+        else
+          fields = @query_plans.flat_map do |query_plan|
+            query_plan.query.select.to_a
+          end.compact
+        end
+
+        @update_fields += fields
       end
 
       # Ensure we only use primary keys for conditions
@@ -216,7 +228,7 @@ module NoSE
           next unless statement.modifies_index?(index)
 
           if (@query_plans[statement] &&
-              @query_plans[statement][index]).nil?
+            @query_plans[statement][index]).nil?
             trees = []
 
             if statement.is_a? Insert

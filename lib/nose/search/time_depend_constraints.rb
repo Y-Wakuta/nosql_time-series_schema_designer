@@ -68,7 +68,7 @@ module NoSE
             index_var = if problem.data[:by_id_graph]
                           problem.index_vars[query.index.to_id_graph][timestep]
                         else
-                          problem.index_vars[query.index][timestep]
+                          problem.index_vars[query.index]&.fetch(timestep)
                         end
             next if index_var.nil?
 
