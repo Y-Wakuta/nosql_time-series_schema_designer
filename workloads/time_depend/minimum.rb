@@ -13,15 +13,16 @@ NoSE::TimeDependWorkload.new do
         bidding: 2.48,
         write_medium: 2.48,
         write_heavy: 2.48 do
-    Q 'SELECT users.* FROM users WHERE users.id = ? -- 8', [0.1, 5, 0.9]
-    Q 'SELECT users.* FROM users WHERE users.rating =? -- 12', [0.1, 5, 9]
+    Q 'SELECT users.* FROM users WHERE users.id = ? -- 8', [0.1, 5, 0.1]
+    Q 'SELECT users.* FROM users WHERE users.rating = ? -- 8', [0.1, 5, 0.1]
+    Q 'UPDATE users SET rating=?, firstname=? WHERE users.id=? -- 22', [0.1, 0.2, 0.4]
   end
 
-  Group 'ItemsInfo', 1.0, browsing: 8.82,
-        bidding: 5.96,
-        write_medium: 4.96,
-        write_heavy: 4.96 do
-    Q 'SELECT items.* FROM items WHERE items.id=? -- 13', [9, 5, 0.1]
-    Q 'SELECT items.* FROM items WHERE items.quantity=? -- 13 LIMIT 1', [9, 5, 0.1]
-  end
+  #Group 'ItemsInfo', 1.0, browsing: 8.82,
+  #      bidding: 5.96,
+  #      write_medium: 4.96,
+  #      write_heavy: 4.96 do
+  #  Q 'SELECT items.* FROM items WHERE items.id=? -- 13', [9, 5, 0.1]
+  #  Q 'SELECT items.* FROM items WHERE items.quantity=? -- 13 LIMIT 1', [9, 5, 0.1]
+  #end
 end

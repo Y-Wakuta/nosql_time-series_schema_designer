@@ -32,7 +32,7 @@ module NoSE
       mixes = { default: 1.0 } if mixes.empty?
       mixes.each do |mix, weight|
         @statement_weights[mix] = {} unless @statement_weights.key? mix
-        fail if frequencies.nil?
+        fail "Frequency is required for #{statement.text}" if frequencies.nil?
         @statement_weights[mix][statement] = frequencies
       end
 
