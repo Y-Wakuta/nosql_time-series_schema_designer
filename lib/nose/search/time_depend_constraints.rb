@@ -20,15 +20,35 @@ module NoSE
       end
     end
 
-    class TimeDependMigrationConstraints < Constraint
+    class TimeDependCreationConstraints < Constraint
       def self.apply(problem)
         problem.indexes.each do |index|
           (1...problem.timesteps).each do |ts|
             constr = MIPPeR::Constraint.new(problem.migrate_vars[index][ts] * 1.0 +
                                               problem.index_vars[index][ts] * -1.0 +
                                               problem.index_vars[index][ts - 1] * 1.0,
-                                            :>=, 0, name)
+                                            :>=, 0)
             problem.model << constr
+          end
+        end
+      end
+    end
+
+    class TimeDependPrepareConstraints < Constraint
+      def self.apply(problem)
+        l = problem.index_vars.size.to_f
+        problem.trees.each do |tree|
+          tree.each do |plan|
+            (1...problem.timesteps).each do |ts|
+              prepare_var = problem.prepare_vars[tree.query].find{|key, _| key == plan}.last[ts]
+
+              lookup_steps = plan.select{|step| step.is_a? Plans::IndexLookupPlanStep}
+              current_plan = lookup_steps.reduce(MIPPeR::LinExpr) {|_, step| problem.index_vars[step.index][ts] * 1.0}
+              former_plan = lookup_steps.reduce(MIPPeR::LinExpr){|_, step| problem.index_vars[step.index][ts - 1] * -1.0}
+
+              constr = MIPPeR::Constraint.new(prepare_var * l + current_plan + former_plan, :>=, 0, name)
+              problem.model << constr
+            end
           end
         end
       end

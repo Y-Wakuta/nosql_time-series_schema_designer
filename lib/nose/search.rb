@@ -49,6 +49,7 @@ module NoSE
           update_costs: update_costs,
           cost_model: @cost_model,
           by_id_graph: @by_id_graph,
+          trees: trees,
           creation_cost: creation_cost
         }
         search_result query_weights, indexes, solver_params, trees,
