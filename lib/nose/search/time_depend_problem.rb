@@ -14,13 +14,14 @@ module NoSE
   module Search
     # A representation of a search problem as an ILP
     class TimeDependProblem < Problem
-      attr_accessor :timesteps, :migrate_vars
+      attr_reader :timesteps, :migrate_vars, :prepare_vars, :trees
 
       def initialize(queries, updates, data, objective = Objective::COST, timesteps)
         fail if timesteps.nil?
 
         @timesteps = timesteps
         @creation_cost = data[:creation_cost]
+        @trees = data[:trees]
         super(queries, updates, data, objective)
       end
 
@@ -41,7 +42,9 @@ module NoSE
         end
 
         cost = add_update_costs cost
-        cost = add_migration_cost cost
+
+        cost = add_creation_cost cost
+        cost = add_prepare_cost cost
         cost
       end
 
@@ -62,10 +65,26 @@ module NoSE
         min_cost
       end
 
-      def add_migration_cost(schema_cost)
+      # add creation cost for new column family
+      # @return [Array]
+      def add_creation_cost(schema_cost)
         @indexes.each do |index|
           (1...@timesteps).each do |ts|
             schema_cost.add @migrate_vars[index][ts] * index.creation_cost(@creation_cost)
+          end
+        end
+        schema_cost
+      end
+
+      # add preparing cost for records of the new column family
+      # @return [Array]
+      def add_prepare_cost(schema_cost)
+        @trees.each do |tree|
+          tree.each do |plan|
+            query_num = plan.steps.first.eq_filter.reduce(1){|_, field| field.parent.count}
+            (1...@timesteps).each do |ts|
+              schema_cost.add @prepare_vars[tree.query].find{|key, _| key == plan}.last[ts] * (plan.cost * query_num)
+            end
           end
         end
         schema_cost
@@ -163,10 +182,13 @@ module NoSE
 
         @index_vars.each_value { |vars| vars.each_value {|var| @model << var }}
 
-        add_migration_variables
+        add_cf_creation_variables
+        add_cf_prepare_variables
       end
 
-      def add_migration_variables
+      # add variable for whether to create CF at the timestep
+      # @return [void]
+      def add_cf_creation_variables
         @migrate_vars = {}
         @indexes.each do |index|
           @migrate_vars[index] = {} if @migrate_vars[index].nil?
@@ -176,6 +198,24 @@ module NoSE
             var = MIPPeR::Variable.new 0, 1, 0, :binary, name
             @model << var
             @migrate_vars[index][ts] = var
+          end
+        end
+      end
+
+      # add variable for whether to prepare data for the CF at the timestep
+      # @return [void]
+      def add_cf_prepare_variables
+        @prepare_vars = {}
+        @trees.each do |tree|
+          @prepare_vars[tree.query] = {} if @prepare_vars[tree.query].nil?
+          tree.each do |plan|
+            @prepare_vars[tree.query][plan] = {} if @prepare_vars[tree.query][plan].nil?
+            (1..@timesteps).each do |ts|
+              name = "p#{plan.inspect}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              var = MIPPeR::Variable.new 0, 1, 0, :binary, name
+              @model << var
+              @prepare_vars[tree.query][plan][ts] = var
+            end
           end
         end
       end
@@ -221,7 +261,8 @@ module NoSE
           TimeDependIndexPresenceConstraints,
           TimeDependSpaceConstraint,
           TimeDependCompletePlanConstraints,
-          TimeDependMigrationConstraints
+          TimeDependCreationConstraints,
+          TimeDependPrepareConstraints
         ].each { |constraint| constraint.apply self }
 
         @logger.debug do
