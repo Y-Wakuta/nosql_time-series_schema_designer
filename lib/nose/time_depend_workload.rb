@@ -9,12 +9,13 @@ module NoSE
   # A representation of a query workload over a given set of entities
   class TimeDependWorkload < Workload
 
-    attr_accessor :timesteps
+    attr_accessor :timesteps, :interval
 
     def initialize(model = nil, &block)
       @statement_weights = { default: {} }
       @model = model || Model.new
       @mix = :default
+      @interval = 3600 # set seconds in an hour as default
 
       # Apply the DSL
       TimeDependWorkloadDSL.new(self).instance_eval(&block) if block_given?
@@ -33,7 +34,7 @@ module NoSE
       mixes.each do |mix, weight|
         @statement_weights[mix] = {} unless @statement_weights.key? mix
         fail "Frequency is required for #{statement.text}" if frequencies.nil?
-        @statement_weights[mix][statement] = frequencies
+        @statement_weights[mix][statement] = frequencies.map{|f| f * @interval}
       end
 
       # ensure that all query has the same # of timesteps
@@ -69,8 +70,11 @@ module NoSE
       def TimeSteps(timestep)
         @workload.timesteps = timestep
       end
-    end
 
+      def Interval(seconds)
+        @workload.interval = seconds
+      end
+    end
 
   class TimeDependGroupDSL < GroupDSL
     attr_reader :frequencies
