@@ -4,13 +4,14 @@ module NoSE
   module Search
     # A container for results from a schema search
     class TimeDependResults < Results
-      attr_accessor :timesteps
+      attr_accessor :timesteps, :migrate_plans
 
       def initialize(problem = nil, by_id_graph = false)
         @problem = problem
         @timesteps = problem.timesteps
         return if problem.nil?
         @by_id_graph = by_id_graph
+        @migrate_plans = []
 
         # Find the indexes the ILP says the query should use
         @query_indexes = Hash.new
@@ -65,7 +66,6 @@ module NoSE
       # Select the single query plan from a tree of plans
       # @return [Plans::QueryPlan]
       # @raise [InvalidResultsException]
-      # TODO: change this to only one timestep is one choice
       def select_plan(tree)
         query = tree.query
         plan_all_times = (0...@problem.timesteps).map do |ts|
@@ -76,6 +76,9 @@ module NoSE
         plan_all_times.each {|plan| plan.instance_variable_set :@workload, @workload}
 
         fail InvalidResultsException if plan_all_times.any?{|plan| plan.nil?}
+
+        set_migrate_plan(plan_all_times)
+
         plan_all_times
       end
 
@@ -95,6 +98,28 @@ module NoSE
 
         # TODO: update_plans here need to be an array of timesteps
         @update_plans = update_plans
+      end
+
+      # get the query plans for all timesteps for the query as parameter
+      # @param [Array]
+      # @return [void]
+      def set_migrate_plan(plans)
+        query = plans.first.query
+        plans.each_cons(2).to_a.each_with_index do |(form, nex), ind|
+          next if form == nex
+          @migrate_plans << MigratePlan.new(query, ind, ind + 1, form, nex)
+        end
+      end
+
+      class MigratePlan
+        attr_reader :query, :start_time, :end_time, :obsolete_plan, :new_plan
+        def initialize(query, start_time, end_time, obsolete_plan, new_plan)
+          @query = query
+          @start_time = start_time
+          @end_time = end_time
+          @obsolete_plan = obsolete_plan
+          @new_plan = new_plan
+        end
       end
 
       private

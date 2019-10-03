@@ -80,6 +80,17 @@ module NoSE
         expect(update_steps.size).to eq timesteps
         expect(update_steps.first.update_steps.size).to eq update_steps.last.update_steps.size
       end
+
+      it 'migrate plan is set when there is migration' do
+        query_increase = 'SELECT users.* FROM users WHERE users.rating=? -- 1'
+        query_decrease = 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
+        td_workload.add_statement query_increase, [0.01, 0.5, 9]
+        td_workload.add_statement query_decrease, [9, 0.5, 0.01]
+        indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
+        result = Search.new(td_workload, cost_model).search_overlap indexes, 9800000
+
+        expect(result.migrate_plans.size).to eq 2
+      end
     end
   end
 end
