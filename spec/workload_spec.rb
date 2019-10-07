@@ -104,21 +104,24 @@ module NoSE
   end
 
   describe TimeDependWorkload do
-    let(:time_steps)       { 5 }
+    let(:time_steps)       { 3 }
     let(:query) {'SELECT Foo.Bar FROM Foo WHERE Foo.Id = ?'}
     let(:freq_array){[1.2,1.3,1.4]}
     let(:td_workload) {
       q = query
       fa = freq_array
+      ts = time_steps
       TimeDependWorkload.new do
+        TimeSteps ts
+        DefaultMix :default
 
         Entity 'Foo' do
           ID 'Id'
           String 'Bar'
         end
 
-        Group 'Test1', 0.5, :increase do
-          Q q, fa
+        Group 'Test1', 0.5, default: fa do
+          Q q
         end
       end
     }

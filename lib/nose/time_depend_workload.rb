@@ -23,24 +23,25 @@ module NoSE
 
     # Add a new {Statement} to the workload or parse a string
     # @return [void]
-    def add_statement(statement, mixes = {}, group: nil, label: nil)
+    def add_statement(statement, mixes = {}, group: nil, label: nil, frequency: nil)
       statement = Statement.parse(statement, @model,
                                   group: group, label: label) \
         if statement.is_a? String
       statement.freeze
 
       mixes = { default: mixes } if mixes.is_a? Numeric
-      mixes = { default: 1.0 } if mixes.empty?
+      mixes = { default: [1.0] * @timesteps } if mixes.empty?
       mixes.each do |mix, weight|
         @statement_weights[mix] = {} unless @statement_weights.key? mix
-        fail "Frequency is required for #{statement.text}" if weight.nil?
-        fail "number of Frequency should be same as timesteps for #{statement.text}" unless weight.size == timesteps
-        fail "Frequency cannot become 0 for #{statement.text}" if weight.any?{|w| w == 0}
-        @statement_weights[mix][statement] = weight.map{|f| f * @interval}
+        fail "Frequency is required for #{statement.text}" if weight.nil? and frequency.nil?
+        fail "number of Frequency should be same as timesteps for #{statement.text}" \
+          unless weight.size == @timesteps or frequency&.size == @timestep
+        fail "Frequency cannot become 0 for #{statement.text}" if weight.include?(0) or frequency&.include?(0)
+        # ensure that all query has the same # of timesteps
+        fail if @statement_weights[mix].map{|_, weights| weights.size}.uniq.size > 1
+        @statement_weights[mix][statement] = frequency.nil? ? weight.map{|f| f * @interval} : frequency.map{|f| f * @interval}
       end
 
-      # ensure that all query has the same # of timesteps
-      fail if @statement_weights[mix].map{|_, weights| weights.size}.uniq.size > 1
     end
   end
 

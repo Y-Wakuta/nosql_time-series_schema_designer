@@ -105,9 +105,9 @@ module NoSE
       # @param [Array]
       # @return [void]
       def set_migrate_plan(plans)
-        query = plans.first.query
+        query = plans.compact.first.query
         plans.each_cons(2).to_a.each_with_index do |(form, nex), ind|
-          next if form == nex
+          next if form == nex or form.nil? or nex.nil?
           @migrate_plans << MigratePlan.new(query, ind, ind + 1, form, nex)
         end
       end

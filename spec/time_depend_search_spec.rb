@@ -25,9 +25,9 @@ module NoSE
             Integer    'quantity', count: 100
           end) * 20_000
 
-          Group 'Test1', 0.5, :increase do
-            Q 'SELECT users.* FROM users WHERE users.id = ? -- 0', [0.01, 0.5, 9]
-            Q 'SELECT items.* FROM items WHERE items.id=? -- 2', [9, 0.5, 0.01]
+          Group 'Test1', 0.5, default: [0.01, 0.5, 9] do
+            Q 'SELECT users.* FROM users WHERE users.id = ? -- 0'
+            Q 'SELECT items.* FROM items WHERE items.id=? -- 2'
           end
         end
       }
@@ -42,8 +42,8 @@ module NoSE
       it 'the query plan changes when the frequency changes' do
         query_increase = 'SELECT users.* FROM users WHERE users.rating=? -- 1'
         query_decrease = 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
-        td_workload.add_statement query_increase, [1, 300, 40000]
-        td_workload.add_statement query_decrease, [40000, 300, 1]
+        td_workload.add_statement query_increase, frequency: [1, 300, 40000]
+        td_workload.add_statement query_decrease, frequency: [40000, 300, 1]
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
         result = Search.new(td_workload, cost_model).search_overlap indexes, 9800000
 
@@ -57,8 +57,8 @@ module NoSE
       it 'the query plan does not change when the creation cost is too large' do
         query_increase = 'SELECT users.* FROM users WHERE users.rating=? -- 1'
         query_decrease = 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
-        td_workload.add_statement query_increase, [0.01, 0.5, 9]
-        td_workload.add_statement query_decrease, [9, 0.5, 0.01]
+        td_workload.add_statement query_increase, frequency: [0.01, 0.5, 9]
+        td_workload.add_statement query_decrease, frequency: [9, 0.5, 0.01]
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
         result = Search.new(td_workload, cost_model).search_overlap indexes, 9800000, 10
 
@@ -71,7 +71,7 @@ module NoSE
 
       it 'Be able to treat with update' do
         update = 'UPDATE users SET rating=? WHERE users.id=? -- 8'
-        td_workload.add_statement update, [9, 0.5, 0.01]
+        td_workload.add_statement update, frequency: [9, 0.5, 0.01]
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
         result = Search.new(td_workload, cost_model).search_overlap indexes
 
@@ -84,8 +84,8 @@ module NoSE
       it 'migrate plan is set when there is migration' do
         query_increase = 'SELECT users.* FROM users WHERE users.rating=? -- 1'
         query_decrease = 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
-        td_workload.add_statement query_increase, [0.01, 0.5, 9]
-        td_workload.add_statement query_decrease, [9, 0.5, 0.01]
+        td_workload.add_statement query_increase, frequency: [0.01, 0.5, 9]
+        td_workload.add_statement query_decrease, frequency: [9, 0.5, 0.01]
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
         result = Search.new(td_workload, cost_model).search_overlap indexes, 9800000
 
