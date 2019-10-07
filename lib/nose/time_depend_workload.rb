@@ -23,7 +23,7 @@ module NoSE
 
     # Add a new {Statement} to the workload or parse a string
     # @return [void]
-    def add_statement(statement, frequencies, mixes = {}, group: nil, label: nil)
+    def add_statement(statement, mixes = {}, group: nil, label: nil)
       statement = Statement.parse(statement, @model,
                                   group: group, label: label) \
         if statement.is_a? String
@@ -33,8 +33,10 @@ module NoSE
       mixes = { default: 1.0 } if mixes.empty?
       mixes.each do |mix, weight|
         @statement_weights[mix] = {} unless @statement_weights.key? mix
-        fail "Frequency is required for #{statement.text}" if frequencies.nil?
-        @statement_weights[mix][statement] = frequencies.map{|f| f * @interval}
+        fail "Frequency is required for #{statement.text}" if weight.nil?
+        fail "number of Frequency should be same as timesteps for #{statement.text}" unless weight.size == timesteps
+        fail "Frequency cannot become 0 for #{statement.text}" if weight.any?{|w| w == 0}
+        @statement_weights[mix][statement] = weight.map{|f| f * @interval}
       end
 
       # ensure that all query has the same # of timesteps
@@ -45,47 +47,12 @@ module NoSE
 
   class TimeDependWorkloadDSL < WorkloadDSL
 
-    def Q(statement, weight = 1.0, frequencies, function_type, group: nil, label: nil, **mixes)
-        fail 'Statements require a workload' if @workload.nil?
-
-        return if weight.zero? && mixes.empty?
-        mixes = { default: weight } if mixes.empty?
-        @workload.add_statement statement, frequencies, mixes, group: group, label: label
-      end
-
-      # Allow grouping statements with an associated weight
-      # @return [void]
-      def Group(name, weight = 1.0, function_type = :static, **mixes, &block)
-        fail 'Groups require a workload' if @workload.nil?
-
-        # Apply the DSL
-        dsl = TimeDependGroupDSL.new
-        dsl.instance_eval(&block) if block_given?
-        dsl.statements.each do |statement|
-          frequency = dsl.frequencies&.has_key?(statement) ? dsl.frequencies[statement] : nil
-          Q(statement, weight, frequency, function_type,**mixes, group: name)
-        end
-      end
-
-      def TimeSteps(timestep)
-        @workload.timesteps = timestep
-      end
-
-      def Interval(seconds)
-        @workload.interval = seconds
-      end
+    def TimeSteps(timestep)
+      @workload.timesteps = timestep
     end
 
-  class TimeDependGroupDSL < GroupDSL
-    attr_reader :frequencies
-    # get frequcny array
-    def Q(statement, freq = nil)
-          @statements << statement
-          return if freq.nil?
-
-          @frequencies = {} if @frequencies.nil?
-          fail if @frequencies.has_key? statement and @frequencies[statement] == freq
-          @frequencies[statement] = freq
+    def Interval(seconds)
+      @workload.interval = seconds
     end
   end
 end
