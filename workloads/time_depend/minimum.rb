@@ -6,23 +6,19 @@ NoSE::TimeDependWorkload.new do
   # Define queries and their relative weights, weights taken from below
   # http://rubis.ow2.org/results/SB-BMP/Bidding/JBoss-SB-BMP-Bi-1500/perf.html#run_stat
   # http://rubis.ow2.org/results/SB-BMP/Browsing/JBoss-SB-BMP-Br-1500/perf.html#run_stat
-  DefaultMix :browsing
+  DefaultMix :default
   TimeSteps 3
+  Interval 3600
 
-  Group 'UsersInfo', 1.0, browsing: 4.41,
-        bidding: 2.48,
-        write_medium: 2.48,
-        write_heavy: 2.48 do
-    Q 'SELECT users.* FROM users WHERE users.id = ? -- 8', [0.1, 5, 0.1]
-    Q 'SELECT users.* FROM users WHERE users.rating = ? -- 8', [0.1, 5, 0.1]
-    Q 'UPDATE users SET rating=?, firstname=? WHERE users.id=? -- 22', [0.1, 0.2, 0.4]
+  Group 'UsersInfo', 1.0, default: [0.001, 0.5, 9] do
+    Q 'SELECT users.* FROM users WHERE users.id = ? -- 8'
+    Q 'SELECT users.* FROM users WHERE users.rating = ? -- 8'
+    Q 'UPDATE users SET rating=? WHERE users.id=? -- 27'
   end
 
-  #Group 'ItemsInfo', 1.0, browsing: 8.82,
-  #      bidding: 5.96,
-  #      write_medium: 4.96,
-  #      write_heavy: 4.96 do
-  #  Q 'SELECT items.* FROM items WHERE items.id=? -- 13', [9, 5, 0.1]
-  #  Q 'SELECT items.* FROM items WHERE items.quantity=? -- 13 LIMIT 1', [9, 5, 0.1]
-  #end
+  Group 'ItemsInfo', 1.0, default: [9, 0.5, 0.001] do
+    Q 'SELECT items.* FROM items WHERE items.id=? -- 13'
+    Q 'SELECT items.* FROM items WHERE items.quantity=? -- 13 LIMIT 1'
+    Q 'UPDATE items SET nb_of_bids=? WHERE items.id=? -- 22'
+  end
 end

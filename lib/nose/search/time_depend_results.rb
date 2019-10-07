@@ -73,10 +73,11 @@ module NoSE
             tree_plan.indexes.to_set == @query_indexes[query][ts]
           end
         end
-        plan_all_times.each {|plan| plan.instance_variable_set :@workload, @workload}
 
-        fail InvalidResultsException if plan_all_times.any?{|plan| plan.nil?}
+        # support query possibly does not have plans for all timesteps
+        fail InvalidResultsException if plan_all_times.any?{|plan| plan.nil?} and not query.is_a?(SupportQuery)
 
+        plan_all_times.compact.each {|plan| plan.instance_variable_set :@workload, @workload}
         set_migrate_plan(plan_all_times)
 
         plan_all_times
@@ -90,9 +91,9 @@ module NoSE
             @indexes[ts].include? plan.index
           end.map{|plan| plan.dup}
         end
-        update_plans.each do |plans_each_timestep|
+        update_plans.each_with_index do |plans_each_timestep, ts|
           plans_each_timestep.each do |plan|
-            plan.select_query_plans(&self.method(:select_plan))
+            plan.select_query_plans(timestep: ts, &self.method(:select_plan))
           end
         end
 
@@ -104,9 +105,9 @@ module NoSE
       # @param [Array]
       # @return [void]
       def set_migrate_plan(plans)
-        query = plans.first.query
+        query = plans.compact.first.query
         plans.each_cons(2).to_a.each_with_index do |(form, nex), ind|
-          next if form == nex
+          next if form == nex or form.nil? or nex.nil?
           @migrate_plans << MigratePlan.new(query, ind, ind + 1, form, nex)
         end
       end
@@ -178,6 +179,8 @@ module NoSE
         # Check that these indexes are actually used by the query
         plans.each do |plan|
           plan.each_with_index do |plan_one_step, ts|
+            next if plan.compact.first.query.is_a? (SupportQuery) and plan_one_step.nil?
+
             fail InvalidResultsException unless \
             plan_one_step.indexes.to_set == @query_indexes[plan_one_step.query][ts]
           end

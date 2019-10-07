@@ -12,17 +12,16 @@ NoSE::Workload.new do
                         bidding: 2.48,
                         write_medium: 2.48,
                         write_heavy: 2.48 do
-    #Q 'SELECT users.* FROM users WHERE users.id = ? -- 8'
-    #Q 'SELECT users.* FROM users WHERE users.rating=? -- 12'
-    Q 'SELECT users.* FROM users WHERE users.rating =? -- 12'
-    Q 'UPDATE users SET rating=? WHERE users.id=? -- 27'
+    Q 'SELECT users.* FROM users WHERE users.id = ? -- 8'
+    Q 'SELECT users.* FROM users WHERE users.rating=? -- 12'
+    #Q 'UPDATE users SET rating=? WHERE users.id=? -- 27'
   end
 
- # Group 'ItemsInfo', browsing: 8.82,
- #       bidding: 5.96,
- #       write_medium: 4.96,
- #       write_heavy: 4.96 do
- #   Q 'SELECT items.* FROM items WHERE items.id=? -- 13'
- #   Q 'SELECT items.* FROM items WHERE items.quantity=? -- 13'
- # end
+  Group 'ItemsInfo', browsing: 8.82,
+        bidding: 5.96,
+        write_medium: 4.96,
+        write_heavy: 4.96 do
+    Q 'SELECT items.* FROM items WHERE items.id=? -- 13'
+    Q 'SELECT items.* FROM items WHERE items.quantity=? -- 13'
+  end
 end
