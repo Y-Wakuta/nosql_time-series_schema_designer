@@ -98,7 +98,7 @@ module NoSE
 
       # Select query plans to actually use here
       # @return [void]
-      def select_query_plans(indexes = nil, &block)
+      def select_query_plans(indexes = nil, timestep: nil, &block)
         if block_given?
           @query_plans = @trees.map(&block)
         else
@@ -109,7 +109,7 @@ module NoSE
           end
         end
 
-        update_support_fields
+        update_support_fields(timestep)
 
         @trees = nil
       end
@@ -153,28 +153,21 @@ module NoSE
       # The cost is the sum of all the query costs plus the update costs
       # @return [Fixnum]
       def cost
-        @query_plans.flatten(1).sum_by(&:cost) + update_cost
+        @query_plans.flatten(1).compact.sum_by(&:cost) + update_cost
       end
 
       private
 
       # Add fields from support queries to those which should be updated
       # @return [void]
-      def update_support_fields
+      def update_support_fields(timestep = nil)
         return if @query_plans.size == 0
 
         # Add fields fetched from support queries
-        if @query_plans[0].is_a?(Array) # time-depend workload
-          fields = @query_plans.flat_map do |query_plan_all_time|
-            query_plan_all_time.map do |query_plan|
-              query_plan.query.select.to_a
-            end
-          end.flatten(1).compact
-        else
-          fields = @query_plans.flat_map do |query_plan|
-            query_plan.query.select.to_a
-          end.compact
-        end
+        fields = @query_plans.flat_map do |query_plan|
+          qp = query_plan.is_a?(Array) ? query_plan[timestep] : query_plan
+          qp.query.select.to_a
+        end.compact
 
         @update_fields += fields
       end
