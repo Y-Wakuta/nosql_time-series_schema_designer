@@ -93,9 +93,8 @@ module NoSE
 
         result.workload = @workload
         result.plans_from_trees trees
-        result.cost_model = @cost_model
-
         result.set_update_plans update_plans
+        result.cost_model = @cost_model
 
         result.validate
 
