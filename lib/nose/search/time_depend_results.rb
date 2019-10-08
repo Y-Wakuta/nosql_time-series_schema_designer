@@ -37,10 +37,14 @@ module NoSE
             plan.each { |s| s.calculate_cost new_cost_model }
           end
         end
-        (@update_plans || []).each do |plan|
-          plan.update_steps.each { |s| s.calculate_cost new_cost_model }
-          plan.query_plans.each do |query_plan|
-            query_plan.each { |s| s.calculate_cost new_cost_model }
+        (@update_plans || []).each do |plan_each_timestep|
+          plan_each_timestep.each {|plan| plan.update_steps.each { |s| s.calculate_cost new_cost_model }}
+          plan_each_timestep.each do |plan|
+            plan.query_plans.each do |query_plan_all_timestep|
+              query_plan_all_timestep.each do |query_plan|
+                query_plan.each { |s| s.calculate_cost new_cost_model }
+              end
+            end
           end
         end
 
@@ -50,8 +54,10 @@ module NoSE
             plan.cost * @workload.statement_weights[plan.query][ts]
           end.sum
         end
-        update_cost = (@update_plans || []).sum_by do |plan|
-          plan.cost * @workload.statement_weights[plan.statement]
+        update_cost = (@update_plans || []).each_with_index.sum_by do |plan_each_timestep, ts|
+          plan_each_timestep.sum_by do |plan|
+            plan.cost * @workload.statement_weights[plan.statement][ts]
+          end
         end
         @total_cost = query_cost + update_cost
       end
@@ -67,7 +73,7 @@ module NoSE
 
         update_cost = (@update_plans || []).each_with_index.map do |plan_each_times, ts|
           plan_each_times.map do |update_plan|
-            update_plan.cost * @workload.statement_weights[update_plan.statement][ts]
+            update_plan.cost(ts) * @workload.statement_weights[update_plan.statement][ts]
           end.sum
         end
         @each_total_cost = query_cost.zip(update_cost).map(&:sum)

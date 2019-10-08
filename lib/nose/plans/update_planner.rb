@@ -152,8 +152,12 @@ module NoSE
 
       # The cost is the sum of all the query costs plus the update costs
       # @return [Fixnum]
-      def cost
-        @query_plans.flatten(1).compact.sum_by(&:cost) + update_cost
+      def cost(ts = nil)
+        if ts.nil?
+          @query_plans.flatten(1).compact.sum_by(&:cost) + update_cost
+        else
+          @query_plans.map{|query_plan| query_plan[ts]}.flatten(1).compact.sum_by(&:cost) + update_cost
+        end
       end
 
       private

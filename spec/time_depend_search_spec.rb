@@ -92,10 +92,11 @@ module NoSE
         expect(result.migrate_plans.size).to eq 2
       end
 
-      it 'time depend workload get the same cost as static workload if it has only one timestep' do
+      it 'time depend workload get the same cost as static workload if the frequency does not change' do
         interval = 3600
+        timesteps = 3
         td_workload_ = TimeDependWorkload.new do
-          TimeSteps 1
+          TimeSteps timesteps
           Interval interval
 
           (Entity 'users' do
@@ -112,7 +113,7 @@ module NoSE
             Integer    'quantity', count: 100
           end) * 20_000
 
-          Group 'Test1', 0.5, default: [0.01] do
+          Group 'Test1', 0.5, default: [0.01] * timesteps do
             Q 'SELECT users.* FROM users WHERE users.id = ? -- 0'
             Q 'SELECT items.* FROM items WHERE items.id=? -- 2'
             Q 'UPDATE users SET rating=? WHERE users.id=? -- 27'
@@ -147,7 +148,7 @@ module NoSE
         indexes = IndexEnumerator.new(workload_).indexes_for_workload.to_a
         result = Search.new(workload_, cost_model).search_overlap indexes
 
-        expect(td_result.total_cost).to eq (result.total_cost * interval)
+        expect(td_result.total_cost).to eq (result.total_cost * interval * timesteps)
       end
     end
   end
