@@ -4,7 +4,7 @@ module NoSE
   module Search
     # A container for results from a schema search
     class TimeDependResults < Results
-      attr_accessor :timesteps, :migrate_plans
+      attr_accessor :timesteps, :migrate_plans, :each_total_cost
 
       def initialize(problem = nil, by_id_graph = false)
         @problem = problem
@@ -56,6 +56,23 @@ module NoSE
         @total_cost = query_cost + update_cost
       end
 
+      # calculate cost in each timestep for output
+      # @return [void]
+      def calculate_cost_each_timestep
+        query_cost = (@plans || []).transpose.each_with_index.map do |plan_each_times, ts|
+          plan_each_times.map do |plan|
+            plan.cost * @workload.statement_weights[plan.query][ts]
+          end.sum
+        end
+
+        update_cost = (@update_plans || []).each_with_index.map do |plan_each_times, ts|
+          plan_each_times.map do |update_plan|
+            update_plan.cost * @workload.statement_weights[update_plan.statement][ts]
+          end.sum
+        end
+        @each_total_cost = query_cost.zip(update_cost).map(&:sum)
+      end
+
       # @return [void]
       def validate_query_set
         planned_queries = plans.flatten(1).map(&:query).to_set
@@ -99,6 +116,8 @@ module NoSE
 
         # TODO: update_plans here need to be an array of timesteps
         @update_plans = update_plans
+
+        calculate_cost_each_timestep
       end
 
       # get the query plans for all timesteps for the query as parameter

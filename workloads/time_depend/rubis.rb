@@ -7,7 +7,11 @@ NoSE::TimeDependWorkload.new do
   # http://rubis.ow2.org/results/SB-BMP/Bidding/JBoss-SB-BMP-Bi-1500/perf.html#run_stat
   # http://rubis.ow2.org/results/SB-BMP/Browsing/JBoss-SB-BMP-Br-1500/perf.html#run_stat
   DefaultMix :bidding
-  timestep = 30
+
+  increase = [0.1, 3, 8, 20, 30, 5, 1, 0.01, 10, 100, 50, 10, 1, 0.1, 20]
+  decrease = increase.reverse
+
+  timestep = increase.size
   TimeSteps timestep
   Interval 7200
 
@@ -15,10 +19,6 @@ NoSE::TimeDependWorkload.new do
   #decrease_func = Proc.new() {|x_coef, t, y| (0..t).map{|t_| [-x_coef * t_ * t_ * t_ + y, 0.001].max}}
   #increase = increase_func.call(5, timestep, 0.0001)
   #decrease = decrease_func.call(5, timestep, 100.001)
-
-  #increase = [0.001, 0.1, 3, 40]
-  increase = [0.1, 3, 8, 20, 30, 5, 1, 0.01, 10, 100] * 3
-  decrease = increase.reverse
 
   Group 'BrowseCategories', browsing: increase,
         bidding: increase,
