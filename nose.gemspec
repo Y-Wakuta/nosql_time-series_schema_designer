@@ -14,7 +14,7 @@ Gem::Specification.new do |s|
                   Dir['data/**/*']
   s.homepage    = 'https://michael.mior.ca/projects/NoSE/'
 
-  s.add_dependency 'faker', '~> 2.1.0', '>= 1.7.0'
+  s.add_dependency 'faker', '~> 2.3.0', '>= 1.7.0'
   s.add_dependency 'formatador', '~> 0.2.5'
   s.add_dependency 'json-schema', '~> 2.8.0', '>= 2.8.0'
   s.add_dependency 'logging', '~> 2.2.0', '>= 2.2.0'
@@ -35,7 +35,7 @@ Gem::Specification.new do |s|
   s.add_dependency 'cassandra-driver', '~> 3.2.3', '>= 3.1.0'
 
   # Required for MongoDB backend
-  s.add_dependency 'mongo', '~> 2.9.0', '>= 2.4.0'
+  s.add_dependency 'mongo', '~> 2.10.0', '>= 2.4.0'
 
   s.add_development_dependency 'fakefs', '~> 0.20.0'
   s.add_development_dependency 'memory_profiler', '~> 0.9.7'
@@ -45,7 +45,7 @@ Gem::Specification.new do |s|
   s.add_development_dependency 'ronn', '~> 0.7.3'
   s.add_development_dependency 'rspec', '~> 3.8.0', '>= 3.8.0'
   s.add_development_dependency 'rspec-core', '~> 3.8.0', '>= 3.8.0'
-  s.add_development_dependency 'rspec-collection_matchers', '~> 1.1.2', '>= 1.1.0'
+  s.add_development_dependency 'rspec-collection_matchers', '~> 1.2.0', '>= 1.1.0'
   s.add_development_dependency 'ruby-prof', '~> 0.18.0'
   s.add_development_dependency 'scrutinizer-ocular', '~> 1.0.1', '>= 1.0.0'
   s.add_development_dependency 'simplecov', '~> 0.17.0'
