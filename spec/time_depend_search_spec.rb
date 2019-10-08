@@ -91,6 +91,65 @@ module NoSE
 
         expect(result.migrate_plans.size).to eq 2
       end
+
+      it 'time depend workload get the same cost as static workload if the frequency does not change' do
+        interval = 3600
+        timesteps = 3
+        td_workload_ = TimeDependWorkload.new do
+          TimeSteps timesteps
+          Interval interval
+
+          (Entity 'users' do
+            ID         'id'
+            String     'firstname', 6
+            String     'lastname', 7
+            String     'rating', 23
+          end) * 2_000
+
+          (Entity 'items' do
+            ID         'id'
+            String     'name', 19
+            String     'description', 197
+            Integer    'quantity', count: 100
+          end) * 20_000
+
+          Group 'Test1', 0.5, default: [0.01] * timesteps do
+            Q 'SELECT users.* FROM users WHERE users.id = ? -- 0'
+            Q 'SELECT items.* FROM items WHERE items.id=? -- 2'
+            Q 'UPDATE users SET rating=? WHERE users.id=? -- 27'
+          end
+        end
+
+        workload_ = Workload.new do
+
+          (Entity 'users' do
+            ID         'id'
+            String     'firstname', 6
+            String     'lastname', 7
+            String     'rating', 23
+          end) * 2_000
+
+          (Entity 'items' do
+            ID         'id'
+            String     'name', 19
+            String     'description', 197
+            Integer    'quantity', count: 100
+          end) * 20_000
+
+          Group 'Test1', 0.5, default: 0.01 do
+            Q 'SELECT users.* FROM users WHERE users.id = ? -- 0'
+            Q 'SELECT items.* FROM items WHERE items.id=? -- 2'
+            Q 'UPDATE users SET rating=? WHERE users.id=? -- 27'
+          end
+        end
+
+        td_indexes = IndexEnumerator.new(td_workload_).indexes_for_workload.to_a
+        td_result = Search.new(td_workload_, cost_model).search_overlap td_indexes
+        indexes = IndexEnumerator.new(workload_).indexes_for_workload.to_a
+        result = Search.new(workload_, cost_model).search_overlap indexes
+
+        expect(td_result.total_cost).to eq (result.total_cost * interval * timesteps)
+      end
     end
   end
 end
