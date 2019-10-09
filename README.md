@@ -1,9 +1,7 @@
 # NoSQL Schema Evaluator (NoSE)
 
-[![Build Status](https://travis-ci.org/michaelmior/NoSE.svg?branch=master)](https://travis-ci.org/michaelmior/NoSE)
-[![Depfu](https://badges.depfu.com/badges/69de42ee3415b077a040beadc8941f1e/overview.svg)](https://depfu.com/github/michaelmior/NoSE?project_id=6964)
-[![Code Coverage](https://scrutinizer-ci.com/g/michaelmior/NoSE/badges/coverage.png?b=master)](https://scrutinizer-ci.com/g/michaelmior/NoSE/?branch=master)
-[![Docker Build Status](https://img.shields.io/docker/build/michaelmior/nose.svg)]()
+[![Build Status](https://travis-ci.org/Y-Wakuta/td_NoSE.svg?branch=master)](https://travis-ci.org/Y-Wakuta/td_NoSE)
+[![Code Coverage](https://scrutinizer-ci.com/g/Y-Wakuta/td_NoSE/badges/coverage.png?b=master)](https://scrutinizer-ci.com/g/Y-Wakuta/td_NoSE/?branch=master)
 
 This is a work in progress tool to provide automated physical schema design for NoSQL data stores.
 NoSE is licensed under the [GPLv3 license](LICENSE.md).
