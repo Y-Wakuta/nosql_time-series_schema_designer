@@ -5,6 +5,7 @@ require 'logging'
 require 'mipper'
 begin
   require 'mipper/gurobi'
+  require 'mipper/cbc'
 rescue LoadError
   # We can't use most search functionality, but it won't explode
   nil
