@@ -75,10 +75,7 @@ module NoSE
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
         result = Search.new(td_workload, cost_model).search_overlap indexes
 
-        update_steps = result.update_plans.select{|plan_all| plan_all.first.statement.text == update}.flatten(1)
-
-        expect(update_steps.size).to eq timesteps
-        expect(update_steps.first.update_steps.size).to eq update_steps.last.update_steps.size
+        expect(result.update_plans.values.first.size).to eq timesteps
       end
 
       it 'migrate plan is set when there is migration' do
