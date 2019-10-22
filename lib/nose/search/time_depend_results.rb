@@ -37,12 +37,14 @@ module NoSE
             plan.each { |s| s.calculate_cost new_cost_model }
           end
         end
-        (@update_plans || []).each do |plan_each_timestep|
-          plan_each_timestep.each {|plan| plan.update_steps.each { |s| s.calculate_cost new_cost_model }}
-          plan_each_timestep.each do |plan|
-            plan.query_plans.each do |query_plan_all_timestep|
-              query_plan_all_timestep.each do |query_plan|
-                query_plan.each { |s| s.calculate_cost new_cost_model }
+        (@update_plans || {}).each do |_, plan_all_timesteps|
+          plan_all_timesteps.each do |plan_each_timestep|
+            plan_each_timestep.each {|plan| plan.update_steps.each { |s| s.calculate_cost new_cost_model }}
+            plan_each_timestep.each do |plan|
+              plan.query_plans.each do |query_plan_all_timestep|
+                query_plan_all_timestep.compact.each do |query_plan|
+                  query_plan.each { |s| s.calculate_cost new_cost_model }
+                end
               end
             end
           end
@@ -54,9 +56,11 @@ module NoSE
             plan.cost * @workload.statement_weights[plan.query][ts]
           end.sum
         end
-        update_cost = (@update_plans || []).each_with_index.sum_by do |plan_each_timestep, ts|
-          plan_each_timestep.sum_by do |plan|
-            plan.cost * @workload.statement_weights[plan.statement][ts]
+        update_cost = (@update_plans || {}).each.sum_by do |_, plan_all_timestep|
+          plan_all_timestep.each_with_index.sum_by do |plan_each_timestep, ts|
+            plan_each_timestep.sum_by do |plan|
+              plan.cost * @workload.statement_weights[plan.statement][ts]
+            end
           end
         end
         @total_cost = query_cost + update_cost
@@ -71,12 +75,16 @@ module NoSE
           end.sum
         end
 
-        update_cost = (@update_plans || []).each_with_index.map do |plan_each_times, ts|
-          plan_each_times.map do |update_plan|
-            update_plan.cost(ts) * @workload.statement_weights[update_plan.statement][ts]
-          end.sum
+        update_cost = (@update_plans || {}).map do |_, plans_all_timestep|
+          plans_all_timestep.each_with_index.map do |plans_each_timestep, ts|
+            plans_each_timestep.map do |update_plan|
+              update_plan.cost(ts) * @workload.statement_weights[update_plan.statement][ts]
+            end.sum
+          end
         end
-        @each_total_cost = query_cost.zip(update_cost).map(&:sum)
+        @each_total_cost = query_cost.zip(update_cost.transpose.map(&:sum)).map do |l, r|
+          (l.nil? ? 0 : l) + (r.nil? ? 0 : r)
+        end
       end
 
       # @return [void]
@@ -106,17 +114,29 @@ module NoSE
         plan_all_times
       end
 
+      def set_time_depend_plans
+        @time_depend_plans = @plans.map do |plan|
+          Plans::TimeDependPlan.new(plan.first.query, plan)
+        end
+      end
+
       # Select the relevant update plans
       # @return [void]
-      def set_update_plans(update_plans)
-        update_plans = (0...@timesteps).map do |ts|
-          update_plans.values.flatten(1).select do |plan|
-            @indexes[ts].include? plan.index
-          end.map{|plan| plan.dup}
+      def set_update_plans(_update_plans)
+        update_plans = {}
+        _update_plans.map do |update, plans|
+          update_plans[update] = (0...@timesteps).map do |ts|
+            plans.select do |plan|
+              @indexes[ts].include? plan.index
+            end.map{|plan| plan.dup}
+          end
         end
-        update_plans.each_with_index do |plans_each_timestep, ts|
-          plans_each_timestep.each do |plan|
-            plan.select_query_plans(timestep: ts, &self.method(:select_plan))
+
+        update_plans.each do |_, plans|
+          plans.each_with_index do |plans_each_timestep, ts|
+            plans_each_timestep.each do |plan|
+              plan.select_query_plans(timestep: ts, &self.method(:select_plan))
+            end
           end
         end
 
@@ -168,11 +188,13 @@ module NoSE
       # Ensure we only have necessary update plans which use available indexes
       # @return [void]
       def validate_update_indexes
-        @update_plans.each_with_index do |plans_each_time, ts|
-          plans_each_time.each do |plan|
-            validate_query_indexes plan.query_plans
-            valid_plan = @indexes[ts].include?(plan.index)
-            fail InvalidResultsException unless valid_plan
+        @update_plans.each do |_, plan_all_timestep|
+          plan_all_timestep.each_with_index do |plans_each_time, ts|
+            plans_each_time.each do |plan|
+              validate_query_indexes plan.query_plans
+              valid_plan = @indexes[ts].include?(plan.index)
+              fail InvalidResultsException unless valid_plan
+            end
           end
         end
       end
@@ -215,11 +237,13 @@ module NoSE
       # Validate the support query plans for each update
       # @return [void]
       def validate_update_plans
-        @update_plans.each do |plans_each_time|
-          plans_each_time.each do |plan|
-            plan.instance_variable_set :@workload, @workload
+        @update_plans.each do |_, plans_all_time|
+          plans_all_time.each do |plans_each_time|
+            plans_each_time.each do |plan|
+              plan.instance_variable_set :@workload, @workload
 
-            validate_query_plans plan.query_plans
+              validate_query_plans plan.query_plans
+            end
           end
         end
       end
