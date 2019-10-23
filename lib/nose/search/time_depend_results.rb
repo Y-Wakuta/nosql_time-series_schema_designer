@@ -4,7 +4,7 @@ module NoSE
   module Search
     # A container for results from a schema search
     class TimeDependResults < Results
-      attr_accessor :timesteps, :migrate_plans, :each_total_cost
+      attr_accessor :timesteps, :migrate_plans, :time_depend_plans, :time_depend_update_plans, :each_total_cost
 
       def initialize(problem = nil, by_id_graph = false)
         @problem = problem
@@ -12,6 +12,8 @@ module NoSE
         return if problem.nil?
         @by_id_graph = by_id_graph
         @migrate_plans = []
+        @time_depend_plans = []
+        @each_indexes = []
 
         # Find the indexes the ILP says the query should use
         @query_indexes = Hash.new
@@ -120,6 +122,12 @@ module NoSE
         end
       end
 
+      def set_time_depend_update_plans
+        @time_depend_update_plans = @update_plans.map do |update, plans|
+          Plans::TimeDependUpdatePlan.new(update, plans)
+        end
+      end
+
       # Select the relevant update plans
       # @return [void]
       def set_update_plans(_update_plans)
@@ -142,8 +150,6 @@ module NoSE
 
         # TODO: update_plans here need to be an array of timesteps
         @update_plans = update_plans
-
-        calculate_cost_each_timestep
       end
 
       # get the query plans for all timesteps for the query as parameter
@@ -153,18 +159,7 @@ module NoSE
         query = plans.compact.first.query
         plans.each_cons(2).to_a.each_with_index do |(form, nex), ind|
           next if form == nex or form.nil? or nex.nil?
-          @migrate_plans << MigratePlan.new(query, ind, ind + 1, form, nex)
-        end
-      end
-
-      class MigratePlan
-        attr_reader :query, :start_time, :end_time, :obsolete_plan, :new_plan
-        def initialize(query, start_time, end_time, obsolete_plan, new_plan)
-          @query = query
-          @start_time = start_time
-          @end_time = end_time
-          @obsolete_plan = obsolete_plan
-          @new_plan = new_plan
+          @migrate_plans << Plans::MigratePlan.new(query, ind, ind + 1, form, nex)
         end
       end
 

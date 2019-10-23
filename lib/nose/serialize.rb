@@ -58,9 +58,9 @@ module NoSE
 
     # Represents a field just by the entity and name
     class FieldRepresenter < Representable::Decorator
-      include Representable::Hash
       include Representable::JSON
       include Representable::YAML
+      include Representable::Hash
       include Representable::Uncached
 
       property :name
@@ -74,9 +74,9 @@ module NoSE
 
     # Represents a graph by its nodes and edges
     class GraphRepresenter < Representable::Decorator
-      include Representable::Hash
       include Representable::JSON
       include Representable::YAML
+      include Representable::Hash
       include Representable::Uncached
 
       def nodes
@@ -120,9 +120,9 @@ module NoSE
 
     # Represents a simple key for an index
     class IndexRepresenter < Representable::Decorator
-      include Representable::Hash
       include Representable::JSON
       include Representable::YAML
+      include Representable::Hash
       include Representable::Uncached
 
       property :key
@@ -144,9 +144,9 @@ module NoSE
 
     # Represents all data of a field
     class EntityFieldRepresenter < Representable::Decorator
-      include Representable::Hash
       include Representable::JSON
       include Representable::YAML
+      include Representable::Hash
       include Representable::Uncached
 
       collection_representer class: Object, deserialize: FieldBuilder.new
@@ -202,16 +202,16 @@ module NoSE
 
     # Represent the whole entity and its fields
     class EntityRepresenter < Representable::Decorator
-      include Representable::Hash
       include Representable::JSON
       include Representable::YAML
+      include Representable::Hash
       include Representable::Uncached
 
       collection_representer class: Object, deserialize: EntityBuilder.new
 
       property :name
       collection :fields, decorator: EntityFieldRepresenter,
-                          exec_context: :decorator
+                 exec_context: :decorator
       property :count
 
       # A simple array of the fields within the entity
@@ -222,9 +222,9 @@ module NoSE
 
     # Conversion of a statement is just the text
     class StatementRepresenter < Representable::Decorator
-      include Representable::Hash
       include Representable::JSON
       include Representable::YAML
+      include Representable::Hash
       include Representable::Uncached
 
       # Represent as the text of the statement
@@ -235,9 +235,9 @@ module NoSE
 
     # Base representation for query plan steps
     class PlanStepRepresenter < Representable::Decorator
-      include Representable::Hash
       include Representable::JSON
       include Representable::YAML
+      include Representable::Hash
       include Representable::Uncached
 
       property :subtype_name, as: :type
@@ -286,9 +286,9 @@ module NoSE
 
     # Represent a query plan as a sequence of steps
     class QueryPlanRepresenter < Representable::Decorator
-      include Representable::Hash
       include Representable::JSON
       include Representable::YAML
+      include Representable::Hash
       include Representable::Uncached
 
       property :group
@@ -304,6 +304,29 @@ module NoSE
           limit: LimitStepRepresenter
         }[options[:input].class.subtype_name.to_sym] || PlanStepRepresenter
       end)
+    end
+
+    class MigrationPlanRepresenter < Representable::Decorator
+      include Representable::JSON
+      include Representable::YAML
+      include Representable::Hash
+      include Representable::Uncached
+
+      property :start_time
+      property :end_time
+      property :new_plan, decorator: QueryPlanRepresenter, class: Object
+      property :obsolete_plan, decorator: QueryPlanRepresenter, class: Object
+      property :query, decorator: StatementRepresenter
+    end
+
+    class TimeDependPlanRepresenter < Representable::Decorator
+      include Representable::Hash
+      include Representable::JSON
+      include Representable::YAML
+      include Representable::Uncached
+
+      property :query, decorator: StatementRepresenter
+      collection :plans, decorator: QueryPlanRepresenter, class: Object
     end
 
     # Represent update plan steps
@@ -337,9 +360,9 @@ module NoSE
 
     # Represent an update plan
     class UpdatePlanRepresenter < Representable::Decorator
-      include Representable::Hash
       include Representable::JSON
       include Representable::YAML
+      include Representable::Hash
       include Representable::Uncached
 
       property :group
@@ -349,7 +372,11 @@ module NoSE
       property :weight
       property :statement, decorator: StatementRepresenter
       property :index, decorator: IndexRepresenter
-      collection :query_plans, decorator: QueryPlanRepresenter, class: Object
+
+      collection :query_plans, class: Object do
+        collection :to_a, decorator: QueryPlanRepresenter
+      end
+
       collection :update_steps, decorator: UpdatePlanStepRepresenter
 
       # The backend cost model used to cost the updates
@@ -369,6 +396,19 @@ module NoSE
       end
 
       property :cost_model, exec_context: :decorator
+    end
+
+    class TimeDependUpdatePlanRepresenter < Representable::Decorator
+      include Representable::JSON
+      include Representable::YAML
+      include Representable::Hash
+      include Representable::Uncached
+
+      property :statement
+
+      collection :plans_all_timestep, class: Array do
+        collection :to_a, class: Object, decorator: UpdatePlanRepresenter
+      end
     end
 
     # Reconstruct the steps of an update plan
@@ -430,11 +470,36 @@ module NoSE
       end
     end
 
-    # Represent statements in a workload
-    class WorkloadRepresenter < Representable::Decorator
-      include Representable::Hash
+    # class TimeDependUpdatePlanBuilder
+    #   include Uber::Callable
+
+    #   def call(_, fragment:, represented:, **)
+
+    #   end
+
+    # end
+
+    class MigrationPlanBuilder
+      include Uber::Callable
+
+      def call(_, fragment:, represented:, **)
+        Plans::MigratePlan.new(fragment['query'], fragment['start_time'],
+                               fragment['end_time'], fragment['obsolete_plan'], fragment['new_plan'])
+      end
+    end
+
+    class TimeDependPlanBuilder
+      include Uber::Callable
+
+      def call(_, fragment:, represented:, **)
+        Plans::TimeDependPlan.new(fragment['query'], fragment['plans'])
+      end
+    end
+
+    class BasicWorkloadRepresenter < Representable::Decorator
       include Representable::JSON
       include Representable::YAML
+      include Representable::Hash
       include Representable::Uncached
 
       collection :statements, decorator: StatementRepresenter
@@ -456,14 +521,22 @@ module NoSE
 
         weights
       end
+    end
+
+    # Represent statements in a workload
+    class WorkloadRepresenter < BasicWorkloadRepresenter
       property :weights, exec_context: :decorator
+    end
+
+    class TimeDependWorkloadRepresenter < BasicWorkloadRepresenter
+      collection :weights, exec_context: :decorator
     end
 
     # Represent entities in a model
     class ModelRepresenter < Representable::Decorator
-      include Representable::Hash
       include Representable::JSON
       include Representable::YAML
+      include Representable::Hash
       include Representable::Uncached
 
       # A simple array of the entities in the model
@@ -472,7 +545,7 @@ module NoSE
         represented.entities.values
       end
       collection :entities, decorator: EntityRepresenter,
-                            exec_context: :decorator
+                 exec_context: :decorator
     end
 
     # Construct a new workload from a parsed hash
@@ -673,11 +746,10 @@ module NoSE
       end
     end
 
-    # Represent results of a search operation
-    class SearchResultRepresenter < Representable::Decorator
-      include Representable::Hash
+    class BaseSearchResultRepresenter < Representable::Decorator
       include Representable::JSON
       include Representable::YAML
+      include Representable::Hash
       include Representable::Uncached
 
       extend Forwardable
@@ -686,17 +758,12 @@ module NoSE
       delegate :command= => :represented
 
       property :model, decorator: ModelRepresenter,
-                       class: Model,
-                       deserialize: ModelBuilder.new
-      property :workload, decorator: WorkloadRepresenter,
-                          class: Workload,
-                          deserialize: WorkloadBuilder.new
-      collection :indexes, decorator: FullIndexRepresenter,
-                           class: Object,
-                           deserialize: IndexBuilder.new
+               class: Model,
+               deserialize: ModelBuilder.new
+
       collection :enumerated_indexes, decorator: FullIndexRepresenter,
-                                      class: Object,
-                                      deserialize: IndexBuilder.new
+                 class: Object,
+                 deserialize: IndexBuilder.new
 
       # The backend cost model used to generate the schema
       # @return [Hash]
@@ -715,15 +782,6 @@ module NoSE
       end
 
       property :cost_model, exec_context: :decorator
-
-      collection :plans, decorator: QueryPlanRepresenter,
-                         class: Object,
-                         deserialize: QueryPlanBuilder.new
-      collection :update_plans, decorator: UpdatePlanRepresenter,
-                                class: Object,
-                                deserialize: UpdatePlanBuilder.new
-      property :total_size
-      property :total_cost
 
       # Include the revision of the code used to generate this output
       # @return [String]
@@ -754,6 +812,52 @@ module NoSE
       end
 
       property :command, exec_context: :decorator
+    end
+
+    # # Represent results of a search operation
+    class SearchResultRepresenter < BaseSearchResultRepresenter
+      property :workload, decorator: WorkloadRepresenter,
+               class: Workload,
+               deserialize: WorkloadBuilder.new
+      collection :indexes, decorator: FullIndexRepresenter,
+                 class: Object,
+                 deserialize: IndexBuilder.new
+
+
+      collection :plans, decorator: QueryPlanRepresenter,
+                 class: Object,
+                 deserialize: QueryPlanBuilder.new
+      collection :update_plans, decorator: UpdatePlanRepresenter,
+                 class: Object,
+                 deserialize: UpdatePlanBuilder.new
+      property :total_size
+      property :total_cost
+    end
+
+    class SearchTimeDependResultRepresenter < BaseSearchResultRepresenter
+      property :timesteps
+      property :workload, decorator: TimeDependWorkloadRepresenter,
+               class: TimeDependWorkload,
+               deserialize: WorkloadBuilder.new
+      collection :indexes, #decorator: TimeDependFullIndexRepresenter,
+                 deserialize: IndexBuilder.new, #TODO time_depend 用のビルダーを書く
+                 class: Object do
+        collection :to_a, decorator: FullIndexRepresenter
+      end
+
+      collection :time_depend_plans, decorator: TimeDependPlanRepresenter,
+                 class: Object,
+                 deserialize: TimeDependPlanBuilder.new
+
+      collection :time_depend_update_plans, decorator: TimeDependUpdatePlanRepresenter,
+                 class: Object#,
+      #deserialize: UpdatePlanBuilder.new #TODO builder を書く
+
+      collection :migrate_plans, decorator: MigrationPlanRepresenter,
+                 class: Object,
+                 desrialize: MigrationPlanBuilder.new
+      collection :total_size
+      collection :each_total_cost
     end
   end
 end
