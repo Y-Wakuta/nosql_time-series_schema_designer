@@ -100,7 +100,7 @@ module NoSE
 
       def call(_, represented:, fragment:, **)
         # Extract the entities from the workload
-        model = represented.workload.model
+        model = represented.model
 
         # Pull the fields from each entity
         f = lambda do |fields|
@@ -128,6 +128,17 @@ module NoSE
       property :key
     end
 
+    class EachTimestepIndexesBuilder
+      include Uber::Callable
+
+      def call(_, fragment:, represented:, **)
+        indexes = fragment['indexes'].map do |index|
+          IndexBuilder.new.call(_, fragment: index, represented: represented)
+        end
+        EachTimeStepIndexes.new(indexes)
+      end
+    end
+
     # Represents index data along with the key
     class FullIndexRepresenter < IndexRepresenter
       collection :hash_fields, decorator: FieldRepresenter
@@ -140,6 +151,35 @@ module NoSE
       property :size
       property :hash_count
       property :per_hash_count
+    end
+
+    class TimeDependIndexesBuilder
+      include Uber::Callable
+
+      def call(_, fragment:, represented:, **)
+        indexes_all_timestep = fragment['indexes_all_timestep'].map do |iat|
+          EachTimestepIndexesBuilder.new.call(_, fragment: iat, represented: represented)
+        end
+        TimeDependIndexes.new(indexes_all_timestep)
+      end
+    end
+
+    class EachTimeIndexesRepsenter < Representable::Decorator
+      include Representable::JSON
+      include Representable::YAML
+      include Representable::Hash
+      include Representable::Uncached
+
+      collection :indexes, class: Object, decorator: FullIndexRepresenter, deserialize: IndexBuilder.new
+    end
+
+    class TimeDependIndexesRepsenter < Representable::Decorator
+      include Representable::JSON
+      include Representable::YAML
+      include Representable::Hash
+      include Representable::Uncached
+
+      collection :indexes_all_timestep, class: Object, decorator: EachTimeIndexesRepsenter, deserialize: EachTimestepIndexesBuilder.new
     end
 
     # Represents all data of a field
@@ -306,23 +346,10 @@ module NoSE
       end)
     end
 
-    class MigrationPlanRepresenter < Representable::Decorator
-      include Representable::JSON
-      include Representable::YAML
-      include Representable::Hash
-      include Representable::Uncached
-
-      property :start_time
-      property :end_time
-      property :new_plan, decorator: QueryPlanRepresenter, class: Object
-      property :obsolete_plan, decorator: QueryPlanRepresenter, class: Object
-      property :query, decorator: StatementRepresenter
-    end
-
     class TimeDependPlanRepresenter < Representable::Decorator
-      include Representable::Hash
       include Representable::JSON
       include Representable::YAML
+      include Representable::Hash
       include Representable::Uncached
 
       property :query, decorator: StatementRepresenter
@@ -373,9 +400,7 @@ module NoSE
       property :statement, decorator: StatementRepresenter
       property :index, decorator: IndexRepresenter
 
-      collection :query_plans, class: Object do
-        collection :to_a, decorator: QueryPlanRepresenter
-      end
+      collection :query_plans, class: Object, decorator: QueryPlanRepresenter
 
       collection :update_steps, decorator: UpdatePlanStepRepresenter
 
@@ -396,19 +421,6 @@ module NoSE
       end
 
       property :cost_model, exec_context: :decorator
-    end
-
-    class TimeDependUpdatePlanRepresenter < Representable::Decorator
-      include Representable::JSON
-      include Representable::YAML
-      include Representable::Hash
-      include Representable::Uncached
-
-      property :statement
-
-      collection :plans_all_timestep, class: Array do
-        collection :to_a, class: Object, decorator: UpdatePlanRepresenter
-      end
     end
 
     # Reconstruct the steps of an update plan
@@ -470,21 +482,54 @@ module NoSE
       end
     end
 
-    # class TimeDependUpdatePlanBuilder
-    #   include Uber::Callable
+    class TimeDependUpdatePlanEachTimestepRepresenter < Representable::Decorator
+      include Representable::JSON
+      include Representable::YAML
+      include Representable::Hash
+      include Representable::Uncached
 
-    #   def call(_, fragment:, represented:, **)
+      collection :plans, class: Object, decorator: UpdatePlanRepresenter, deserialize: UpdatePlanBuilder.new
+    end
 
-    #   end
 
-    # end
+    class TimeDependUpdatePlanRepresenter < Representable::Decorator
+      include Representable::JSON
+      include Representable::YAML
+      include Representable::Hash
+      include Representable::Uncached
 
-    class MigrationPlanBuilder
+      property :statement, class: Object, decorator: StatementRepresenter
+      collection :plans_all_timestep, class: Object, decorator: TimeDependUpdatePlanEachTimestepRepresenter
+    end
+
+    class TimeDependUpdatePlanBuilder
       include Uber::Callable
 
       def call(_, fragment:, represented:, **)
+        update_plans_hashs = fragment['plans_all_timestep'].map{|plan_each_timestep| plan_each_timestep.values}.flatten
+        represented.indexes = represented.time_depend_indexes.indexes_all_timestep.map do |each_time_step_indexes|
+          each_time_step_indexes.indexes
+        end.flatten(1).uniq!
+
+        plans_all_timestep = update_plans_hashs.map do |update_plans_hash|
+          UpdatePlanBuilder.new.call(_, fragment: update_plans_hash, represented: represented)
+        end
+
+        Plans::TimeDependUpdatePlan.new(fragment['statement'],plans_all_timestep)
+      end
+    end
+
+    class MigratePlanBuilder
+      include Uber::Callable
+
+      def call(_, fragment:, represented:, **)
+        represented.indexes = represented.time_depend_indexes.indexes_all_timestep.map do |each_time_step_indexes|
+          each_time_step_indexes.indexes
+        end.flatten(1).uniq!
+        obsolete_plan = QueryPlanBuilder.new.call(_, fragment: fragment['obsolete_plan'], represented: represented)
+        new_plan = QueryPlanBuilder.new.call(_, fragment: fragment['new_plan'], represented: represented)
         Plans::MigratePlan.new(fragment['query'], fragment['start_time'],
-                               fragment['end_time'], fragment['obsolete_plan'], fragment['new_plan'])
+                               fragment['end_time'], obsolete_plan, new_plan)
       end
     end
 
@@ -814,7 +859,20 @@ module NoSE
       property :command, exec_context: :decorator
     end
 
-    # # Represent results of a search operation
+    class MigratePlanRepresenter < Representable::Decorator
+      include Representable::JSON
+      include Representable::YAML
+      include Representable::Hash
+      include Representable::Uncached
+
+      property :new_plan, decorator: QueryPlanRepresenter, class: Plans::QueryPlan, deserialize: QueryPlanBuilder.new
+      property :obsolete_plan, decorator: QueryPlanRepresenter, class: Plans::QueryPlan, deserialize: QueryPlanBuilder.new
+      property :query, decorator: StatementRepresenter
+      property :start_time
+      property :end_time
+    end
+
+    # Represent results of a search operation
     class SearchResultRepresenter < BaseSearchResultRepresenter
       property :workload, decorator: WorkloadRepresenter,
                class: Workload,
@@ -822,7 +880,6 @@ module NoSE
       collection :indexes, decorator: FullIndexRepresenter,
                  class: Object,
                  deserialize: IndexBuilder.new
-
 
       collection :plans, decorator: QueryPlanRepresenter,
                  class: Object,
@@ -839,23 +896,21 @@ module NoSE
       property :workload, decorator: TimeDependWorkloadRepresenter,
                class: TimeDependWorkload,
                deserialize: WorkloadBuilder.new
-      collection :indexes, #decorator: TimeDependFullIndexRepresenter,
-                 deserialize: IndexBuilder.new, #TODO time_depend 用のビルダーを書く
-                 class: Object do
-        collection :to_a, decorator: FullIndexRepresenter
-      end
+
+      property :time_depend_indexes, class: Object, decorator: TimeDependIndexesRepsenter, deserialize: TimeDependIndexesBuilder.new
 
       collection :time_depend_plans, decorator: TimeDependPlanRepresenter,
                  class: Object,
                  deserialize: TimeDependPlanBuilder.new
 
       collection :time_depend_update_plans, decorator: TimeDependUpdatePlanRepresenter,
-                 class: Object#,
-      #deserialize: UpdatePlanBuilder.new #TODO builder を書く
-
-      collection :migrate_plans, decorator: MigrationPlanRepresenter,
                  class: Object,
-                 desrialize: MigrationPlanBuilder.new
+                 deserialize: TimeDependUpdatePlanBuilder.new
+
+      collection :migrate_plans, decorator: MigratePlanRepresenter,
+                 class: Object,
+                 deserialize: MigratePlanBuilder.new
+
       collection :total_size
       collection :each_total_cost
     end

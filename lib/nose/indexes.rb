@@ -165,8 +165,8 @@ module NoSE
     def validate_graph_keys
       fail InvalidIndexException, 'missing graph entity keys' \
         unless @graph.entities.map(&:id_field).all? do |field|
-          @hash_fields.include?(field) || @order_fields.include?(field)
-        end
+        @hash_fields.include?(field) || @order_fields.include?(field)
+      end
     end
 
     # Precalculate the size of the index
@@ -181,6 +181,22 @@ module NoSE
 
       @entry_size = @all_fields.sum_by(&:size)
       @size = @entries * @entry_size
+    end
+  end
+
+  class EachTimeStepIndexes
+    attr_accessor :indexes
+
+    def initialize(indexes)
+      @indexes = indexes
+    end
+  end
+
+  class TimeDependIndexes
+    attr_accessor :indexes_all_timestep
+
+    def initialize(indexes_all_timestep)
+      @indexes_all_timestep = indexes_all_timestep
     end
   end
 

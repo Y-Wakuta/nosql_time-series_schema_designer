@@ -6,7 +6,6 @@ require_relative 'search/problem'
 require_relative 'search/time_depend_problem'
 require_relative 'search/results'
 require_relative 'search/time_depend_results'
-require_relative 'plans/migration_plan'
 require_relative 'plans/time_depend_plan'
 
 require 'logging'
@@ -101,6 +100,7 @@ module NoSE
         if result.is_a? TimeDependResults
           result.calculate_cost_each_timestep
           result.set_time_depend_plans
+          result.set_time_depend_indexes
           result.set_time_depend_update_plans
         end
 
