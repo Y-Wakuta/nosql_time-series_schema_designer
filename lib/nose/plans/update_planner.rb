@@ -23,6 +23,7 @@ module NoSE
     class UpdatePlan < AbstractPlan
       attr_reader :statement, :index, :query_plans, :update_steps, :cost_model,
                   :update_fields
+      attr_writer :query_plans
 
       include Comparable
 
@@ -152,12 +153,8 @@ module NoSE
 
       # The cost is the sum of all the query costs plus the update costs
       # @return [Fixnum]
-      def cost(ts = nil)
-        if ts.nil?
-          @query_plans.flatten(1).compact.sum_by(&:cost) + update_cost
-        else
-          @query_plans.map{|query_plan| query_plan[ts]}.flatten(1).compact.sum_by(&:cost) + update_cost
-        end
+      def cost
+          @query_plans.sum_by(&:cost) + update_cost
       end
 
       private

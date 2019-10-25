@@ -4,14 +4,16 @@ module NoSE
   module Search
     # A container for results from a schema search
     class TimeDependResults < Results
-      attr_accessor :timesteps, :migrate_plans, :each_total_cost
+      attr_accessor :timesteps, :migrate_plans, :time_depend_plans, :time_depend_indexes, :time_depend_update_plans, :each_total_cost
 
       def initialize(problem = nil, by_id_graph = false)
         @problem = problem
-        @timesteps = problem.timesteps
         return if problem.nil?
+        @timesteps = problem.timesteps
         @by_id_graph = by_id_graph
         @migrate_plans = []
+        @time_depend_plans = []
+        @each_indexes = []
 
         # Find the indexes the ILP says the query should use
         @query_indexes = Hash.new
@@ -41,10 +43,8 @@ module NoSE
           plan_all_timesteps.each do |plan_each_timestep|
             plan_each_timestep.each {|plan| plan.update_steps.each { |s| s.calculate_cost new_cost_model }}
             plan_each_timestep.each do |plan|
-              plan.query_plans.each do |query_plan_all_timestep|
-                query_plan_all_timestep.compact.each do |query_plan|
-                  query_plan.each { |s| s.calculate_cost new_cost_model }
-                end
+              plan.query_plans.each do |query_plan|
+                query_plan.each { |s| s.calculate_cost new_cost_model }
               end
             end
           end
@@ -78,7 +78,7 @@ module NoSE
         update_cost = (@update_plans || {}).map do |_, plans_all_timestep|
           plans_all_timestep.each_with_index.map do |plans_each_timestep, ts|
             plans_each_timestep.map do |update_plan|
-              update_plan.cost(ts) * @workload.statement_weights[update_plan.statement][ts]
+              update_plan.cost * @workload.statement_weights[update_plan.statement][ts]
             end.sum
           end
         end
@@ -120,6 +120,19 @@ module NoSE
         end
       end
 
+      def set_time_depend_indexes
+        indexes_all_timestep = @indexes.map do |index|
+          EachTimeStepIndexes.new(index)
+        end
+        @time_depend_indexes = TimeDependIndexes.new(indexes_all_timestep)
+      end
+
+      def set_time_depend_update_plans
+        @time_depend_update_plans = @update_plans.map do |update, plans|
+          Plans::TimeDependUpdatePlan.new(update, plans)
+        end
+      end
+
       # Select the relevant update plans
       # @return [void]
       def set_update_plans(_update_plans)
@@ -136,14 +149,13 @@ module NoSE
           plans.each_with_index do |plans_each_timestep, ts|
             plans_each_timestep.each do |plan|
               plan.select_query_plans(timestep: ts, &self.method(:select_plan))
+              plan.query_plans = plan.query_plans.map {|p| p[ts]} # we only need query_plan for the timestep
             end
           end
         end
 
         # TODO: update_plans here need to be an array of timesteps
         @update_plans = update_plans
-
-        calculate_cost_each_timestep
       end
 
       # get the query plans for all timesteps for the query as parameter
@@ -153,18 +165,7 @@ module NoSE
         query = plans.compact.first.query
         plans.each_cons(2).to_a.each_with_index do |(form, nex), ind|
           next if form == nex or form.nil? or nex.nil?
-          @migrate_plans << MigratePlan.new(query, ind, ind + 1, form, nex)
-        end
-      end
-
-      class MigratePlan
-        attr_reader :query, :start_time, :end_time, :obsolete_plan, :new_plan
-        def initialize(query, start_time, end_time, obsolete_plan, new_plan)
-          @query = query
-          @start_time = start_time
-          @end_time = end_time
-          @obsolete_plan = obsolete_plan
-          @new_plan = new_plan
+          @migrate_plans << Plans::MigratePlan.new(query, ind, ind + 1, form, nex)
         end
       end
 
@@ -182,6 +183,18 @@ module NoSE
         check_indexes.each do |check_indexes_one_timestep|
           fail InvalidResultsException unless \
           (check_indexes_one_timestep - @enumerated_indexes).empty?
+        end
+      end
+
+      # Ensure that all the query plans use valid indexes
+      # @return [void]
+      def validate_query_indexes(plans)
+        plans.each do |plan|
+          plan.each do |step|
+            valid_plan = !step.is_a?(Plans::IndexLookupPlanStep) ||
+              @indexes.reduce(Set.new){|b, n| b.merge(n)}.include?(step.index)
+            fail InvalidResultsException unless valid_plan
+          end
         end
       end
 
@@ -222,15 +235,22 @@ module NoSE
 
       # Validate the query plans from the original workload
       # @return [void]
-      def validate_query_plans(plans)
+      def validate_query_plans(plans_all_timestep)
         # Check that these indexes are actually used by the query
-        plans.each do |plan|
-          plan.each_with_index do |plan_one_step, ts|
-            next if plan.compact.first.query.is_a? (SupportQuery) and plan_one_step.nil?
-
+        plans_all_timestep.each do |plan_each_timestep|
+          plan_each_timestep.each_with_index do |plan, ts|
             fail InvalidResultsException unless \
-            plan_one_step.indexes.to_set == @query_indexes[plan_one_step.query][ts]
+            plan.indexes.to_set == @query_indexes[plan.query][ts]
           end
+        end
+      end
+
+      # Validate the query plans from the original workload
+      # @return [void]
+      def validate_support_query_plans(plans, timestep)
+        plans.each do |plan|
+          fail InvalidResultsException unless \
+            plan.indexes.to_set == @query_indexes[plan.query][timestep]
         end
       end
 
@@ -238,11 +258,11 @@ module NoSE
       # @return [void]
       def validate_update_plans
         @update_plans.each do |_, plans_all_time|
-          plans_all_time.each do |plans_each_time|
+          plans_all_time.each_with_index do |plans_each_time, timestep|
             plans_each_time.each do |plan|
               plan.instance_variable_set :@workload, @workload
 
-              validate_query_plans plan.query_plans
+              validate_support_query_plans plan.query_plans, timestep
             end
           end
         end
