@@ -537,7 +537,14 @@ module NoSE
       include Uber::Callable
 
       def call(_, fragment:, represented:, **)
-        Plans::TimeDependPlan.new(fragment['query'], fragment['plans'])
+        represented.indexes = represented.time_depend_indexes.indexes_all_timestep.map do |each_time_index|
+          each_time_index.indexes
+        end.flatten(1).to_set
+        plans = fragment['plans'].map do |plan_hash|
+          QueryPlanBuilder.new.call(_, fragment: plan_hash, represented: represented)
+        end
+
+        Plans::TimeDependPlan.new(fragment['query'], plans)
       end
     end
 

@@ -9,13 +9,14 @@ module NoSE
   # A representation of a query workload over a given set of entities
   class TimeDependWorkload < Workload
 
-    attr_accessor :timesteps, :interval
+    attr_accessor :timesteps, :interval, :is_static
 
     def initialize(model = nil, &block)
       @statement_weights = { default: {} }
       @model = model || Model.new
       @mix = :default
       @interval = 3600 # set seconds in an hour as default
+      @is_static = false
 
       # Apply the DSL
       TimeDependWorkloadDSL.new(self).instance_eval(&block) if block_given?
@@ -39,9 +40,15 @@ module NoSE
         fail "Frequency cannot become 0 for #{statement.text}" if weight.include?(0) or frequency&.include?(0)
         # ensure that all query has the same # of timesteps
         fail if @statement_weights[mix].map{|_, weights| weights.size}.uniq.size > 1
-        @statement_weights[mix][statement] = frequency.nil? ? weight.map{|f| f * @interval} : frequency.map{|f| f * @interval}
+        frequencies = (frequency.nil? ? weight : frequency).map{|f| f * @interval}
+        @statement_weights[mix][statement] = is_static ? average_array(frequencies) : frequencies
       end
+    end
 
+    private
+
+    def average_array(values)
+      [values.sum / values.length] * values.length
     end
   end
 
@@ -54,6 +61,11 @@ module NoSE
 
     def Interval(seconds)
       @workload.interval = seconds
+    end
+
+    def Static(is_static)
+      puts "\e[31mexecute optimization for average weight\e[0m"
+      @workload.is_static = is_static
     end
   end
 end
