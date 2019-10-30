@@ -45,6 +45,37 @@ module NoSE
       end
     end
 
+    # Get all the support queries for updates in the workload
+    # @return[Array<Statement>]
+    def migrate_support_queries(index)
+      # Get all fields which need to be selected by support queries
+      select = index.all_fields
+      return [] if select.empty?
+
+      # Build conditions by traversing the foreign keys
+      conditions = index.hash_fields.map do |c|
+        next unless index.graph.entities.include? c.parent
+
+        Condition.new c.parent.id_field, '='.to_sym, nil
+      end.compact
+      conditions = Hash[conditions.map do |condition|
+        [condition.field.id, condition]
+      end]
+
+      params = {
+        select: select,
+        graph: index.graph,
+        key_path: index.graph.longest_path,
+        entity: index.graph.entities,
+        conditions: conditions
+      }
+
+      cql = "SELECT #{index.all_fields.map { |f| "#{f.parent.name}.#{f.name}" }.join ', '} FROM " \
+                "#{index.graph.entities.map{|e| e.name}.join '.'} WHERE #{index.hash_fields.map{|f| "#{f.parent.name}.#{f.name} = ?" }.join ' and '}"
+
+      Query.new(params, cql)
+    end
+
     private
 
     def average_array(values)

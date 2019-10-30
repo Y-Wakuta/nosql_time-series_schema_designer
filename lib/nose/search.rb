@@ -41,6 +41,7 @@ module NoSE
         query_weights = combine_query_weights indexes
         costs, trees = query_costs query_weights, indexes
         update_costs, update_plans = update_costs trees, indexes
+        migrate_preparing_plans = get_migrate_preparing_plans(indexes)
 
         log_search_start costs, query_weights
 
@@ -102,6 +103,7 @@ module NoSE
           result.set_time_depend_plans
           result.set_time_depend_indexes
           result.set_time_depend_update_plans
+          result.set_migrate_preparing_plans migrate_preparing_plans
         end
 
         result.validate
@@ -187,6 +189,18 @@ module NoSE
         end]
 
         [costs, results.map(&:last)]
+      end
+
+      def get_migrate_preparing_plans(indexes)
+        migrate_plans = {}
+        planner = Plans::QueryPlanner.new @workload, indexes, @cost_model
+        indexes.each do |index|
+          migrate_support_query = @workload.migrate_support_queries(index)
+          # TODO: migrate support query executed only once, therefore treat this as free
+          _, tree = query_cost planner, migrate_support_query, 0
+          migrate_plans[index] = tree
+        end
+        migrate_plans
       end
 
       # Get the cost for indices for an individual query

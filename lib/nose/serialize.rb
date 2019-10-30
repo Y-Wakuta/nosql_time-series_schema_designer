@@ -506,16 +506,28 @@ module NoSE
       include Uber::Callable
 
       def call(_, fragment:, represented:, **)
-        update_plans_hashs = fragment['plans_all_timestep'].map{|plan_each_timestep| plan_each_timestep.values}.flatten
+        update_plans_hashs = fragment['plans_all_timestep'].map{|plan_each_timestep| plan_each_timestep.values}.flatten(1)
         represented.indexes = represented.time_depend_indexes.indexes_all_timestep.map do |each_time_step_indexes|
           each_time_step_indexes.indexes
         end.flatten(1).uniq!
 
         plans_all_timestep = update_plans_hashs.map do |update_plans_hash|
-          UpdatePlanBuilder.new.call(_, fragment: update_plans_hash, represented: represented)
+          update_plans_hash.map do |uph|
+            UpdatePlanBuilder.new.call(_, fragment: uph, represented: represented)
+          end
         end
 
         Plans::TimeDependUpdatePlan.new(fragment['statement'],plans_all_timestep)
+      end
+    end
+
+    class MigratePreparePlanBuilder
+      include Uber::Callable
+
+      def call(_, fragment:, represented:, **)
+        index = IndexBuilder.new.call(_, fragment: fragment['index'], represented: represented)
+        query_plan = QueryPlanBuilder.new.call(_, fragment: fragment['query_plan'], represented: represented)
+        Plans::MigratePreparePlan.new(index, query_plan)
       end
     end
 
@@ -528,8 +540,11 @@ module NoSE
         end.flatten(1).uniq!
         obsolete_plan = QueryPlanBuilder.new.call(_, fragment: fragment['obsolete_plan'], represented: represented)
         new_plan = QueryPlanBuilder.new.call(_, fragment: fragment['new_plan'], represented: represented)
-        Plans::MigratePlan.new(fragment['query'], fragment['start_time'],
-                               fragment['end_time'], obsolete_plan, new_plan)
+        migrate_plan = Plans::MigratePlan.new(fragment['query'], fragment['start_time'], obsolete_plan, new_plan)
+        migrate_plan.prepare_plans = fragment['prepare_plans'].map do |prepare_plan|
+          MigratePreparePlanBuilder.new.call(_, fragment: prepare_plan, represented: represented)
+        end
+        migrate_plan
       end
     end
 
@@ -681,6 +696,8 @@ module NoSE
 
       def call(_, represented:, fragment:, **)
         workload = represented.workload
+
+        return nil if fragment.nil?
 
         if fragment['query'].nil?
           query = OpenStruct.new group: fragment['group']
@@ -866,6 +883,16 @@ module NoSE
       property :command, exec_context: :decorator
     end
 
+    class PreparePlanRepresenter < Representable::Decorator
+      include Representable::JSON
+      include Representable::YAML
+      include Representable::Hash
+      include Representable::Uncached
+
+      property :index, decorator: FullIndexRepresenter, deserialize: IndexBuilder.new
+      property :query_plan, decorator: QueryPlanRepresenter, deserialize: QueryPlanBuilder.new
+    end
+
     class MigratePlanRepresenter < Representable::Decorator
       include Representable::JSON
       include Representable::YAML
@@ -877,6 +904,7 @@ module NoSE
       property :query, decorator: StatementRepresenter
       property :start_time
       property :end_time
+      collection :prepare_plans, decorator: PreparePlanRepresenter, class: Plans::MigratePreparePlan
     end
 
     # Represent results of a search operation
