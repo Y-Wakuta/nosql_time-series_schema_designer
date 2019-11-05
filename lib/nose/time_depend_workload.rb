@@ -53,7 +53,7 @@ module NoSE
       return [] if select.empty?
 
       # Build conditions by traversing the foreign keys
-      conditions = index.hash_fields.map do |c|
+      conditions = (index.hash_fields + index.order_fields).map do |c|
         next unless index.graph.entities.include? c.parent
 
         Condition.new c.parent.id_field, '='.to_sym, nil
@@ -69,11 +69,9 @@ module NoSE
         entity: index.graph.entities,
         conditions: conditions
       }
-
-      cql = "SELECT #{index.all_fields.map { |f| "#{f.parent.name}.#{f.name}" }.join ', '} FROM " \
-                "#{index.graph.entities.map{|e| e.name}.join '.'} WHERE #{index.hash_fields.map{|f| "#{f.parent.name}.#{f.name} = ?" }.join ' and '}"
-
-      Query.new(params, cql)
+      query = Query.new(params, nil, group: "PrepareQuery")
+      query.set_text
+      query
     end
 
     private

@@ -41,7 +41,6 @@ module NoSE
         query_weights = combine_query_weights indexes
         costs, trees = query_costs query_weights, indexes
         update_costs, update_plans = update_costs trees, indexes
-        migrate_preparing_plans = get_migrate_preparing_plans(indexes)
 
         log_search_start costs, query_weights
 
@@ -103,7 +102,7 @@ module NoSE
           result.set_time_depend_plans
           result.set_time_depend_indexes
           result.set_time_depend_update_plans
-          result.set_migrate_preparing_plans migrate_preparing_plans
+          result.set_migrate_preparing_plans(get_migrate_preparing_plans(indexes))
         end
 
         result.validate

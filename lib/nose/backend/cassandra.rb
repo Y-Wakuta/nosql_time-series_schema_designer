@@ -99,10 +99,13 @@ module NoSE
 
       def get_all_data(index)
         query = "SELECT * FROM \"#{index.key}\" ALLOW FILTERING"
-        tmp = client.execute(query)
+        merge_to_one_hash(client.execute(query))
+      end
+
+      def merge_to_one_hash(rows)
         res = {}
-        tmp.first.keys.each {|k| res[k] = []}
-        tmp.each do |row|
+        rows.first.keys.each {|k| res[k] = []}
+        rows.each do |row|
           row.each { |k, v| res[k] << v }
         end
         res
@@ -134,10 +137,10 @@ module NoSE
       end
 
       # Sample a number of values from the given index
-      def index_sample(index, count)
+      def index_sample(index, count = nil)
         field_list = index.all_fields.map { |f| "\"#{f.id}\"" }
         query = "SELECT #{field_list.join ', '} " \
-                "FROM \"#{index.key}\" LIMIT #{count}"
+                "FROM \"#{index.key}\" #{("LIMIT " + count.to_s) unless count.nil?}"
         rows = client.execute(query).rows
 
         # XXX Ignore null values for now

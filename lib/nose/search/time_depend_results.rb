@@ -109,7 +109,6 @@ module NoSE
         fail InvalidResultsException if plan_all_times.any?{|plan| plan.nil?} and not query.is_a?(SupportQuery)
 
         plan_all_times.compact.each {|plan| plan.instance_variable_set :@workload, @workload}
-        set_migrate_plan(plan_all_times)
 
         plan_all_times
       end

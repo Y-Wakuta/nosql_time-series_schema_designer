@@ -55,6 +55,12 @@ module NoSE
       query
     end
 
+    # set text by other parameter values
+    def set_text
+      @text = unparse
+      super @text
+    end
+
     def ==(other)
       other.is_a?(Query) &&
         @graph == other.graph &&
