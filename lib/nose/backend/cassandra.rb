@@ -237,6 +237,10 @@ module NoSE
         def process(results)
           results.each do |result|
             fields = @index.all_fields.select { |field| result.key? field.id }
+
+            # sort fields according to the Insert
+            fields.sort_by!{|field| @prepared.cql.index(field.id)}
+
             values = fields.map do |field|
               value = result[field.id]
 
