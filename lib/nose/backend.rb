@@ -225,7 +225,7 @@ module NoSE
 
         # Filter results by a list of fields given in the step
         # @return [Array<Hash>]
-        def process(conditions, results)
+        def process(conditions, results, _ = nil)
           # Extract the equality conditions
           eq_conditions = conditions.values.select do |condition|
             !condition.range? && @step.eq.include?(condition.field)
@@ -267,7 +267,7 @@ module NoSE
 
         # Sort results by a list of fields given in the step
         # @return [Array<Hash>]
-        def process(_conditions, results)
+        def process(_conditions, results, _ = nil)
           results.sort_by! do |row|
             @step.sort_fields.map do |field|
               row[field.id]
@@ -285,7 +285,7 @@ module NoSE
 
         # Remove results past the limit
         # @return [Array<Hash>]
-        def process(_conditions, results)
+        def process(_conditions, results, _ = nil)
           results[0..@limit - 1]
         end
       end
@@ -378,7 +378,7 @@ module NoSE
           else
             field_conds = conditions
           end
-          results = step.process field_conds, results
+          results = step.process field_conds, results, conditions
 
           # The query can't return any results at this point, so we're done
           break if results.empty?
