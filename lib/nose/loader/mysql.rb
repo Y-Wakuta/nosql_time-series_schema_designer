@@ -87,16 +87,7 @@ module NoSE
                     client.query(sql).map { |row| hash_from_row row, fields }
                   end
 
-        result_chunk = []
-        results.each do |result|
-          result_chunk.push result
-          next if result_chunk.length < 1000
-
-          @backend.index_insert_chunk index, result_chunk
-          result_chunk = []
-        end
-        @backend.index_insert_chunk index, result_chunk \
-          unless result_chunk.empty?
+        @backend.index_insert(index, results)
       end
 
       # Construct a hash from the given row returned by the client

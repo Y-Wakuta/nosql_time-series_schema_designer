@@ -498,6 +498,10 @@ module NoSE
         "#{field_namer.call condition.field} #{condition.operator} #{value}"
       end.join(' AND ')
     end
+
+    def set_text(text)
+      @text = text
+    end
   end
 
   # The setting of a field from an {Update} statement

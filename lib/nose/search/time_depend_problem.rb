@@ -115,7 +115,6 @@ module NoSE
         @selected_indexes
       end
 
-
       # Get the size of all indexes in the workload
       # @return [Array]
       def total_size_each_timestep

@@ -109,7 +109,6 @@ module NoSE
         fail InvalidResultsException if plan_all_times.any?{|plan| plan.nil?} and not query.is_a?(SupportQuery)
 
         plan_all_times.compact.each {|plan| plan.instance_variable_set :@workload, @workload}
-        set_migrate_plan(plan_all_times)
 
         plan_all_times
       end
@@ -130,6 +129,43 @@ module NoSE
       def set_time_depend_update_plans
         @time_depend_update_plans = @update_plans.map do |update, plans|
           Plans::TimeDependUpdatePlan.new(update, plans)
+        end
+      end
+
+      def get_prepare_plans(plan, migrate_prepare_plans ,timestep)
+        prepare_plans = []
+        plan.each do |step|
+          next unless step.is_a?(Plans::IndexLookupPlanStep)
+          possible_plans = migrate_prepare_plans[step.index].select do |query_plan|
+            query_plan.select {|step| step.is_a?(Plans::IndexLookupPlanStep)} \
+                          .all? {|step| @indexes[timestep].include? step.index }
+          end
+          prepare_plans << Plans::MigratePreparePlan.new(step.index, possible_plans.sort_by {|qp| qp.cost}.first)
+        end
+        prepare_plans
+      end
+
+      def set_migrate_preparing_plans(migrate_prepare_plans)
+        @time_depend_plans.each do |tdp|
+          tdp.plans.each_cons(2).to_a.each_with_index do |(obsolete_plan, new_plan), ind|
+            next if obsolete_plan == new_plan
+            migrate_plan = Plans::MigratePlan.new(tdp.query, ind,  obsolete_plan, new_plan)
+            migrate_plan.prepare_plans = get_prepare_plans(new_plan, migrate_prepare_plans, ind)
+            @migrate_plans << migrate_plan
+          end
+        end
+
+        @time_depend_update_plans.each do |tdup|
+          tdup.plans_all_timestep.each_cons(2).to_a.each_with_index do |(obsolete_tdupet, new_tdupet), ind|
+            obsolete_query_plans = obsolete_tdupet.plans.map{|p| p.query_plans}.compact.flatten(1)
+            new_query_plans = new_tdupet.plans.map{|p| p.query_plans}.compact.flatten(1)
+
+            (new_query_plans - obsolete_query_plans).each do |plan_2_create|
+              migrate_plan = Plans::MigratePlan.new(tdup.statement, ind, nil, plan_2_create)
+              migrate_plan.prepare_plans = get_prepare_plans(plan_2_create, migrate_prepare_plans, ind)
+              @migrate_plans << migrate_plan
+            end
+          end
         end
       end
 
@@ -156,17 +192,6 @@ module NoSE
 
         # TODO: update_plans here need to be an array of timesteps
         @update_plans = update_plans
-      end
-
-      # get the query plans for all timesteps for the query as parameter
-      # @param [Array]
-      # @return [void]
-      def set_migrate_plan(plans)
-        query = plans.compact.first.query
-        plans.each_cons(2).to_a.each_with_index do |(form, nex), ind|
-          next if form == nex or form.nil? or nex.nil?
-          @migrate_plans << Plans::MigratePlan.new(query, ind, ind + 1, form, nex)
-        end
       end
 
       private

@@ -23,26 +23,40 @@ module NoSE
         @generator.uuid
       end
 
+      def create_index(index, execute = false, skip_existing = false)
+        ddl = index_cql index
+        begin
+          @client.execute(ddl) if execute
+        rescue Cassandra::Errors::AlreadyExistsError => exc
+          return if skip_existing
+
+          new_exc = IndexAlreadyExists.new exc.message
+          new_exc.set_backtrace exc.backtrace
+          raise new_exc
+        end
+
+        ddl
+      end
+
+      def recreate_index(index, execute = false, skip_existing = false,
+                         drop_existing = false)
+        drop_index(index) if drop_existing && index_exists?(index)
+        create_index(index, execute, skip_existing)
+      end
+
       # Produce the DDL necessary for column families for the given indexes
       # and optionally execute them against the server
       def indexes_ddl(execute = false, skip_existing = false,
                       drop_existing = false)
-        Enumerator.new do |enum|
-          @indexes.map do |index|
-            ddl = index_cql index
-            enum.yield ddl
+        create_indexes(@indexes, execute, skip_existing, drop_existing)
+      end
 
-            begin
-              drop_index(index) if drop_existing && index_exists?(index)
-              client.execute(ddl) if execute
-            rescue Cassandra::Errors::AlreadyExistsError => exc
-              next if skip_existing
-
-              new_exc = IndexAlreadyExists.new exc.message
-              new_exc.set_backtrace exc.backtrace
-              raise new_exc
-            end
-          end
+      # Produce the DDL necessary for column families for the given indexes
+      # and optionally execute them against the server
+      def create_indexes(indexes, execute = false, skip_existing = false,
+                                     drop_existing = false)
+        indexes.map do |index|
+          recreate_index(index, execute, skip_existing, drop_existing)
         end
       end
 
@@ -69,6 +83,34 @@ module NoSE
         ids
       end
 
+      def index_insert(index, results)
+        result_chunk = []
+        STDERR.puts "load data to index: \e[35m#{index.key} \e[0m"
+        results.each do |result|
+          result_chunk.push result
+          next if result_chunk.length < 1000
+
+          index_insert_chunk index, result_chunk
+          result_chunk = []
+        end
+        index_insert_chunk index, result_chunk \
+          unless result_chunk.empty?
+      end
+
+      def get_all_data(index)
+        query = "SELECT * FROM \"#{index.key}\" ALLOW FILTERING"
+        merge_to_one_hash(client.execute(query))
+      end
+
+      def merge_to_one_hash(rows)
+        res = {}
+        rows.first.keys.each {|k| res[k] = []}
+        rows.each do |row|
+          row.each { |k, v| res[k] << v }
+        end
+        res
+      end
+
       # Check if the given index is empty
       def index_empty?(index)
         query = "SELECT COUNT(*) FROM \"#{index.key}\" LIMIT 1"
@@ -77,20 +119,28 @@ module NoSE
 
       # Check if a given index exists in the target database
       def index_exists?(index)
-        client
-        @cluster.keyspace(@keyspace).has_table? index.key
+        client()
+        tables = @client.execute("SELECT table_name FROM system_schema.tables WHERE keyspace_name='#{@keyspace}'").to_a.map{|t| t.values}.flatten
+        tables.include? index.key
       end
 
       # Check if a given index exists in the target database
       def drop_index(index)
-        client.execute "DROP TABLE \"#{index.key}\""
+        @client.execute "DROP TABLE \"#{index.key}\""
+      end
+
+      def clear_keyspace
+        client()
+        @cluster.keyspace(@keyspace).tables.map(&:name).each do |index_key|
+          client.execute("DROP TABLE #{index_key}")
+        end
       end
 
       # Sample a number of values from the given index
-      def index_sample(index, count)
+      def index_sample(index, count = nil)
         field_list = index.all_fields.map { |f| "\"#{f.id}\"" }
         query = "SELECT #{field_list.join ', '} " \
-                "FROM \"#{index.key}\" LIMIT #{count}"
+                "FROM \"#{index.key}\" #{("LIMIT " + count.to_s) unless count.nil?}"
         rows = client.execute(query).rows
 
         # XXX Ignore null values for now
@@ -187,6 +237,10 @@ module NoSE
         def process(results)
           results.each do |result|
             fields = @index.all_fields.select { |field| result.key? field.id }
+
+            # sort fields according to the Insert
+            fields.sort_by!{|field| @prepared.cql.index(field.id)}
+
             values = fields.map do |field|
               value = result[field.id]
 
@@ -281,10 +335,10 @@ module NoSE
         # rubocop:enable Metrics/ParameterLists
 
         # Perform a column family lookup in Cassandra
-        def process(conditions, results)
+        def process(conditions, results, query_conditions)
           results = initial_results(conditions) if results.nil?
           condition_list = result_conditions conditions, results
-          new_result = fetch_all_queries condition_list, results
+          new_result = fetch_all_queries condition_list, results, query_conditions
 
           # Limit the size of the results in case we fetched multiple keys
           new_result[0..(@step.limit.nil? ? -1 : @step.limit)]
@@ -335,7 +389,7 @@ module NoSE
 
         # Lookup values from an index selecting the given
         # fields and filtering on the given conditions
-        def fetch_all_queries(condition_list, results)
+        def fetch_all_queries(condition_list, results, query_conditions)
           new_result = []
           @logger.debug { "  #{@prepared.cql} * #{condition_list.size}" }
 
@@ -343,7 +397,7 @@ module NoSE
           # Limit the total number of queries as well as the query limit
           condition_list.zip(results).each do |condition_set, result|
             # Loop over all pages to fetch results
-            values = lookup_values condition_set
+            values = lookup_values condition_set, query_conditions
             fetch_query_pages values, new_result, result
 
             # Don't continue with further queries
@@ -373,10 +427,10 @@ module NoSE
         end
 
         # Produce the values used for lookup on a given set of conditions
-        def lookup_values(condition_set)
+        def lookup_values(condition_set,query_conditions)
           condition_set.map do |condition|
             value = condition.value ||
-                    conditions[condition.field.id].value
+              query_conditions[condition.field.id].value
             fail if value.nil?
 
             if condition.field.is_a?(Fields::IDField)

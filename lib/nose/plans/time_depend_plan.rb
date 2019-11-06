@@ -2,13 +2,14 @@ module NoSE
   module Plans
 
     class MigratePlan
-      attr_accessor :query, :start_time, :end_time, :obsolete_plan, :new_plan
-      def initialize(query, start_time, end_time, obsolete_plan, new_plan)
+      attr_accessor :query, :start_time, :end_time, :obsolete_plan, :new_plan, :prepare_plans
+      def initialize(query, start_time, obsolete_plan, new_plan)
         @query = query
         @start_time = start_time
-        @end_time = end_time
+        @end_time = start_time + 1
         @obsolete_plan = obsolete_plan
         @new_plan = new_plan
+        @prepare_plans = []
       end
     end
 
@@ -24,6 +25,14 @@ module NoSE
       attr_accessor :plans
       def initialize(plans)
         @plans = plans
+      end
+    end
+
+    class MigratePreparePlan
+      attr_accessor :index, :query_plan
+      def initialize(index, query_plan)
+        @index = index
+        @query_plan = query_plan
       end
     end
 
