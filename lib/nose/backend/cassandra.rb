@@ -85,7 +85,7 @@ module NoSE
 
       def index_insert(index, results)
         result_chunk = []
-        puts "load data to index: \e[35m#{index.key} \e[0m"
+        STDERR.puts "load data to index: \e[35m#{index.key} \e[0m"
         results.each do |result|
           result_chunk.push result
           next if result_chunk.length < 1000
