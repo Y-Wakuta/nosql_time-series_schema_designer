@@ -126,6 +126,7 @@ module NoSE
 
       # Check if a given index exists in the target database
       def drop_index(index)
+        client()
         @client.execute "DROP TABLE \"#{index.key}\""
       end
 

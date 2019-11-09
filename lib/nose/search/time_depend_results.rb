@@ -132,10 +132,31 @@ module NoSE
         end
       end
 
+      def indexes_used_in_plans(timestep)
+        indexes_query = @time_depend_plans
+                          .map{|tdp| tdp.plans[timestep]}
+                          .map(&:indexes)
+                          .flatten(1)
+        indexes_support_query = @time_depend_update_plans
+                                  .map{|tdup| tdup.plans_all_timestep[timestep]
+                                                .plans
+                                                .map(&:query_plans)}
+                                  .flatten(2)
+                                  .map(&:indexes)
+                                  .flatten(1)
+        indexes_query + indexes_support_query
+      end
+
       def get_prepare_plans(plan, migrate_prepare_plans ,timestep)
         prepare_plans = []
         plan.each do |step|
           next unless step.is_a?(Plans::IndexLookupPlanStep)
+
+          indexes_for_this_timestep = indexes_used_in_plans(timestep)
+
+          # if the index already exists, we do not need to create the index
+          next if indexes_for_this_timestep.include? step.index
+
           possible_plans = migrate_prepare_plans[step.index].select do |query_plan|
             query_plan.select {|step| step.is_a?(Plans::IndexLookupPlanStep)} \
                           .all? {|step| @indexes[timestep].include? step.index }
