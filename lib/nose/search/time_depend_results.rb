@@ -161,7 +161,12 @@ module NoSE
             query_plan.select {|step| step.is_a?(Plans::IndexLookupPlanStep)} \
                           .all? {|step| @indexes[timestep].include? step.index }
           end
-          prepare_plans << Plans::MigratePreparePlan.new(step.index, possible_plans.sort_by {|qp| qp.cost}.first)
+
+          # if min_plan has the same index as the target index, this prepare plan is unnecessary
+          min_plan = possible_plans.sort_by {|qp| qp.cost}.first
+          next if min_plan.indexes.length == 1 and min_plan.indexes.first == step.index
+
+          prepare_plans << Plans::MigratePreparePlan.new(step.index, min_plan)
         end
         prepare_plans
       end
@@ -184,6 +189,7 @@ module NoSE
             (new_query_plans - obsolete_query_plans).each do |plan_2_create|
               migrate_plan = Plans::MigratePlan.new(tdup.statement, ind, nil, plan_2_create)
               migrate_plan.prepare_plans = get_prepare_plans(plan_2_create, migrate_prepare_plans, ind)
+              next if migrate_plan.prepare_plans.empty?
               @migrate_plans << migrate_plan
             end
           end
