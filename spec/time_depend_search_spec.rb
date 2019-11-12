@@ -147,6 +147,42 @@ module NoSE
 
         expect(td_result.total_cost).to eq (result.total_cost * interval * timesteps)
       end
+
+      it 'migrate plan is not set when the workload is static' do
+        ts = timesteps
+        td_workload_static = TimeDependWorkload.new do
+          TimeSteps ts
+          Static true
+
+          (Entity 'users' do
+            ID         'id'
+            String     'firstname', 6
+            String     'lastname', 7
+            String     'rating', 23
+          end) * 2_000
+
+          (Entity 'items' do
+            ID         'id'
+            String     'name', 19
+            String     'description', 197
+            Integer    'quantity', count: 100
+          end) * 20_000
+
+          Group 'Test1', 0.5, default: [0.01, 0.5, 9] do
+            Q 'SELECT users.* FROM users WHERE users.id = ? -- 0'
+            Q 'SELECT items.* FROM items WHERE items.id=? -- 2'
+          end
+        end
+
+        query_increase = 'SELECT users.* FROM users WHERE users.rating=? -- 1'
+        query_decrease = 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
+        td_workload_static.add_statement query_increase, frequency: [0.01, 0.5, 9]
+        td_workload_static.add_statement query_decrease, frequency: [9, 0.5, 0.01]
+        indexes = IndexEnumerator.new(td_workload_static).indexes_for_workload.to_a
+        result = Search.new(td_workload_static, cost_model).search_overlap indexes, 9800000
+
+        expect(result.migrate_plans.size).to eq 0
+      end
     end
   end
 end
