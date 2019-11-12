@@ -101,7 +101,7 @@ module NoSE
         step_class = CassandraBackend::IndexLookupStatementStep
         prepared = step_class.new client, query.all_fields, query.conditions,
                                   step, nil, step.parent
-        prepared.process query.conditions, nil
+        prepared.process query.conditions, nil, nil
       end
     end
 

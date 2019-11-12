@@ -110,7 +110,7 @@ module NoSE
         include RowMatcher
 
         # Filter all the rows in the specified index to those requested
-        def process(conditions, results)
+        def process(conditions, results, _)
           # Get the set of conditions we need to process
           results = initial_results(conditions) if results.nil?
           condition_list = result_conditions conditions, results

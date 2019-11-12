@@ -240,7 +240,7 @@ module NoSE
             fields = @index.all_fields.select { |field| result.key? field.id }
 
             # sort fields according to the Insert
-            fields.sort_by!{|field| @prepared.cql.index(field.id)}
+            fields.sort_by!{|field| @prepared.cql.index(field.id)} if @prepared.is_a? Cassandra::Statements::Prepared
 
             values = fields.map do |field|
               value = result[field.id]

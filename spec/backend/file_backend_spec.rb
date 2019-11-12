@@ -88,7 +88,7 @@ module NoSE
         step_class = FileBackend::IndexLookupStatementStep
         prepared = step_class.new index_data, query.all_fields,
                                   query.conditions, step, nil, step.parent
-        results = prepared.process query.conditions, nil
+        results = prepared.process query.conditions, nil, nil
 
         # Verify we get the result we started with
         expect(results).to eq index_data[index.key]
