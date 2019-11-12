@@ -184,7 +184,7 @@ module NoSE
         # rubocop:enable Metrics/ParameterLists
 
         # Perform a column family lookup in MongoDB
-        def process(conditions, results)
+        def process(conditions, results, _)
           results = initial_results(conditions) if results.nil?
           condition_list = result_conditions conditions, results
 
