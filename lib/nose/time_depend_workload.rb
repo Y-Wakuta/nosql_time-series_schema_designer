@@ -9,10 +9,10 @@ module NoSE
   # A representation of a query workload over a given set of entities
   class TimeDependWorkload < Workload
 
-    attr_accessor :timesteps, :interval, :is_static
+    attr_accessor :timesteps, :interval, :is_static, :time_depend_statement_weights
 
     def initialize(model = nil, &block)
-      @statement_weights = { default: {} }
+      @time_depend_statement_weights = { default: {} }
       @model = model || Model.new
       @mix = :default
       @interval = 3600 # set seconds in an hour as default
@@ -33,15 +33,30 @@ module NoSE
       mixes = { default: mixes } if mixes.is_a? Numeric
       mixes = { default: [1.0] * @timesteps } if mixes.empty?
       mixes.each do |mix, weight|
-        @statement_weights[mix] = {} unless @statement_weights.key? mix
+        @time_depend_statement_weights[mix] = {} unless @time_depend_statement_weights.key? mix
         fail "Frequency is required for #{statement.text}" if weight.nil? and frequency.nil?
         fail "number of Frequency should be same as timesteps for #{statement.text}" \
           unless weight.size == @timesteps or frequency&.size == @timestep
         fail "Frequency cannot become 0 for #{statement.text}" if weight.include?(0) or frequency&.include?(0)
         # ensure that all query has the same # of timesteps
-        fail if @statement_weights[mix].map{|_, weights| weights.size}.uniq.size > 1
+        fail if @time_depend_statement_weights[mix].map{|_, weights| weights.size}.uniq.size > 1
         frequencies = (frequency.nil? ? weight : frequency).map{|f| f * @interval}
-        @statement_weights[mix][statement] = is_static ? average_array(frequencies) : frequencies
+        @time_depend_statement_weights[mix][statement] = frequencies
+      end
+
+      sync_statement_weights
+    end
+
+    def sync_statement_weights
+      # deep copy the weight hash
+      @statement_weights = Marshal.load(Marshal.dump(@time_depend_statement_weights))
+
+      if @is_static # if this workload is static workload, overwrite the value of frequency by the average frequency
+        @time_depend_statement_weights.each do |mix, statements|
+          statements.each do |statement, frequencies|
+            @statement_weights[mix][statement] = average_array(frequencies)
+          end
+        end
       end
     end
 
@@ -72,6 +87,18 @@ module NoSE
       query = Query.new(params, nil, group: "PrepareQuery")
       query.set_text
       query
+    end
+
+    def time_depend_statement_weights
+      @time_depend_statement_weights[@mix]
+    end
+
+    # Strip the weights from the query dictionary and return a list of updates
+    # @return [Array<Statement>]
+    def updates
+      @time_depend_statement_weights[@mix].keys.reject do |statement|
+        statement.is_a? Query
+      end
     end
 
     private

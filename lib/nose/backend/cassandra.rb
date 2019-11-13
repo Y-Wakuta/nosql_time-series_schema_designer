@@ -85,7 +85,7 @@ module NoSE
 
       def index_insert(index, results)
         result_chunk = []
-        STDERR.puts "load data to index: \e[35m#{index.key} \e[0m"
+        #STDERR.puts "load data to index: \e[35m#{index.key}: #{index.hash_str} \e[0m"
         results.each do |result|
           result_chunk.push result
           next if result_chunk.length < 1000
@@ -240,7 +240,7 @@ module NoSE
             fields = @index.all_fields.select { |field| result.key? field.id }
 
             # sort fields according to the Insert
-            fields.sort_by!{|field| @prepared.cql.index(field.id)}
+            fields.sort_by!{|field| @prepared.cql.index(field.id)} if @prepared.is_a? Cassandra::Statements::Prepared
 
             values = fields.map do |field|
               value = result[field.id]

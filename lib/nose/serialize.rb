@@ -572,12 +572,14 @@ module NoSE
       collection :statements, decorator: StatementRepresenter
       property :mix
 
+      def workload_weights
+        represented.instance_variable_get(:@statement_weights)
+      end
+
       # Produce weights of each statement in the workload for each mix
       # @return [Hash]
       def weights
         weights = {}
-        workload_weights = represented \
-                           .instance_variable_get(:@statement_weights)
         workload_weights.each do |mix, mix_weights|
           weights[mix] = {}
           mix_weights.each do |statement, weight|
@@ -597,6 +599,11 @@ module NoSE
 
     class TimeDependWorkloadRepresenter < BasicWorkloadRepresenter
       collection :weights, exec_context: :decorator
+      property :is_static
+
+      def workload_weights
+        represented.instance_variable_get(:@time_depend_statement_weights)
+      end
     end
 
     # Represent entities in a model
@@ -637,6 +644,7 @@ module NoSE
         end
 
         workload.mix = fragment['mix'].to_sym unless fragment['mix'].nil?
+        workload.is_static = fragment['is_static'] if workload.is_a? TimeDependWorkload
 
         workload
       end
