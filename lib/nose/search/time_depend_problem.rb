@@ -25,6 +25,12 @@ module NoSE
         super(queries, updates, data, objective)
       end
 
+      def add_migration_cost(cost)
+        cost = add_migrate_update_costs cost
+        cost = add_creation_cost cost
+        cost = add_prepare_cost cost
+        cost
+      end
 
       # Get the cost of all queries in the workload
       # @return [MIPPeR::LinExpr]
@@ -42,10 +48,24 @@ module NoSE
         end
 
         cost = add_update_costs cost
-
-        cost = add_creation_cost cost
-        cost = add_prepare_cost cost
+        cost = add_migration_cost cost
         cost
+      end
+
+      # index which is during the preparing for the next timestep also need to be updated
+      def add_migrate_update_costs(min_cost)
+        @updates.each do |update|
+          @indexes.each do |index|
+            index = index.to_id_graph if data[:by_id_graph]
+            next unless update.modifies_index?(index)
+
+            # index which is during the preparing for the next timestep also need to be updated
+            (0...(@timesteps - 1)).each do |ts|
+              min_cost.add @migrate_vars[index][ts + 1] * @data[:update_costs][update][index][ts]
+            end
+          end
+        end
+        min_cost
       end
 
       # Deal with updates which do not require support queries
