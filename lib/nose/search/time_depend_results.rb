@@ -258,6 +258,13 @@ module NoSE
             plans_each_time.each do |plan|
               validate_query_indexes plan.query_plans
               valid_plan = @indexes[ts].include?(plan.index)
+
+              # allow updating the index in the next timestep if it is for the migration
+              if @problem.migrate_vars[plan.index][ts + 1]&.value
+                valid_plan_for_preparing = @indexes[ts + 1].include?(plan.index)
+                valid_plan ||= valid_plan_for_preparing
+              end
+
               fail InvalidResultsException unless valid_plan
             end
           end
