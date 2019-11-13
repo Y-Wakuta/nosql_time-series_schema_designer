@@ -94,11 +94,20 @@ module NoSE
 
             constr = MIPPeR::Constraint.new constraint + index_var * -1.0,
                                             :>=, 0, name
+            problem.model << constr
+
+            # execute update to migrate-preparing index
+            if (timestep + 1) < problem.timesteps
+              next_timestep_migrate_var = problem.migrate_vars[query.index]&.fetch(timestep + 1)
+              next if next_timestep_migrate_var.nil?
+              constr = MIPPeR::Constraint.new constraint + next_timestep_migrate_var * -1.0,
+                                              :>=, 0, name
+              problem.model << constr
+            end
           else
             constr = MIPPeR::Constraint.new constraint, :==, 1, name
+            problem.model << constr
           end
-
-          problem.model << constr
         end
       end
 
