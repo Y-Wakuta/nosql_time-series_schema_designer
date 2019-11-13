@@ -202,8 +202,10 @@ module NoSE
         update_plans = {}
         _update_plans.map do |update, plans|
           update_plans[update] = (0...@timesteps).map do |ts|
+            target_indexes = @indexes[ts]
+            target_indexes += @indexes[ts + 1] if (ts + 1) < @timesteps
             plans.select do |plan|
-              @indexes[ts].include? plan.index
+              target_indexes.include? plan.index
             end.map{|plan| plan.dup}
           end
         end
