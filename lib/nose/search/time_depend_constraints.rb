@@ -93,7 +93,7 @@ module NoSE
             next if index_var.nil?
 
             constr = MIPPeR::Constraint.new constraint + index_var * -1.0,
-                                            :==, 0, name
+                                            :>=, 0, name
           else
             constr = MIPPeR::Constraint.new constraint, :==, 1, name
           end
