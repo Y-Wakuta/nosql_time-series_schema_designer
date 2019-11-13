@@ -47,6 +47,10 @@ module NoSE
       end
       # :nocov:
 
+      def index_insert(index, results)
+        fail NotImplementedError
+      end
+
       # @abstract Subclasses implement to generate a new random ID
       # :nocov:
       # @return [Object]
