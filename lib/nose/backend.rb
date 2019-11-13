@@ -560,5 +560,3 @@ module NoSE
 end
 
 require_relative 'backend/cassandra'
-require_relative 'backend/file'
-require_relative 'backend/mongo'
