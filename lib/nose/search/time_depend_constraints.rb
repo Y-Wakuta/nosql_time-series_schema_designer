@@ -104,6 +104,9 @@ module NoSE
                                               :>=, 0, name
               problem.model << constr
             end
+
+            constr = MIPPeR::Constraint.new constraint, :<=, 1, name
+            problem.model << constr
           else
             constr = MIPPeR::Constraint.new constraint, :==, 1, name
             problem.model << constr
