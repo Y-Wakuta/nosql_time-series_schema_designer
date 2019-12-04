@@ -32,10 +32,10 @@ module NoSE
           break if args == :stop
 
           # execute the task
-          result = @block.call(*args)
+          @block.call(*args)
 
           # write the result to the pipe and notice the end of task
-          write_object(result, @child_write)
+          write_object(:done, @child_write) # stop working if we send too big message
         end
 
         @child_read.close
