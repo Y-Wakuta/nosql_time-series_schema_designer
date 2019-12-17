@@ -9,7 +9,7 @@ module NoSE
   # A representation of a query workload over a given set of entities
   class TimeDependWorkload < Workload
 
-    attr_accessor :timesteps, :interval, :is_static, :time_depend_statement_weights
+    attr_accessor :timesteps, :interval, :is_static, :time_depend_statement_weights, :include_migration_cost
 
     def initialize(model = nil, &block)
       @time_depend_statement_weights = { default: {} }
@@ -17,6 +17,7 @@ module NoSE
       @mix = :default
       @interval = 3600 # set seconds in an hour as default
       @is_static = false
+      @include_migration_cost = true
 
       # Apply the DSL
       TimeDependWorkloadDSL.new(self).instance_eval(&block) if block_given?
@@ -122,6 +123,11 @@ module NoSE
     def Static(is_static)
       puts "\e[31mexecute optimization for average weight\e[0m"
       @workload.is_static = is_static
+    end
+
+    def IncludeMigrationCost(include_migration_cost)
+      puts "ignore migration cost" unless include_migration_cost
+      @workload.include_migration_cost = include_migration_cost
     end
   end
 end

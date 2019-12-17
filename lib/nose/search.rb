@@ -127,7 +127,7 @@ module NoSE
       # @return [Results]
       def solve_mipper(queries, indexes, data)
         # Construct and solve the ILP
-        problem = @workload.is_a?(TimeDependWorkload) ? TimeDependProblem.new(queries, @workload.updates, data, @objective, @workload.timesteps)
+        problem = @workload.is_a?(TimeDependWorkload) ? TimeDependProblem.new(queries, @workload.updates, data, @objective, @workload.timesteps, @workload.include_migration_cost)
                     : Problem.new(queries, @workload.updates, data, @objective)
 
         problem.solve

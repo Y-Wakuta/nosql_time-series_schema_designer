@@ -9,16 +9,17 @@ NoSE::TimeDependWorkload.new do
   DefaultMix :default
   TimeSteps 3
   Interval 3600
+  IncludeMigrationCost false
 
   Group 'UsersInfo', 1.0, default: [0.001, 0.5, 9] do
     Q 'SELECT users.* FROM users WHERE users.id = ? -- 8'
     Q 'SELECT users.* FROM users WHERE users.rating = ? -- 8'
-    Q 'UPDATE users SET rating=? WHERE users.id=? -- 27'
+    #Q 'UPDATE users SET rating=? WHERE users.id=? -- 27'
   end
 
   Group 'ItemsInfo', 1.0, default: [9, 0.5, 0.001] do
     Q 'SELECT items.* FROM items WHERE items.id=? -- 13'
     Q 'SELECT items.* FROM items WHERE items.quantity=? -- 13 LIMIT 1'
-    Q 'UPDATE items SET nb_of_bids=? WHERE items.id=? -- 22'
+    #Q 'UPDATE items SET nb_of_bids=? WHERE items.id=? -- 22'
   end
 end

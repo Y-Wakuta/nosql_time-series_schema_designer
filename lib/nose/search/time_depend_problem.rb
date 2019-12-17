@@ -16,12 +16,13 @@ module NoSE
     class TimeDependProblem < Problem
       attr_reader :timesteps, :migrate_vars, :prepare_vars, :trees
 
-      def initialize(queries, updates, data, objective = Objective::COST, timesteps)
+      def initialize(queries, updates, data, objective = Objective::COST, timesteps, include_migration_cost)
         fail if timesteps.nil?
 
         @timesteps = timesteps
         @creation_cost = data[:creation_cost]
         @trees = data[:trees]
+        @include_migration_cost = include_migration_cost
         super(queries, updates, data, objective)
       end
 
@@ -43,8 +44,10 @@ module NoSE
 
         cost = add_update_costs cost
 
-        cost = add_creation_cost cost
-        cost = add_prepare_cost cost
+        if @include_migration_cost
+          cost = add_creation_cost cost
+          cost = add_prepare_cost cost
+        end
         cost
       end
 
@@ -181,8 +184,10 @@ module NoSE
 
         @index_vars.each_value { |vars| vars.each_value {|var| @model << var }}
 
-        add_cf_creation_variables
-        add_cf_prepare_variables
+        if @include_migration_cost
+          add_cf_creation_variables
+          add_cf_prepare_variables
+        end
       end
 
       # add variable for whether to create CF at the timestep
@@ -256,13 +261,18 @@ module NoSE
       # Add all necessary constraints to the model
       # @return [void]
       def add_constraints
-        [
+        constraints = [
           TimeDependIndexPresenceConstraints,
           TimeDependSpaceConstraint,
-          TimeDependCompletePlanConstraints,
+          TimeDependCompletePlanConstraints
+        ]
+        migration_constraints = [
           TimeDependCreationConstraints,
           TimeDependPrepareConstraints
-        ].each { |constraint| constraint.apply self }
+        ]
+
+        constraints.concat(migration_constraints) if @include_migration_cost
+        constraints.each { |constraint| constraint.apply self }
 
         @logger.debug do
           "Added #{@model.constraints.count} constraints to model"
