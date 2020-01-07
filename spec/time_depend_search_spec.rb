@@ -5,32 +5,58 @@ module NoSE
     describe Search do
       include_context 'dummy cost model'
       let(:timesteps) { 3 }
+      let(:query_increase) {'SELECT users.* FROM users WHERE users.rating=? -- 1'}
+      let(:query_decrease) {'SELECT items.* FROM items WHERE items.quantity=? -- 3'}
 
       let(:td_workload) {
         ts = timesteps
+        qi = query_increase
+        qd = query_decrease
         TimeDependWorkload.new do
           TimeSteps ts
+          DefaultMix :default
+          Interval 3600
+          Model 'rubis'
 
-          (Entity 'users' do
-            ID         'id'
-            String     'firstname', 6
-            String     'lastname', 7
-            String     'rating', 23
-          end) * 2_000
-
-          (Entity 'items' do
-            ID         'id'
-            String     'name', 19
-            String     'description', 197
-            Integer    'quantity', count: 100
-          end) * 20_000
-
-          Group 'Test1', 0.5, default: [0.01, 0.5, 9] do
+          Group 'Test1', 1.0, default: [0.001, 0.5, 9] do
             Q 'SELECT users.* FROM users WHERE users.id = ? -- 0'
-            Q 'SELECT items.* FROM items WHERE items.id=? -- 2'
+            Q qi
+          end
+
+          Group 'Test2', 1.0, default: [9, 0.5, 0.001] do
+            Q 'SELECT items.* FROM items WHERE items.id = ? -- 2'
+            Q qd
           end
         end
       }
+
+      it 'updates migration-preparing index during executing migration' do
+        update_user = 'UPDATE users SET rating=?, firstname = ?, lastname = ? WHERE users.id=? -- 27'
+        td_workload.add_statement update_user, frequency: [0.001, 0.5, 9]
+        indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
+        result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
+        update_user_plans = result.time_depend_update_plans.first.plans_all_timestep
+        target_timestep = 0
+        updated_indexes = update_user_plans[target_timestep].plans.map(&:index).to_set
+        current_indexes_used_by_users = result.time_depend_plans
+                                          .select{|tdps| tdps.query.entity.name == 'users'}
+                                          .map{|p| p.plans.fetch(target_timestep)
+                                                     .map(&:index)
+                                          }
+                                          .flatten(1)
+                                          .to_set
+
+        next_indexes_used_by_users = result.time_depend_plans
+                                          .select{|tdps| tdps.query.entity.name == 'users'}
+                                          .map{|p| p.plans.fetch(target_timestep + 1)
+                                                     .map(&:index)
+                                          }
+                                          .flatten(1)
+                                          .to_set
+
+        new_indexes = next_indexes_used_by_users - current_indexes_used_by_users
+        expect(updated_indexes).to include(new_indexes)
+      end
 
       it 'correct number of timesteps in output' do
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
@@ -40,12 +66,8 @@ module NoSE
       end
 
       it 'the query plan changes when the frequency changes' do
-        query_increase = 'SELECT users.* FROM users WHERE users.rating=? -- 1'
-        query_decrease = 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
-        td_workload.add_statement query_increase, frequency: [1, 300, 40000]
-        td_workload.add_statement query_decrease, frequency: [40000, 300, 1]
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
-        result = Search.new(td_workload, cost_model).search_overlap indexes, 9800000
+        result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
 
         increase_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_increase}.flatten(1)
         decrease_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_decrease}.flatten(1)
@@ -55,12 +77,8 @@ module NoSE
       end
 
       it 'the query plan does not change when the creation cost is too large' do
-        query_increase = 'SELECT users.* FROM users WHERE users.rating=? -- 1'
-        query_decrease = 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
-        td_workload.add_statement query_increase, frequency: [0.01, 0.5, 9]
-        td_workload.add_statement query_decrease, frequency: [9, 0.5, 0.01]
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
-        result = Search.new(td_workload, cost_model).search_overlap indexes, 9800000, 10
+        result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000, 100
 
         increase_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_increase}.flatten(1)
         decrease_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_decrease}.flatten(1)
@@ -69,7 +87,7 @@ module NoSE
         expect(decrease_steps.first.steps.size).to eq decrease_steps.last.steps.size
       end
 
-      it 'Be able to treat with update' do
+      it 'is able to treat with update' do
         update = 'UPDATE users SET rating=? WHERE users.id=? -- 8'
         td_workload.add_statement update, frequency: [9, 0.5, 0.01]
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
@@ -78,13 +96,9 @@ module NoSE
         expect(result.update_plans.values.first.size).to eq timesteps
       end
 
-      it 'migrate plan is set when there is migration' do
-        query_increase = 'SELECT users.* FROM users WHERE users.rating=? -- 1'
-        query_decrease = 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
-        td_workload.add_statement query_increase, frequency: [0.01, 0.5, 9]
-        td_workload.add_statement query_decrease, frequency: [9, 0.5, 0.01]
+      it 'migrates plan is set when there is migration' do
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
-        result = Search.new(td_workload, cost_model).search_overlap indexes, 9800000
+        result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
 
         expect(result.migrate_plans.size).to eq 2
       end
@@ -145,7 +159,7 @@ module NoSE
         indexes = IndexEnumerator.new(workload_).indexes_for_workload.to_a
         result = Search.new(workload_, cost_model).search_overlap indexes
 
-        expect(td_result.total_cost).to eq (result.total_cost * interval * timesteps)
+        expect(td_result.total_cost).to be_within(0.0001).of(result.total_cost * interval * timesteps)
       end
 
       it 'migrate plan is not set when the workload is static' do
