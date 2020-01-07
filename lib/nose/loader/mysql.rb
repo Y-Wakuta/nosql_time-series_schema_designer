@@ -7,6 +7,7 @@ begin
 rescue LoadError
   require 'mysql'
 end
+require 'etc'
 
 module NoSE
   module Loader
@@ -25,7 +26,7 @@ module NoSE
         indexes.map!(&:to_id_graph).uniq! if @backend.by_id_graph
 
         # XXX Assuming backend is thread-safe
-        Parallel.each(indexes, in_threads: 2) do |index|
+        Parallel.each(indexes, in_threads: Etc.nprocessors - 2) do |index|
           load_index index, config, show_progress, limit, skip_existing
         end
       end

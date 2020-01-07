@@ -85,7 +85,7 @@ module NoSE
           user = workload.model['users']
           index = Index.new [user['id']], [], [user['nickname']],
                             QueryGraph::Graph.from_path([user['id']])
-          expect(backend).to receive(:index_insert_chunk).with(
+          expect(backend).to receive(:index_insert).with(
             index, [
               {
                 'users_id' => 2,
@@ -103,7 +103,7 @@ module NoSE
                             QueryGraph::Graph.from_path(
                               [user['id'], user['items_sold']]
                             )
-          expect(backend).to receive(:index_insert_chunk).with(
+          expect(backend).to receive(:index_insert).with(
             index, [
               {
                 'users_id' => 1,

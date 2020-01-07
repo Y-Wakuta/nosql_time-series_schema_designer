@@ -151,6 +151,10 @@ module NoSE
         @update_steps.sum_by(&:cost)
       end
 
+      def prepare_update_cost_with_size
+        @update_steps.sum_by(&:prepare_update_cost_with_size)
+      end
+
       # The cost is the sum of all the query costs plus the update costs
       # @return [Fixnum]
       def cost

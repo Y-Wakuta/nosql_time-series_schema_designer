@@ -203,8 +203,10 @@ module NoSE
         update_plans = {}
         _update_plans.map do |update, plans|
           update_plans[update] = (0...@timesteps).map do |ts|
+            target_indexes = @indexes[ts]
+            target_indexes += @indexes[ts + 1] if (ts + 1) < @timesteps
             plans.select do |plan|
-              @indexes[ts].include? plan.index
+              target_indexes.include? plan.index
             end.map{|plan| plan.dup}
           end
         end
@@ -259,6 +261,13 @@ module NoSE
             plans_each_time.each do |plan|
               validate_query_indexes plan.query_plans
               valid_plan = @indexes[ts].include?(plan.index)
+
+              # allow updating the index in the next timestep if it is for the migration
+              if @problem.migrate_vars[plan.index][ts + 1]&.value
+                valid_plan_for_preparing = @indexes[ts + 1].include?(plan.index)
+                valid_plan ||= valid_plan_for_preparing
+              end
+
               fail InvalidResultsException unless valid_plan
             end
           end

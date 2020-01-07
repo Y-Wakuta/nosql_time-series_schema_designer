@@ -94,6 +94,11 @@ module NoSE
       @time_depend_statement_weights[@mix]
     end
 
+    def time_depend_statement_weights=(statement_weights)
+      @time_depend_statement_weights[@mix] = statement_weights
+      sync_statement_weights
+    end
+
     # Strip the weights from the query dictionary and return a list of updates
     # @return [Array<Statement>]
     def updates

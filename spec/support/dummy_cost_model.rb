@@ -7,7 +7,8 @@ module NoSE
           include Subtype
 
           def index_lookup_cost(_step)
-            1
+            return 1 if _step.parent.is_a? Plans::RootPlanStep
+            10
           end
 
           def insert_cost(_step)
@@ -15,6 +16,14 @@ module NoSE
           end
 
           def delete_cost(_step)
+            1
+          end
+
+          def prepare_insert_cost(_step)
+            1
+          end
+
+          def prepare_delete_cost(_step)
             1
           end
         end
