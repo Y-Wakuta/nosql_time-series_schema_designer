@@ -61,7 +61,7 @@ module NoSE
 
             # index which is during the preparing for the next timestep also need to be updated
             (0...(@timesteps - 1)).each do |ts|
-              min_cost.add @migrate_vars[index][ts + 1] * @data[:update_costs][update][index][ts]
+              min_cost.add @migrate_vars[index][ts + 1] * (@data[:prepare_update_costs][update][index][ts])
             end
           end
         end

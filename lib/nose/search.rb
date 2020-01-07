@@ -40,7 +40,9 @@ module NoSE
         # Get the costs of all queries and updates
         query_weights = combine_query_weights indexes
         costs, trees = query_costs query_weights, indexes
-        update_costs, update_plans = update_costs trees, indexes
+
+        # prepare_update_costs possibly takes nil value if the workload is not time-depend workload
+        update_costs, update_plans, prepare_update_costs = update_costs trees, indexes
 
         log_search_start costs, query_weights
 
@@ -48,6 +50,7 @@ module NoSE
           max_space: max_space,
           costs: costs,
           update_costs: update_costs,
+          prepare_update_costs: prepare_update_costs,
           cost_model: @cost_model,
           by_id_graph: @by_id_graph,
           trees: trees,
@@ -155,24 +158,42 @@ module NoSE
                                            @by_id_graph
         update_costs = Hash.new { |h, k| h[k] = {} }
         update_plans = Hash.new { |h, k| h[k] = [] }
-        @workload.statements.each do |statement|
-          next if statement.is_a? Query
+        update_statements = @workload.statements.reject{|statement| statement.is_a? Query}
 
-          populate_update_costs planner, statement, indexes,
-                                update_costs, update_plans
+        if @workload.is_a?(TimeDependWorkload)
+          prepare_update_costs = Hash.new { |h, k| h[k] = {}}
+          update_statements.each do |statement|
+            populate_update_costs planner, statement, indexes,
+                                  update_costs, update_plans, prepare_update_costs
+          end
+          return [update_costs, update_plans, prepare_update_costs]
+        else
+          update_statements.each do |statement|
+            populate_update_costs planner, statement, indexes,
+                                  update_costs, update_plans
+          end
+          return [update_costs, update_plans]
         end
-
-        [update_costs, update_plans]
       end
 
-      # Populate the cost of all necessary plans for the given satement
+      # Populate the cost of all necessary plans for the given statement
       # @return [void]
       def populate_update_costs(planner, statement, indexes,
-                                update_costs, update_plans)
-        planner.find_plans_for_update(statement, indexes).each do |plan|
-          weights = @workload.statement_weights[statement]
-          update_costs[statement][plan.index] = weights.is_a?(Array) ? weights.map{|w| plan.update_cost * w}
-                                                  : weights
+                                update_costs, update_plans, preparing_update_costs = nil)
+        plans_for_update = planner.find_plans_for_update(statement, indexes)
+        weights = @workload.statement_weights[statement]
+        plans_for_update.each do |plan|
+          if @workload.is_a?(TimeDependWorkload)
+            update_costs[statement][plan.index] = weights.map{|w| plan.update_cost * w}
+            plan.steps.each { |step| step.calculate_update_prepare_cost_with_size @cost_model }
+
+            # the definition of query frequency is execution times per second.
+            # But the weight is multiplied frequency by migration interval,
+            # Therefore, divide this value by interval to get query frequency
+            preparing_update_costs[statement][plan.index] = weights.map{|w| (plan.prepare_update_cost_with_size / @workload.interval) * w}
+          else
+            update_costs[statement][plan.index] = plan.update_cost * weights
+          end
           update_plans[statement] << plan
         end
       end
