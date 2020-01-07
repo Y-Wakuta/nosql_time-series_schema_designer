@@ -4,7 +4,7 @@ module NoSE
   module Plans
     # A superclass for steps which modify indexes
     class UpdatePlanStep < PlanStep
-      attr_reader :index
+      attr_reader :index, :prepare_update_cost_with_size
       attr_accessor :state
 
       def initialize(index, type, state = nil)
@@ -32,6 +32,10 @@ module NoSE
 
       def hash
         [@index, @type].hash
+      end
+
+      def calculate_update_prepare_cost_with_size(cost_model)
+        @prepare_update_cost_with_size = (cost_model.method(('prepare_' + subtype_name + '_cost').to_sym).call self) * index.size
       end
     end
 

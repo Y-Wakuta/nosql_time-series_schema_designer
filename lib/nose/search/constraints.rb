@@ -128,6 +128,10 @@ module NoSE
                         else
                           problem.index_vars[query.index]
                         end
+
+            # Support queries are made for all combinations of enumerated indexes and updates.
+            # But, some indexes are not included in enumerated query plans.
+            # Therefore, some enumerated indexes are not used when creating problem.index_vars
             next if index_var.nil?
 
             constr = MIPPeR::Constraint.new constraint + index_var * -1.0,
