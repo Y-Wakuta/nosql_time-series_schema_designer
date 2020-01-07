@@ -90,23 +90,29 @@ module NoSE
                         else
                           problem.index_vars[query.index]&.fetch(timestep)
                         end
+
+            # if index_var is nil, the index is not used in any query plan
             next if index_var.nil?
 
-            constr = MIPPeR::Constraint.new constraint + index_var * -1.0,
-                                            :>=, 0, name
-            problem.model << constr
-
-            # execute update to migrate-preparing index
-            if (timestep + 1) < problem.timesteps
+            if timestep < (problem.timesteps - 1) # The SupportQuery maybe for updating migrate-preparing indexes
               next_timestep_migrate_var = problem.migrate_vars[query.index]&.fetch(timestep + 1)
-              next if next_timestep_migrate_var.nil?
-              constr = MIPPeR::Constraint.new constraint + next_timestep_migrate_var * -1.0,
-                                              :>=, 0, name
+
+              fail "if index_var exists, next_timestep_migrate_var also should exists" if next_timestep_migrate_var.nil?
+
+              # TODO: even if index_var and next_timestep_migrate_var are 0, constraint can take 1
+              constr_current = MIPPeR::Constraint.new constraint + index_var * -1.0,
+                                                      :>=, 0, name
+              constr_next_timestep= MIPPeR::Constraint.new constraint + next_timestep_migrate_var * -1.0,
+                                                           :>=, 0, name
+              constr_upper = MIPPeR::Constraint.new constraint, :<=, 1, name
+              problem.model << constr_current
+              problem.model << constr_next_timestep
+              problem.model << constr_upper
+            else
+              constr = MIPPeR::Constraint.new constraint + index_var * -1.0,
+                                                      :==, 0, name
               problem.model << constr
             end
-
-            constr = MIPPeR::Constraint.new constraint, :<=, 1, name
-            problem.model << constr
           else
             constr = MIPPeR::Constraint.new constraint, :==, 1, name
             problem.model << constr
