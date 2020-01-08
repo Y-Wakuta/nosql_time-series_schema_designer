@@ -202,10 +202,8 @@ module NoSE
 
         @index_vars.each_value { |vars| vars.each_value {|var| @model << var }}
 
-        if @include_migration_cost
-          add_cf_creation_variables
-          add_cf_prepare_variables
-        end
+        add_cf_creation_variables
+        add_cf_prepare_variables
       end
 
       # add variable for whether to create CF at the timestep
@@ -282,14 +280,11 @@ module NoSE
         constraints = [
           TimeDependIndexPresenceConstraints,
           TimeDependSpaceConstraint,
-          TimeDependCompletePlanConstraints
-        ]
-        migration_constraints = [
+          TimeDependCompletePlanConstraints,
           TimeDependCreationConstraints,
           TimeDependPrepareConstraints
         ]
 
-        constraints.concat(migration_constraints) if @include_migration_cost
         constraints.each { |constraint| constraint.apply self }
 
         @logger.debug do
