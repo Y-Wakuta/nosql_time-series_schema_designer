@@ -147,19 +147,20 @@ module NoSE
         indexes_query + indexes_support_query
       end
 
+      # given timestep is one of obsolete timestep
       def get_prepare_plans(plan, migrate_prepare_plans ,timestep)
         prepare_plans = []
         plan.each do |step|
           next unless step.is_a?(Plans::IndexLookupPlanStep)
 
-          indexes_for_this_timestep = indexes_used_in_plans(timestep)
+          indexes_for_the_timestep = indexes_used_in_plans(timestep)
 
           # if the index already exists, we do not need to create the index
-          next if indexes_for_this_timestep.include? step.index
+          next if indexes_for_the_timestep.include? step.index
 
           possible_plans = migrate_prepare_plans[step.index].select do |query_plan|
-            query_plan.select {|step| step.is_a?(Plans::IndexLookupPlanStep)} \
-                          .all? {|step| @indexes[timestep].include? step.index }
+            query_plan.select {|s| s.is_a?(Plans::IndexLookupPlanStep)} \
+                          .all? {|s| indexes_for_the_timestep.include? s.index }
           end
 
           # if min_plan has the same index as the target index, this prepare plan is unnecessary
