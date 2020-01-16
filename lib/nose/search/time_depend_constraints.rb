@@ -7,10 +7,23 @@ module NoSE
       # Add constraint for indices being present
       def self.apply(problem)
         problem.indexes.each do |index|
-          problem.queries.each_with_index do |query, q|
+          # constraint for Query or SupportQuery
+          problem.queries.reject{|q| q.is_a? MigrateSupportQuery}.each_with_index do |query, q|
             (0...problem.timesteps).each do |ts|
               name = "q#{q}_#{index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
               constr = MIPPeR::Constraint.new problem.query_vars[index][query][ts] +
+                                                problem.index_vars[index][ts] * -1,
+                                              :<=, 0, name
+              problem.model << constr
+            end
+          end
+
+          # constraint for MigrateSupportQuery
+          # if the index is created in the migration process, indexes for migration are required
+          problem.queries.select{|q| q.is_a? MigrateSupportQuery}.each do |ms_query|
+            (0...(problem.timesteps - 1)).each do |ts|
+              name = "ms_q#{q}_#{index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              constr = MIPPeR::Constraint.new problem.prepare_vars[index][ms_query][ts] +
                                                 problem.index_vars[index][ts] * -1,
                                               :<=, 0, name
               problem.model << constr
