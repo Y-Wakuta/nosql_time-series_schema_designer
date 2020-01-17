@@ -22,6 +22,9 @@ module NoSE
         @timesteps = timesteps
         @creation_cost = data[:creation_cost]
         @trees = data[:trees]
+        @migrate_prepare_plans = data[:migrate_prepare_plans]
+        migrate_support_queries = @migrate_prepare_plans.keys
+        queries += migrate_support_queries
         @include_migration_cost = include_migration_cost
         super(queries, updates, data, objective)
       end

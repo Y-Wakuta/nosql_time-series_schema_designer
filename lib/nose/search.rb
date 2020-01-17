@@ -212,16 +212,36 @@ module NoSE
         [costs, results.map(&:last)]
       end
 
-      def get_migrate_preparing_plans(indexes)
-        migrate_plans = {}
-        planner = Plans::QueryPlanner.new @workload, indexes, @cost_model
-        indexes.each do |index|
-          migrate_support_query = @workload.migrate_support_queries(index)
+      def get_migrate_preparing_plans(indexes, prepare_query_cost)
+        migrate_plans = Parallel.map(indexes, in_threads: Etc.nprocessors - 1) do |base_index|
+          # if the base_index does not have non-key field, migrate support query is not necessary
+          next if base_index.extra.empty?
+
+          migrate_support_query = @workload.migrate_support_queries(base_index)
+
+          # reduce candidate indexes by intersect whole indexes and the indexes enumerated for the query
+          indexes_for_query = IndexEnumerator.new(@workload).indexes_for_query(migrate_support_query)
+          indexes_for_query = indexes_for_query & indexes
+          indexes_for_query = indexes if indexes_for_query.empty?
+
+          planner = Plans::PreparingQueryPlanner.new @workload, indexes_for_query, @cost_model, 2
           # TODO: migrate support query executed only once, therefore treat this as free
-          _, tree = query_cost planner, migrate_support_query, 0
-          migrate_plans[index] = tree
-        end
-        migrate_plans
+          _costs, tree = query_cost planner, migrate_support_query, [1] * @workload.timesteps
+
+          # calculate cost
+          _costs = _costs.map do |index, (step, costs)|
+            {index =>  [step, costs.map{|cost| prepare_query_cost * cost * index.size}]}
+          end.reduce(&:merge)
+
+          costs = Hash[migrate_support_query, _costs]
+          migrate_plan = {}
+          migrate_plan[migrate_support_query] = {
+            costs: costs,
+            tree: tree
+          }
+          migrate_plan
+        end.compact.reduce(&:merge)
+      migrate_plans
       end
 
       # Get the cost for indices for an individual query
@@ -286,6 +306,7 @@ module NoSE
             # We must always have the same cost
             if not is_same_cost(current_cost, cost)
               index = index_step.index
+              p query.class
               p query
               puts "Index #{index.key} does not have equivalent cost"
               puts "Current cost: #{current_cost}, discovered cost: #{cost}"

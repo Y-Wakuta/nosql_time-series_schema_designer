@@ -164,4 +164,22 @@ module NoSE
     end
     # :nocov:
   end
+
+  # place holder class for query that supports migration process
+  class MigrateSupportQuery < Query
+    attr_reader :statement, :index
+
+    def initialize(params, text, group: nil, label: nil)
+      super params, text, group: group, label: label
+      @index = params[:index]
+    end
+
+    # Migrate support queries must also have their statement and index checked
+    def ==(other)
+      other.is_a?(MigrateSupportQuery) && @statement == other.statement &&
+        @index == other.index && @comment == other.comment
+    end
+    alias eql? ==
+
+  end
 end

@@ -123,7 +123,7 @@ module NoSE
               problem.model << constr_upper
             else
               constr = MIPPeR::Constraint.new constraint + index_var * -1.0,
-                                                      :==, 0, name
+                                              :==, 0, name
               problem.model << constr
             end
           else
