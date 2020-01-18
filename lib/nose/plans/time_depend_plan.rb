@@ -29,10 +29,11 @@ module NoSE
     end
 
     class MigratePreparePlan
-      attr_accessor :index, :query_plan
-      def initialize(index, query_plan)
+      attr_accessor :index, :query_plan, :timestep
+      def initialize(index, query_plan, timestep)
         @index = index
         @query_plan = query_plan
+        @timestep = timestep
       end
     end
 

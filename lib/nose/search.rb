@@ -11,6 +11,8 @@ require_relative 'plans/time_depend_plan'
 require 'logging'
 require 'ostruct'
 require 'tempfile'
+require 'parallel'
+require 'etc'
 
 module NoSE
   # ILP construction and schema search
@@ -34,7 +36,7 @@ module NoSE
       # Search for optimal indices using an ILP which searches for
       # non-overlapping indices
       # @return [Results]
-      def search_overlap(indexes, max_space = Float::INFINITY, creation_cost = 0)
+      def search_overlap(indexes, max_space = Float::INFINITY, creation_cost = nil)
         return if indexes.empty?
 
         # Get the costs of all queries and updates
