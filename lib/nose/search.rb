@@ -53,9 +53,24 @@ module NoSE
           prepare_update_costs: prepare_update_costs,
           cost_model: @cost_model,
           by_id_graph: @by_id_graph,
-          trees: trees,
-          creation_cost: creation_cost
+          trees: trees
         }
+
+        if @workload.is_a? TimeDependWorkload
+          if creation_cost.nil?
+            puts "creation cost is not given. set creation cost to be 0"
+            creation_cost = 0
+          end
+
+          prepare_query_cost = 0.000001
+
+          # TODO: pass this variable by nose.yml
+          migrate_prepare_plans = get_migrate_preparing_plans(indexes, prepare_query_cost)
+          costs.merge!(migrate_prepare_plans.values.map{|v| v[:costs]}.reduce(&:merge))
+          solver_params[:creation_cost] = creation_cost
+          solver_params[:migrate_prepare_plans] = migrate_prepare_plans
+        end
+
         search_result query_weights, indexes, solver_params, trees,
                       update_plans
       end
@@ -105,7 +120,7 @@ module NoSE
           result.set_time_depend_plans
           result.set_time_depend_indexes
           result.set_time_depend_update_plans
-          result.set_migrate_preparing_plans(get_migrate_preparing_plans(indexes))
+          result.set_migrate_preparing_plans solver_params[:migrate_prepare_plans]
         end
 
         result.validate
