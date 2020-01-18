@@ -103,14 +103,23 @@ module NoSE
       # add preparing cost for records of the new column family
       # @return [Array]
       def add_prepare_cost(schema_cost)
-        @trees.each do |tree|
-          tree.each do |plan|
-            query_num = plan.steps.first.eq_filter.reduce(1){|_, field| field.parent.count}
-            (1...@timesteps).each do |ts|
-              schema_cost.add @prepare_vars[tree.query].find{|key, _| key == plan}.last[ts] * (plan.cost * query_num)
-            end
-          end
+        cost = @queries.select{|q| q.is_a? MigrateSupportQuery}.reduce(MIPPeR::LinExpr.new) do |expr, query|
+          expr.add(@indexes.reduce(MIPPeR::LinExpr.new) do |subexpr, index|
+            subexpr.add((0...(@timesteps - 1)).reduce(MIPPeR::LinExpr.new) do |subsubexpr, ts|
+              cost = @data[:costs][query][index]
+              if cost.nil?
+                subsubexpr.add MIPPeR::LinExpr.new
+              else
+                query_cost = cost.last[ts] * 1.0
+                cost_expr = @prepare_vars[index][query][ts] * query_cost
+
+                subsubexpr.add cost_expr
+              end
+            end)
+          end)
         end
+
+        schema_cost += cost
         schema_cost
       end
 
