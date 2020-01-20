@@ -172,7 +172,7 @@ module NoSE
           migrate_support_query = migrate_prepare_plans.select{|p| p.index == step.index}.keys.first
           migrate_support_tree = migrate_prepare_plans.select{|p| p.index == step.index}.values.first[:tree]
           prepare_plan_for_the_timestep = migrate_support_tree.select do |plan|
-            plan.indexes.to_set == @query_indexes[migrate_support_query]&.fetch(timestep)
+            plan.indexes.to_set == @query_indexes[migrate_support_query]&.fetch(timestep, nil)
           end
 
           next if prepare_plan_for_the_timestep.empty?

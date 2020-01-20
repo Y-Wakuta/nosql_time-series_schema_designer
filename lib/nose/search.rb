@@ -39,6 +39,7 @@ module NoSE
       def search_overlap(indexes, max_space = Float::INFINITY, creation_cost = nil)
         return if indexes.empty?
 
+        STDERR.puts("set basic query plans")
         # Get the costs of all queries and updates
         query_weights = combine_query_weights indexes
         costs, trees = query_costs query_weights, indexes
@@ -59,12 +60,13 @@ module NoSE
         }
 
         if @workload.is_a? TimeDependWorkload
+          STDERR.puts("set migration query plans")
           if creation_cost.nil?
             puts "creation cost is not given. set creation cost to be 0"
             creation_cost = 0
           end
 
-          prepare_query_cost = 0.000001
+          prepare_query_cost = 0.00000001
 
           # TODO: pass this variable by nose.yml
           migrate_prepare_plans = get_migrate_preparing_plans(indexes, prepare_query_cost)
@@ -110,6 +112,7 @@ module NoSE
       def search_result(query_weights, indexes, solver_params, trees,
                         update_plans)
         # Solve the LP using MIPPeR
+        STDERR.puts "start optimization"
         result = solve_mipper query_weights.keys, indexes, **solver_params
 
         result.workload = @workload
@@ -118,6 +121,7 @@ module NoSE
         result.cost_model = @cost_model
 
         if result.is_a? TimeDependResults
+          STDERR.puts "set migration plans"
           result.calculate_cost_each_timestep
           result.set_time_depend_plans
           result.set_time_depend_indexes
@@ -230,18 +234,13 @@ module NoSE
       end
 
       def get_migrate_preparing_plans(indexes, prepare_query_cost)
-        migrate_plans = Parallel.map(indexes, in_threads: Etc.nprocessors - 1) do |base_index|
+        migrate_plans = Parallel.map(indexes, in_processes: Etc.nprocessors - 2) do |base_index|
           # if the base_index does not have non-key field, migrate support query is not necessary
           next if base_index.extra.empty?
 
           migrate_support_query = @workload.migrate_support_queries(base_index)
 
-          # reduce candidate indexes by intersect whole indexes and the indexes enumerated for the query
-          indexes_for_query = IndexEnumerator.new(@workload).indexes_for_query(migrate_support_query)
-          indexes_for_query = indexes_for_query & indexes
-          indexes_for_query = indexes if indexes_for_query.empty?
-
-          planner = Plans::PreparingQueryPlanner.new @workload, indexes_for_query, @cost_model, 2
+          planner = Plans::PreparingQueryPlanner.new @workload, indexes, @cost_model, 2
           # TODO: migrate support query executed only once, therefore treat this as free
           _costs, tree = query_cost planner, migrate_support_query, [1] * @workload.timesteps
 
