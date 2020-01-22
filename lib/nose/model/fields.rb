@@ -168,7 +168,7 @@ module NoSE
     # Field holding a float
     class FloatField < Field
       # Any Fixnum is a valid float
-      TYPE = Fixnum
+      TYPE = Integer
 
       def initialize(name, **options)
         super(name, 8, **options)
