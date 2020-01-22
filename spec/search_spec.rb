@@ -72,10 +72,9 @@ module NoSE
         ]
       end
 
-      it 'total cost increases when new update is added' do
+       it 'increases the total cost when an update is added' do
         query = Statement.parse 'SELECT User.UserId FROM User WHERE ' \
-                                'User.City = ? ORDER BY User.Username',
-                                workload.model
+                                'User.City = ? ORDER BY User.Username', workload.model
 
         workload.add_statement query
         indexes = IndexEnumerator.new(workload).indexes_for_workload.to_a
