@@ -320,7 +320,11 @@ module NoSE
             current_cost = query_costs[index_step.index].last
 
             # We must always have the same cost
-            if not is_same_cost(current_cost, cost)
+            # WARNING: fix this invalid conditions.
+            # Ignoring steps that have filtering steps just overwrites the cost value of step in another query plan.
+            if not is_same_cost(current_cost, cost) \
+              and not steps.any?{|step| step.is_a? Plans::FilterPlanStep} \
+              and not query_costs[index_step.index].first.any?{|s| s.is_a? Plans::FilterPlanStep }
               index = index_step.index
               p query.class
               p query
