@@ -9,13 +9,16 @@ module NoSE
   # A representation of a query workload over a given set of entities
   class TimeDependWorkload < Workload
 
-    attr_accessor :timesteps, :interval, :is_static, :time_depend_statement_weights, :include_migration_cost
+    attr_accessor :timesteps, :interval, :is_static, :time_depend_statement_weights,
+                  :include_migration_cost, :creation_coeff, :migrate_support_coeff
 
     def initialize(model = nil, &block)
       @time_depend_statement_weights = { default: {} }
       @model = model || Model.new
       @mix = :default
       @interval = 3600 # set seconds in an hour as default
+      @creation_coeff = 0.01
+      @migrate_support_coeff = 0.00000001
       @is_static = false
       @include_migration_cost = true
 
@@ -134,6 +137,16 @@ module NoSE
     def IncludeMigrationCost(include_migration_cost)
       puts "ignore migration cost" unless include_migration_cost
       @workload.include_migration_cost = include_migration_cost
+    end
+
+    # cost for creating new column family in migration process
+    def CreationCoeff(creation_coeff)
+      @workload.creation_coeff = creation_coeff
+    end
+
+    # cost for preparing data for new column families
+    def MigrateSupportCoeff(migrate_support_coeff)
+      @workload.migrate_support_coeff = migrate_support_coeff
     end
   end
 end

@@ -78,7 +78,8 @@ module NoSE
 
       it 'the query plan does not change when the creation cost is too large' do
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
-        result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000, 100
+        td_workload.creation_coeff = 1000
+        result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
 
         increase_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_increase}.flatten(1)
         decrease_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_decrease}.flatten(1)

@@ -36,7 +36,7 @@ module NoSE
       # Search for optimal indices using an ILP which searches for
       # non-overlapping indices
       # @return [Results]
-      def search_overlap(indexes, max_space = Float::INFINITY, creation_cost = nil)
+      def search_overlap(indexes, max_space = Float::INFINITY)
         return if indexes.empty?
 
         STDERR.puts("set basic query plans")
@@ -50,28 +50,21 @@ module NoSE
         log_search_start costs, query_weights
 
         solver_params = {
-          max_space: max_space,
-          costs: costs,
-          update_costs: update_costs,
-          prepare_update_costs: prepare_update_costs,
-          cost_model: @cost_model,
-          by_id_graph: @by_id_graph,
-          trees: trees
+            max_space: max_space,
+            costs: costs,
+            update_costs: update_costs,
+            prepare_update_costs: prepare_update_costs,
+            cost_model: @cost_model,
+            by_id_graph: @by_id_graph,
+            trees: trees
         }
 
         if @workload.is_a? TimeDependWorkload
           STDERR.puts("set migration query plans")
-          if creation_cost.nil?
-            puts "creation cost is not given. set creation cost to be 0"
-            creation_cost = 0
-          end
-
-          prepare_query_cost = 0.00000001
 
           # TODO: pass this variable by nose.yml
-          migrate_prepare_plans = get_migrate_preparing_plans(indexes, prepare_query_cost)
+          migrate_prepare_plans = get_migrate_preparing_plans(indexes)
           costs.merge!(migrate_prepare_plans.values.map{|v| v[:costs]}.reduce(&:merge))
-          solver_params[:creation_cost] = creation_cost
           solver_params[:migrate_prepare_plans] = migrate_prepare_plans
         end
 
@@ -152,8 +145,8 @@ module NoSE
       def solve_mipper(queries, indexes, data)
         # Construct and solve the ILP
         problem = @workload.is_a?(TimeDependWorkload) ?
-                    TimeDependProblem.new(queries, @workload.updates, data, @objective, @workload.timesteps, @workload.include_migration_cost)
-                    : Problem.new(queries, @workload.updates, data, @objective)
+                      TimeDependProblem.new(queries, @workload, data, @objective)
+                      : Problem.new(queries, @workload.updates, data, @objective)
 
         problem.solve
 
@@ -233,8 +226,8 @@ module NoSE
         [costs, results.map(&:last)]
       end
 
-      def get_migrate_preparing_plans(indexes, prepare_query_cost)
-        migrate_plans = Parallel.map(indexes, in_processes: Etc.nprocessors - 2) do |base_index|
+      def get_migrate_preparing_plans(indexes)
+        migrate_plans = Parallel.map(indexes, in_threads: [Etc.nprocessors - 3, 2].max()) do |base_index|
           # if the base_index does not have non-key field, migrate support query is not necessary
           next if base_index.extra.empty?
 
@@ -246,18 +239,18 @@ module NoSE
 
           # calculate cost
           _costs = _costs.map do |index, (step, costs)|
-            {index =>  [step, costs.map{|cost| prepare_query_cost * cost * index.size}]}
+            {index =>  [step, costs.map{|cost| @workload.migrate_support_coeff * cost * index.size}]}
           end.reduce(&:merge)
 
           costs = Hash[migrate_support_query, _costs]
           migrate_plan = {}
           migrate_plan[migrate_support_query] = {
-            costs: costs,
-            tree: tree
+              costs: costs,
+              tree: tree
           }
           migrate_plan
         end.compact.reduce(&:merge)
-      migrate_plans
+        migrate_plans
       end
 
       # Get the cost for indices for an individual query
@@ -307,13 +300,13 @@ module NoSE
 
           # Calculate the cost for just these steps in the plan
           cost = weight.is_a?(Array) ? weight.map{|w| steps.sum_by(&:cost) * w}
-                   : steps.sum_by(&:cost) * weight
+                     : steps.sum_by(&:cost) * weight
 
           # Don't count the cost for sorting at the end
           sort_step = steps.find { |s| s.is_a? Plans::SortPlanStep }
           unless sort_step.nil?
             weight.is_a?(Array) ? weight.map.with_index{|w, i| cost[i] -= sort_step.cost * w}
-              : (cost -= sort_step.cost * weight)
+                : (cost -= sort_step.cost * weight)
           end
 
           if query_costs.key? index_step.index

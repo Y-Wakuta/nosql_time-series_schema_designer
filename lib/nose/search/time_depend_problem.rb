@@ -14,19 +14,21 @@ module NoSE
   module Search
     # A representation of a search problem as an ILP
     class TimeDependProblem < Problem
-      attr_reader :timesteps, :migrate_vars, :prepare_vars, :trees
+      attr_reader :timesteps, :migrate_vars, :prepare_vars, :trees, :creation_coeff, :migrate_support_coeff
 
-      def initialize(queries, updates, data, objective = Objective::COST, timesteps, include_migration_cost)
-        fail if timesteps.nil?
+      def initialize(queries, workload, data, objective = Objective::COST)
+        fail if workload.timesteps.nil?
 
-        @timesteps = timesteps
-        @creation_cost = data[:creation_cost]
+        @timesteps = workload.timesteps
+        @creation_coeff = workload.creation_coeff
+        @migrate_support_coeff = workload.migrate_support_coeff
         @trees = data[:trees]
         @migrate_prepare_plans = data[:migrate_prepare_plans]
         migrate_support_queries = @migrate_prepare_plans.keys
         queries += migrate_support_queries
-        @include_migration_cost = include_migration_cost
-        super(queries, updates, data, objective)
+        @include_migration_cost = workload.include_migration_cost
+
+        super(queries, workload.updates, data, objective)
       end
 
       def add_migration_cost(cost)
@@ -94,7 +96,7 @@ module NoSE
       def add_creation_cost(schema_cost)
         @indexes.each do |index|
           (1...@timesteps).each do |ts|
-            schema_cost.add @migrate_vars[index][ts] * index.creation_cost(@creation_cost)
+            schema_cost.add @migrate_vars[index][ts] * index.creation_cost(@creation_coeff)
           end
         end
         schema_cost
