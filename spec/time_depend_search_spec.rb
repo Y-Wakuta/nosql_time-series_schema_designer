@@ -58,6 +58,20 @@ module NoSE
         expect(updated_indexes).to include(new_indexes)
       end
 
+      it 'gives migration plan if we ignore migration cost even when given high migration cost' do
+        td_workload.creation_coeff = 1000
+        td_workload.migrate_support_coeff = 1000
+
+        indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
+        result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
+        expect(result.migrate_plans.size).to be(0)
+
+        td_workload.include_migration_cost = false
+        indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
+        result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
+        expect(result.migrate_plans.size).to be(6)
+      end
+
       it 'correct number of timesteps in output' do
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
         result = Search.new(td_workload, cost_model).search_overlap indexes
