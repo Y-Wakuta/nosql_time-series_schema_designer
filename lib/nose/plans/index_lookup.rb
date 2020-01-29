@@ -136,17 +136,21 @@ module NoSE
         # index:  [B][A]->[C,D,E]
         return true if index.extra >= parent_index.extra and \
                           state.query.eq_fields >= (parent_index.hash_fields + parent_index.order_fields.to_set) and \
-                          parent_index.hash_fields == index.order_fields.to_set and parent_index.order_fields.to_set == index.hash_fields
+                          parent_index.hash_fields == index.order_fields.to_set and \
+                          parent_index.order_fields.to_set == index.hash_fields
 
         #SELECT * FROM entity WHERE A = ? AND B = ?
         # parent: [A][B]->[C,D]
         # index:  [A,B][F]->[C,D,E]
-        return true if index.hash_fields >= state.query.eq_fields and index.all_fields >= parent_index.all_fields
+        return true if index.hash_fields >= state.query.eq_fields and \
+                       index.all_fields >= parent_index.all_fields
 
         #SELECT E FROM entity WHERE A = ? AND B = ?
-        # parent: [A,B][B]->[C,D]
-        # index:  [A][B,F]->[E]
-        return true if state.query.eq_fields >= index.hash_fields and (index.hash_fields + index.order_fields.to_set) >= state.query.eq_fields and (index.extra + index.order_fields.to_set + index.hash_fields) >= state.fields
+        # parent: [A,B][]->[C,D]
+        # index:  [A][B]->[E]
+        return true if state.query.eq_fields >= index.hash_fields and \
+                      (index.hash_fields + index.order_fields.to_set) >= state.query.eq_fields and \
+                      index.all_fields >= state.fields
 
         false
       end
