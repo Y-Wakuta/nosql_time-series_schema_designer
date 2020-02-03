@@ -7,10 +7,23 @@ module NoSE
       # Add constraint for indices being present
       def self.apply(problem)
         problem.indexes.each do |index|
-          problem.queries.each_with_index do |query, q|
+          # constraint for Query or SupportQuery
+          problem.queries.reject{|q| q.is_a? MigrateSupportQuery}.each_with_index do |query, q|
             (0...problem.timesteps).each do |ts|
               name = "q#{q}_#{index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
               constr = MIPPeR::Constraint.new problem.query_vars[index][query][ts] +
+                                                problem.index_vars[index][ts] * -1,
+                                              :<=, 0, name
+              problem.model << constr
+            end
+          end
+
+          # constraint for MigrateSupportQuery
+          # if the index is created in the migration process, indexes for migration are required
+          problem.queries.select{|q| q.is_a? MigrateSupportQuery}.each do |ms_query|
+            (0...(problem.timesteps - 1)).each do |ts|
+              name = "ms_q#{q}_#{index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              constr = MIPPeR::Constraint.new problem.prepare_vars[index][ms_query][ts] +
                                                 problem.index_vars[index][ts] * -1,
                                               :<=, 0, name
               problem.model << constr
@@ -34,25 +47,6 @@ module NoSE
       end
     end
 
-    class TimeDependPrepareConstraints < Constraint
-      def self.apply(problem)
-        l = problem.index_vars.size.to_f
-        problem.trees.each do |tree|
-          tree.each do |plan|
-            (1...problem.timesteps).each do |ts|
-              prepare_var = problem.prepare_vars[tree.query].find{|key, _| key == plan}.last[ts]
-
-              lookup_steps = plan.select{|step| step.is_a? Plans::IndexLookupPlanStep}
-              current_plan = lookup_steps.reduce(MIPPeR::LinExpr) {|_, step| problem.index_vars[step.index][ts] * 1.0}
-              former_plan = lookup_steps.reduce(MIPPeR::LinExpr){|_, step| problem.index_vars[step.index][ts - 1] * -1.0}
-
-              constr = MIPPeR::Constraint.new(prepare_var * l + current_plan + former_plan, :>=, 0, name)
-              problem.model << constr
-            end
-          end
-        end
-      end
-    end
 
     # The single constraint used to enforce a maximum storage cost
     class TimeDependSpaceConstraint < Constraint
@@ -83,14 +77,7 @@ module NoSE
 
           # If this is a support query, then we might not need a plan
           if query.is_a? SupportQuery
-            # Find the index associated with the support query and make
-            # the requirement of a plan conditional on this index
-            index_var = if problem.data[:by_id_graph]
-                          problem.index_vars[query.index.to_id_graph][timestep]
-                        else
-                          problem.index_vars[query.index]&.fetch(timestep)
-                        end
-
+            index_var = time_depend_index_var problem, query, timestep
             # if index_var is nil, the index is not used in any query plan
             next if index_var.nil?
 
@@ -110,7 +97,7 @@ module NoSE
               problem.model << constr_upper
             else
               constr = MIPPeR::Constraint.new constraint + index_var * -1.0,
-                                                      :==, 0, name
+                                              :==, 0, name
               problem.model << constr
             end
           else
@@ -120,10 +107,20 @@ module NoSE
         end
       end
 
-      # Add complete query plan constraints
-      def self.apply_query(query, q, problem)
+      # Find the index associated with the support query and make
+      # the requirement of a plan conditional on this index
+      def self.time_depend_index_var(problem, query, timestep)
+        index_var = if problem.data[:by_id_graph]
+                      problem.index_vars[query.index.to_id_graph][timestep]
+                    else
+                      problem.index_vars[query.index]&.fetch(timestep)
+                    end
+        index_var
+      end
+
+      def self.time_depend_complete_plan_constraint(query, q, problem, query_plan_step_vars, timesteps)
         entities = query.join_order
-        query_constraints_whole_time = (0...problem.timesteps).map do |_|
+        query_constraints_whole_time = (0...timesteps).map do |_|
           Hash[entities.each_cons(2).map do |e, next_e|
             [[e, next_e], MIPPeR::LinExpr.new]
           end]
@@ -133,18 +130,54 @@ module NoSE
           first, last = setup_query_constraints(query_constraints, entities)
 
           problem.data[:costs][query].each do |index, (steps, _)|
-            index_var = problem.query_vars[index][query][ts]
+            index_var = query_plan_step_vars[index][query][ts]
             construct_query_constraints(index, index_var, steps, entities, query_constraints, first, last)
 
             parent_index = steps.first.parent.parent_index
             next if parent_index.nil?
-            parent_var = problem.query_vars[parent_index][query][ts]
+            parent_var = query_plan_step_vars[parent_index][query][ts]
             ensure_parent_index_available(index, index_var, parent_var, problem, q)
           end
 
           # Ensure we have exactly one index on each component of the query graph
           add_query_constraints query, q, query_constraints, problem, ts
         end
+      end
+
+      # Add complete query plan constraints
+      def self.apply_query(query, q, problem)
+        return if query.is_a? MigrateSupportQuery
+        time_depend_complete_plan_constraint(query, q, problem, problem.query_vars, problem.timesteps)
+      end
+    end
+
+    class TimeDependPrepareConstraints < TimeDependCompletePlanConstraints
+      def self.add_query_constraints(query, q, constraints, problem, timestep)
+        constraints.each do |entities, constraint|
+          name = "q#{q}_#{entities.map(&:name).join '_'}_#{timestep}" \
+              if ENV['NOSE_LOG'] == 'debug'
+
+          index_var = time_depend_index_var problem, query, timestep
+          # if index_var is nil, the index is not used in any query plan
+          next if index_var.nil?
+
+          if timestep < (problem.timesteps - 1) # The SupportQuery maybe for updating migrate-preparing indexes
+            next_timestep_migrate_var = problem.migrate_vars[query.index]&.fetch(timestep + 1)
+
+            fail "if index_var exists, next_timestep_migrate_var also should exists" if next_timestep_migrate_var.nil?
+
+            # TODO: even if index_var and next_timestep_migrate_var are 0, constraint can take 1
+            constr_next_timestep= MIPPeR::Constraint.new constraint + next_timestep_migrate_var * -1.0,
+                                                         :==, 0, name
+            problem.model << constr_next_timestep
+          end
+        end
+      end
+
+      # Add complete query plan constraints
+      def self.apply_query(query, q, problem)
+        return unless query.is_a? MigrateSupportQuery
+        time_depend_complete_plan_constraint(query, q, problem, problem.prepare_vars, problem.timesteps - 1)
       end
     end
   end

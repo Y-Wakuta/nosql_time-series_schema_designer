@@ -111,8 +111,8 @@ module NoSE
       @all_fields.include? field
     end
 
-    def creation_cost(creation_cost)
-      creation_cost * @size
+    def creation_cost(creation_coeff)
+      creation_coeff * @size
     end
 
     private

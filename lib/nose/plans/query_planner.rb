@@ -298,6 +298,19 @@ module NoSE
         false
       end
 
+      def prepare_next_step(step, child_steps, indexes_by_joins)
+        step.children = child_steps
+        child_steps.each { |new_step| new_step.calculate_cost @cost_model }
+        child_steps.each do |child_step|
+          find_plans_for_step child_step, indexes_by_joins
+
+          # Remove this step if finding a plan from here failed
+          if child_step.children.empty? && !child_step.state.answered?
+            step.children.delete child_step
+          end
+        end
+      end
+
       # Find possible query plans for a query starting at the given step
       # @return [void]
       def find_plans_for_step(step, indexes_by_joins, prune: true)
@@ -306,16 +319,7 @@ module NoSE
         steps = find_steps_for_state step, step.state, indexes_by_joins
 
         if !steps.empty?
-          step.children = steps
-          steps.each { |new_step| new_step.calculate_cost @cost_model }
-          steps.each do |child_step|
-            find_plans_for_step child_step, indexes_by_joins
-
-            # Remove this step if finding a plan from here failed
-            if child_step.children.empty? && !child_step.state.answered?
-              step.children.delete child_step
-            end
-          end
+          prepare_next_step step, steps, indexes_by_joins
         elsif prune
           return if step.is_a?(RootPlanStep) || prune_plan(step.parent)
         else
@@ -337,12 +341,8 @@ module NoSE
         steps
       end
 
-      # Get a list of possible next steps for a query in the given state
-      # @return [Array<PlanStep>]
-      def find_steps_for_state(parent, state, indexes_by_joins)
-        steps = find_nonindexed_steps parent, state
-        return steps unless steps.empty?
-
+      def find_indexed_steps(parent, state, indexes_by_joins)
+        steps = []
         # Don't allow indices to be used multiple times
         indexes = (indexes_by_joins[state.joins.first] || Set.new).to_set
         used_indexes = parent.parent_steps.indexes.to_set
@@ -353,8 +353,58 @@ module NoSE
           new_step.add_fields_from_index index
           steps.push new_step
         end
-
         steps
+      end
+
+      # Get a list of possible next steps for a query in the given state
+      # @return [Array<PlanStep>]
+      def find_steps_for_state(parent, state, indexes_by_joins)
+        steps = find_nonindexed_steps parent, state
+        return steps unless steps.empty?
+
+        steps += find_indexed_steps parent, state, indexes_by_joins
+        steps
+      end
+    end
+
+    class PreparingQueryPlanner < QueryPlanner
+
+      def initialize(model, indexes, cost_model, depth)
+        @depth = depth
+        super(model, indexes, cost_model)
+      end
+
+      def plan_depth(step)
+        depth = 0
+        tmp_step = step
+        while (not tmp_step.is_a? RootPlanStep) and (not tmp_step.parent.is_a? RootPlanStep)
+          tmp_step = tmp_step.parent
+          depth += 1
+        end
+        depth
+      end
+
+      # Find possible query plans for a query starting at the given step
+      # @return [void]
+      def find_plans_for_step(step, indexes_by_joins, prune: true)
+        return if step.state.answered?
+
+        steps = find_steps_for_state step, step.state, indexes_by_joins
+
+        # create query plans with specified depth
+        if !steps.empty? and plan_depth(step) < @depth
+          prepare_next_step step, steps, indexes_by_joins
+        elsif prune
+          return if step.is_a?(RootPlanStep) || prune_plan(step.parent)
+        else
+          step.children = [PrunedPlanStep.new]
+        end
+      end
+
+      # Get a list of possible next steps for a query in the given state
+      # @return [Array<PlanStep>]
+      def find_steps_for_state(parent, state, indexes_by_joins)
+        find_indexed_steps parent, state, indexes_by_joins
       end
     end
   end

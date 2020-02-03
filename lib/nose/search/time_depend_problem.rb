@@ -14,16 +14,21 @@ module NoSE
   module Search
     # A representation of a search problem as an ILP
     class TimeDependProblem < Problem
-      attr_reader :timesteps, :migrate_vars, :prepare_vars, :trees
+      attr_reader :timesteps, :migrate_vars, :prepare_vars, :trees, :creation_coeff, :migrate_support_coeff
 
-      def initialize(queries, updates, data, objective = Objective::COST, timesteps, include_migration_cost)
-        fail if timesteps.nil?
+      def initialize(queries, workload, data, objective = Objective::COST)
+        fail if workload.timesteps.nil?
 
-        @timesteps = timesteps
-        @creation_cost = data[:creation_cost]
+        @timesteps = workload.timesteps
+        @creation_coeff = workload.creation_coeff
+        @migrate_support_coeff = workload.migrate_support_coeff
         @trees = data[:trees]
-        @include_migration_cost = include_migration_cost
-        super(queries, updates, data, objective)
+        @migrate_prepare_plans = data[:migrate_prepare_plans]
+        migrate_support_queries = @migrate_prepare_plans.keys
+        queries += migrate_support_queries
+        @include_migration_cost = workload.include_migration_cost
+
+        super(queries, workload.updates, data, objective)
       end
 
       def add_migration_cost(cost)
@@ -36,7 +41,7 @@ module NoSE
       # Get the cost of all queries in the workload
       # @return [MIPPeR::LinExpr]
       def total_cost
-        cost = @queries.reduce(MIPPeR::LinExpr.new) do |expr, query|
+        cost = @queries.reject{|q| q.is_a? MigrateSupportQuery}.reduce(MIPPeR::LinExpr.new) do |expr, query|
           expr.add(@indexes.reduce(MIPPeR::LinExpr.new) do |subexpr, index|
             subexpr.add((0...@timesteps).reduce(MIPPeR::LinExpr.new) do |subsubexpr, ts|
               subsubexpr.add total_query_cost(@data[:costs][query][index],
@@ -91,7 +96,7 @@ module NoSE
       def add_creation_cost(schema_cost)
         @indexes.each do |index|
           (1...@timesteps).each do |ts|
-            schema_cost.add @migrate_vars[index][ts] * index.creation_cost(@creation_cost)
+            schema_cost.add @migrate_vars[index][ts] * index.creation_cost(@creation_coeff)
           end
         end
         schema_cost
@@ -100,14 +105,23 @@ module NoSE
       # add preparing cost for records of the new column family
       # @return [Array]
       def add_prepare_cost(schema_cost)
-        @trees.each do |tree|
-          tree.each do |plan|
-            query_num = plan.steps.first.eq_filter.reduce(1){|_, field| field.parent.count}
-            (1...@timesteps).each do |ts|
-              schema_cost.add @prepare_vars[tree.query].find{|key, _| key == plan}.last[ts] * (plan.cost * query_num)
-            end
-          end
+        cost = @queries.select{|q| q.is_a? MigrateSupportQuery}.reduce(MIPPeR::LinExpr.new) do |expr, query|
+          expr.add(@indexes.reduce(MIPPeR::LinExpr.new) do |subexpr, index|
+            subexpr.add((0...(@timesteps - 1)).reduce(MIPPeR::LinExpr.new) do |subsubexpr, ts|
+              cost = @data[:costs][query][index]
+              if cost.nil?
+                subsubexpr.add MIPPeR::LinExpr.new
+              else
+                query_cost = cost.last[ts] * 1.0
+                cost_expr = @prepare_vars[index][query][ts] * query_cost
+
+                subsubexpr.add cost_expr
+              end
+            end)
+          end)
         end
+
+        schema_cost += cost
         schema_cost
       end
 
@@ -226,15 +240,15 @@ module NoSE
       # @return [void]
       def add_cf_prepare_variables
         @prepare_vars = {}
-        @trees.each do |tree|
-          @prepare_vars[tree.query] = {} if @prepare_vars[tree.query].nil?
-          tree.each do |plan|
-            @prepare_vars[tree.query][plan] = {} if @prepare_vars[tree.query][plan].nil?
-            (1..@timesteps).each do |ts|
-              name = "p#{plan.inspect}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
-              var = MIPPeR::Variable.new 0, 1, 0, :binary, name
+        @indexes.each do |index|
+          @prepare_vars[index] = {}
+          @queries.select{|q| q.is_a? MigrateSupportQuery}.each do |migrate_support_query|
+            @prepare_vars[index][migrate_support_query] = {}
+            (0...(@timesteps - 1)).each do |ts|
+              query_var = "ms_q#{q}_#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              var = MIPPeR::Variable.new 0, 1, 0, :binary, query_var
               @model << var
-              @prepare_vars[tree.query][plan][ts] = var
+              @prepare_vars[index][migrate_support_query][ts] = var
             end
           end
         end
