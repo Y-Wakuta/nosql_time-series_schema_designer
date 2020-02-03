@@ -146,7 +146,7 @@ module NoSE
                        index.all_fields >= parent_index.all_fields
 
         #SELECT E FROM entity WHERE A = ? AND B = ?
-        # parent: [A,B][]->[C,D]
+        # parent: [A,B][]->[C,D] or [A][B]->[C,D]
         # index:  [A][B]->[E]
         return true if state.query.eq_fields >= index.hash_fields and \
                       (index.hash_fields + index.order_fields.to_set) >= state.query.eq_fields and \
