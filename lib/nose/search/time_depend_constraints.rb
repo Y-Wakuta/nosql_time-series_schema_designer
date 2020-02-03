@@ -22,7 +22,7 @@ module NoSE
           # if the index is created in the migration process, indexes for migration are required
           problem.queries.select{|q| q.is_a? MigrateSupportQuery}.each do |ms_query|
             (0...(problem.timesteps - 1)).each do |ts|
-              name = "ms_q#{q}_#{index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              name = "ms_q#{ms_query}_#{index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
               constr = MIPPeR::Constraint.new problem.prepare_vars[index][ms_query][ts] +
                                                 problem.index_vars[index][ts] * -1,
                                               :<=, 0, name
