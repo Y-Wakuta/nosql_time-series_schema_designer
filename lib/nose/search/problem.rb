@@ -136,8 +136,8 @@ module NoSE
       # Pin the current objective value and set a new objective
       # @return [void]
       def solve_next(objective_type)
-        @obj_var.lower_bound = @objective_value
-        @obj_var.upper_bound = @objective_value
+        @obj_var.lower_bound = @objective_value - 0.01
+        @obj_var.upper_bound = @objective_value + 0.01
 
         if objective_type == Objective::INDEXES
           @objective_type = Objective::INDEXES

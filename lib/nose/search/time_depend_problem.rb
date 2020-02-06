@@ -245,7 +245,7 @@ module NoSE
           @queries.select{|q| q.is_a? MigrateSupportQuery}.each do |migrate_support_query|
             @prepare_vars[index][migrate_support_query] = {}
             (0...(@timesteps - 1)).each do |ts|
-              query_var = "ms_q#{q}_#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              query_var = "ms_q_#{migrate_support_query}_#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
               var = MIPPeR::Variable.new 0, 1, 0, :binary, query_var
               @model << var
               @prepare_vars[index][migrate_support_query][ts] = var
