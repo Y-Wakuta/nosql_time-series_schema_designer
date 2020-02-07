@@ -29,7 +29,7 @@ module NoSE
       range.default_proc = ->(*) { [] }
 
       query.graph.subgraphs.flat_map do |graph|
-        indexes_for_graph graph, query.select, eq, range
+        indexes_for_graph graph, query.select, query.counts, query.sums, query.avgs,eq, range
       end.uniq << query.materialize_view
     end
 
@@ -137,7 +137,7 @@ module NoSE
 
     # Get all possible indices which jump a given piece of a query graph
     # @return [Array<Index>]
-    def indexes_for_graph(graph, select, eq, range)
+    def indexes_for_graph(graph, select, count, sum, avg, eq, range)
       eq_choices = eq_choices graph, eq
       range_fields = graph.entities.map { |entity| range[entity] }.reduce(&:+)
       range_fields.uniq!
@@ -148,6 +148,16 @@ module NoSE
       extra_choices = 1.upto(extra_choices.length).flat_map do |n|
         extra_choices.combination(n).map(&:flatten).map(&:uniq)
       end.uniq
+
+      count_subsets = (0..count.length).map do |s_c|
+        count.to_a.combination(s_c).map(&:to_set)
+      end.flatten(1).to_set
+      sum_subsets = (0..sum.length).map do |s_s|
+        sum.to_a.combination(s_s).map(&:to_set)
+      end.flatten(1).to_set
+      avg_subsets = (0..avg.length).map do |s_a|
+        avg.to_a.combination(s_a).map(&:to_set)
+      end.flatten(1).to_set
 
       # Generate all possible indices based on the field choices
       choices = eq_choices.product(extra_choices)
@@ -169,9 +179,14 @@ module NoSE
             extra_fields = extra - hash_fields - order_fields
             next if order_fields.empty? && extra_fields.empty?
 
-            new_index = generate_index hash_fields, order_fields, extra_fields,
-                                       graph
-            indexes << new_index unless new_index.nil?
+            count_subsets.select{|f| select >= f.to_set}.each do |count_subset|
+              sum_subsets.select{|f| select >= f.to_set}.each do |sum_subset|
+                avg_subsets.select{|f| select >= f.to_set}.each do |avg_subset|
+                  new_index = generate_index hash_fields, order_fields, extra_fields, graph, count_subset, sum_subset, avg_subset
+                  indexes << new_index unless new_index.nil?
+                end
+              end
+            end
           end
         end
 
@@ -184,9 +199,9 @@ module NoSE
 
     # Generate a new index and ignore if invalid
     # @return [Index]
-    def generate_index(hash, order, extra, graph)
+    def generate_index(hash, order, extra, graph, count, sum, avg)
       begin
-        index = Index.new hash, order.uniq, extra, graph
+        index = Index.new hash, order.uniq, extra, graph, count, sum, avg
         @logger.debug { "Enumerated #{index.inspect}" }
       rescue InvalidIndexException
         # This combination of fields is not valid, that's ok

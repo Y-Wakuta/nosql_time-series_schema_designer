@@ -5,9 +5,9 @@ module NoSE
   class Index
     attr_reader :hash_fields, :order_fields, :extra, :all_fields, :path,
                 :entries, :entry_size, :size, :hash_count, :per_hash_count,
-                :graph
+                :graph, :count_fields, :sum_fields, :avg_fields
 
-    def initialize(hash_fields, order_fields, extra, graph,
+    def initialize(hash_fields, order_fields, extra, graph, count_fields = [], sum_fields = [], avg_fields = [],
                    saved_key: nil)
       order_set = order_fields.to_set
       @hash_fields = hash_fields.to_set
@@ -16,6 +16,9 @@ module NoSE
         @hash_fields.include?(e) || order_set.include?(e)
       end
       @all_fields = Set.new(@hash_fields).merge(order_set).merge(@extra)
+      @count_fields = count_fields
+      @sum_fields = sum_fields
+      @avg_fields = avg_fields
 
       validate_hash_fields
 
@@ -210,7 +213,7 @@ module NoSE
     # @return [Index]
     def simple_index
       Index.new [id_field], [], fields.values - [id_field],
-                QueryGraph::Graph.from_path([id_field]), saved_key: name
+                QueryGraph::Graph.from_path([id_field]), @count_fields, @sum_fields, @avg_fields, saved_key: name
     end
   end
 
@@ -223,7 +226,7 @@ module NoSE
       order_fields = materialized_view_order(join_order.first) - eq
 
       Index.new(eq, order_fields,
-                all_fields - (@eq_fields + @order).to_set, @graph)
+                all_fields - (@eq_fields + @order).to_set, graph, @count_fields, @sum_fields, @avg_fields)
     end
 
     private

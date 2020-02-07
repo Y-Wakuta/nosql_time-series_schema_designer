@@ -82,7 +82,7 @@ module NoSE
       end]
 
       params = {
-        select: select,
+        select: {fields: select},
         graph: index.graph,
         key_path: index.graph.longest_path,
         entity: index.graph.entities,

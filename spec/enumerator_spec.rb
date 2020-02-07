@@ -96,5 +96,14 @@ module NoSE
                   QueryGraph::Graph.from_path([user.id_field,
                                                user['Tweets']])
     end
+
+    it 'produces indexes that include aggregation processes' do
+      query = Statement.parse 'SELECT COUNT(Tweet.Body), COUNT(Tweet.TweetId), SUM(User.UserId), AVG(Tweet.Retweets) FROM Tweet.User ' \
+                              'WHERE User.City = ?', workload.model
+      indexes = enum.indexes_for_query query
+      expect(indexes.map(&:count_fields)).to include [tweet['Body'], tweet['TweetId']]
+      expect(indexes.map(&:sum_fields)).to include [user['UserId']]
+      expect(indexes.map(&:avg_fields)).to include [tweet['Retweets']]
+    end
   end
 end

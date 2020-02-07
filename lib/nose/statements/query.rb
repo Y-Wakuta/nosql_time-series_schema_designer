@@ -5,13 +5,16 @@ module NoSE
   class Query < Statement
     include StatementConditions
 
-    attr_reader :select, :order, :limit
+    attr_reader :select, :counts, :sums, :avgs, :order, :limit
 
     def initialize(params, text, group: nil, label: nil)
       super params, text, group: group, label: label
 
       populate_conditions params
-      @select = params[:select]
+      @select = params[:select][:fields]
+      @counts = params[:select][:count] || []
+      @sums = params[:select][:sum] || []
+      @avgs = params[:select][:avgs] || []
       @order = params[:order] || []
 
       fail InvalidStatementException, 'can\'t order by IDs' \
@@ -93,10 +96,7 @@ module NoSE
       (@select + @conditions.each_value.map(&:field) + @order).to_set
     end
 
-    # Extract fields to be selected from a parse tree
-    # @return [Set<Field>]
-    def self.fields_from_tree(tree, params)
-      params[:select] = tree[:select].flat_map do |field|
+    def self.get_fields(tree, params, field)
         if field.last == '*'
           # Find the entity along the path
           entity = params[:key_path].entities[tree[:path].index(field.first)]
@@ -109,7 +109,44 @@ module NoSE
 
           field
         end
-      end.to_set
+    end
+
+    # Extract fields to be selected from a parse tree
+    # @return [Set<Field>]
+    def self.fields_from_tree(tree, params)
+      fields = []
+      counts = []
+      sums = []
+      avgs = []
+      tree[:select].flat_map do |field|
+        if field.is_a?(Hash)
+          field[:count]&.each_slice(2) do |f|
+            fs = get_fields(tree, params, f)
+            fields += [fs].flatten(1)
+            counts += [fs].flatten(1)
+          end
+
+          field[:sum]&.each_slice(2) do |f|
+            fs = get_fields(tree, params, f)
+            fields += [fs].flatten(1)
+            sums += [fs].flatten(1)
+          end
+
+          field[:avg]&.each_slice(2) do |f|
+            fs = get_fields(tree, params, f)
+            fields += [fs].flatten(1)
+            avgs += [fs].flatten(1)
+          end
+        else
+          fields += [get_fields(tree, params, field)].flatten(1)
+        end
+      end
+
+      params[:select] = {}
+      params[:select][:fields] = fields.to_set
+      params[:select][:count] = counts.to_set
+      params[:select][:sum] = sums.to_set
+      params[:select][:avgs] = avgs.to_set
     end
     private_class_method :fields_from_tree
 

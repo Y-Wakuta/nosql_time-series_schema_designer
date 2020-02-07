@@ -211,7 +211,7 @@ module NoSE
         end]
 
         params = {
-          select: random_select(path, selected_fields),
+          select: {fields: random_select(path, selected_fields)},
           model: @model,
           graph: graph,
           key_path: graph.longest_path,
