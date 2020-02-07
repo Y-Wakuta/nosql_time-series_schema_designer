@@ -23,6 +23,20 @@ module NoSE
         expect(workload.queries.first).to be_a Query
       end
 
+      it 'parses aggregate functions' do
+        entity << Fields::IntegerField.new('Bar')
+        expect do
+          Statement.parse 'SELECT COUNT(Foo.Id), COUNT(Foo.Bar) FROM Foo ' \
+              'WHERE Foo.Id = ?', workload.model
+        end.not_to raise_error
+
+        expect do
+          Statement.parse 'SELECT SUM(Foo.Id), SUM(Foo.Bar) FROM Foo ' \
+              'WHERE Foo.Id = ?', workload.model
+        end.not_to raise_error
+
+      end
+
       it 'only accepts entities and queries' do
         expect { workload << 3 }.to raise_error TypeError
       end
