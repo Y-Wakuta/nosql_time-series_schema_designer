@@ -14,7 +14,7 @@ module NoSE
       @select = params[:select][:fields]
       @counts = params[:select][:count] || []
       @sums = params[:select][:sum] || []
-      @avgs = params[:select][:avgs] || []
+      @avgs = params[:select][:avg] || []
       @order = params[:order] || []
 
       fail InvalidStatementException, 'can\'t order by IDs' \
@@ -107,46 +107,29 @@ module NoSE
           fail InvalidStatementException, 'Foreign keys cannot be selected' \
             if field.is_a? Fields::ForeignKeyField
 
-          field
+          [field]
         end
     end
 
     # Extract fields to be selected from a parse tree
     # @return [Set<Field>]
     def self.fields_from_tree(tree, params)
-      fields = []
-      counts = []
-      sums = []
-      avgs = []
+      params[:select] = {}
+      params[:select][:fields]= Set.new
+      params[:select][:count] = Set.new
+      params[:select][:sum] = Set.new
+      params[:select][:avg] = Set.new
+
       tree[:select].flat_map do |field|
         if field.is_a?(Hash)
-          field[:count]&.each_slice(2) do |f|
-            fs = get_fields(tree, params, f)
-            fields += [fs].flatten(1)
-            counts += [fs].flatten(1)
-          end
-
-          field[:sum]&.each_slice(2) do |f|
-            fs = get_fields(tree, params, f)
-            fields += [fs].flatten(1)
-            sums += [fs].flatten(1)
-          end
-
-          field[:avg]&.each_slice(2) do |f|
-            fs = get_fields(tree, params, f)
-            fields += [fs].flatten(1)
-            avgs += [fs].flatten(1)
+          field[field.keys.first]&.each_slice(2) do |f|
+            params[:select][field.keys.first].merge(get_fields(tree, params, f))
           end
         else
-          fields += [get_fields(tree, params, field)].flatten(1)
+          params[:select][:fields].merge(get_fields(tree, params, field).to_set)
         end
       end
-
-      params[:select] = {}
-      params[:select][:fields] = fields.to_set
-      params[:select][:count] = counts.to_set
-      params[:select][:sum] = sums.to_set
-      params[:select][:avgs] = avgs.to_set
+      params[:select][:fields] += (params[:select][:count] + params[:select][:sum] + params[:select][:avg])
     end
     private_class_method :fields_from_tree
 

@@ -149,16 +149,6 @@ module NoSE
         extra_choices.combination(n).map(&:flatten).map(&:uniq)
       end.uniq
 
-      count_subsets = (0..count.length).map do |s_c|
-        count.to_a.combination(s_c).map(&:to_set)
-      end.flatten(1).to_set
-      sum_subsets = (0..sum.length).map do |s_s|
-        sum.to_a.combination(s_s).map(&:to_set)
-      end.flatten(1).to_set
-      avg_subsets = (0..avg.length).map do |s_a|
-        avg.to_a.combination(s_a).map(&:to_set)
-      end.flatten(1).to_set
-
       # Generate all possible indices based on the field choices
       choices = eq_choices.product(extra_choices)
       indexes = choices.map! do |index, extra|
@@ -179,9 +169,9 @@ module NoSE
             extra_fields = extra - hash_fields - order_fields
             next if order_fields.empty? && extra_fields.empty?
 
-            count_subsets.select{|f| select >= f.to_set}.each do |count_subset|
-              sum_subsets.select{|f| select >= f.to_set}.each do |sum_subset|
-                avg_subsets.select{|f| select >= f.to_set}.each do |avg_subset|
+            (0..count.length).map{|c_l| count.to_a.combination(c_l).map(&:to_set)}.flatten(1).each do |count_subset|
+              (0..sum.length).map{|s_l| sum.to_a.combination(s_l).map(&:to_set)}.flatten(1).each do |sum_subset|
+                (0..avg.length).map{|a_l| avg.to_a.combination(a_l).map(&:to_set)}.flatten(1).each do |avg_subset|
                   new_index = generate_index hash_fields, order_fields, extra_fields, graph, count_subset, sum_subset, avg_subset
                   indexes << new_index unless new_index.nil?
                 end
