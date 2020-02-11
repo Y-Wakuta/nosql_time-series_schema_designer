@@ -7,7 +7,7 @@ module NoSE
                 :entries, :entry_size, :size, :hash_count, :per_hash_count,
                 :graph, :count_fields, :sum_fields, :avg_fields
 
-    def initialize(hash_fields, order_fields, extra, graph, count_fields = [], sum_fields = [], avg_fields = [],
+    def initialize(hash_fields, order_fields, extra, graph, count_fields = Set.new, sum_fields = Set.new, avg_fields = Set.new,
                    saved_key: nil)
       order_set = order_fields.to_set
       @hash_fields = hash_fields.to_set
@@ -76,11 +76,11 @@ module NoSE
 
     # :nocov:
     def to_color
-      fields = [@hash_fields, @order_fields, @extra].map do |field_group|
+      fields = [@hash_fields, @order_fields, @extra, @count_fields, @sum_fields, @avg_fields].map do |field_group|
         '[' + field_group.map(&:inspect).join(', ') + ']'
       end
 
-      "[magenta]#{key}[/] #{fields[0]} #{fields[1]} → #{fields[2]}" \
+      "[magenta]#{key}[/] #{fields[0]} #{fields[1]} → #{fields[2]} aggregate: {c: #{fields[3]}, s: #{fields[4]}, a: #{fields[5]}}" \
         " [yellow]$#{size}[/]" \
         " [magenta]#{@graph.inspect}[/]"
     end
@@ -216,7 +216,7 @@ module NoSE
     # @return [Index]
     def simple_index
       Index.new [id_field], [], fields.values - [id_field],
-                QueryGraph::Graph.from_path([id_field]), @count_fields, @sum_fields, @avg_fields, saved_key: name
+                QueryGraph::Graph.from_path([id_field]), saved_key: name
     end
   end
 
@@ -229,7 +229,7 @@ module NoSE
       order_fields = materialized_view_order(join_order.first) - eq
 
       Index.new(eq, order_fields,
-                all_fields - (@eq_fields + @order).to_set, graph, @count_fields, @sum_fields, @avg_fields)
+                all_fields - (@eq_fields + @order).to_set, graph, @counts, @sums, @avgs)
     end
 
     private

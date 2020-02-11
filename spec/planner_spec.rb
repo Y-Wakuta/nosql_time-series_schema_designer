@@ -70,10 +70,10 @@ module NoSE
                                 'User.UserId = ? ORDER BY User.Username',
                                 workload.model
         expect(planner.min_plan(query)).to eq [
-          IndexLookupPlanStep.new(index1),
-          SortPlanStep.new([user['Username']]),
-          IndexLookupPlanStep.new(index2)
-        ]
+                                                IndexLookupPlanStep.new(index1),
+                                                SortPlanStep.new([user['Username']]),
+                                                IndexLookupPlanStep.new(index2)
+                                              ]
       end
 
       it 'can apply a limit directly' do
@@ -137,12 +137,12 @@ module NoSE
 
         tree = planner.find_plans_for_query query
         expect(tree.to_a).to match_array [
-          [IndexLookupPlanStep.new(index1)],
-          [
-            IndexLookupPlanStep.new(index2),
-            SortPlanStep.new([tweet['Timestamp']])
-          ]
-        ]
+                                           [IndexLookupPlanStep.new(index1)],
+                                           [
+                                             IndexLookupPlanStep.new(index2),
+                                             SortPlanStep.new([tweet['Timestamp']])
+                                           ]
+                                         ]
       end
 
       it 'knows which fields are available at a given step' do
@@ -175,6 +175,61 @@ module NoSE
         expect(tree).to have(1).plan
         expect(tree.first.last).to eq FilterPlanStep.new([],
                                                          tweet['Timestamp'])
+      end
+
+      it 'can apply an index lookup step that includes COUNT()' do
+        index = Index.new [tweet['TweetId']], [],
+                          [tweet['Body']],
+                          QueryGraph::Graph.from_path(
+                            [tweet.id_field]
+                          ),[tweet['Body']]
+        planner = QueryPlanner.new workload.model, [index], cost_model
+        query = Statement.parse 'SELECT COUNT(Tweet.Body) FROM Tweet WHERE ' \
+                                'Tweet.TweetId = ?', workload.model
+        tree = planner.find_plans_for_query(query)
+        expect(tree).to have(1).plan
+        expect(tree.first).to have(1).steps
+      end
+
+      it 'rejects join column families that use COUNT() fields' do
+        parent_index = Index.new [tweet['Body']], [tweet['TweetId']],
+                                 [],
+                                 QueryGraph::Graph.from_path(
+                                   [tweet.id_field]
+                                 ),Set.new([tweet['TweetId']])
+        index = Index.new [tweet['TweetId']], [],
+                          [tweet['Timestamp']],
+                          QueryGraph::Graph.from_path(
+                            [tweet.id_field])
+        planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
+        query = Statement.parse 'SELECT COUNT(Tweet.TweetId), Tweet.Timestamp FROM Tweet WHERE ' \
+                                'Tweet.Body = ?', workload.model
+        expect do
+          planner.find_plans_for_query(query)
+        end.to raise_error NoPlanException
+      end
+
+      it 'can apply aggregation function at any step in the query plan' do
+        parent_index = Index.new [tweet['Body']], [tweet['TweetId'], tweet['Retweets']],
+                                 [],
+                                 QueryGraph::Graph.from_path(
+                                   [tweet.id_field]
+                                 ),Set.new(), Set.new([tweet['Retweets']])
+        index = Index.new [tweet['TweetId']], [],
+                          [tweet['Timestamp']],
+                          QueryGraph::Graph.from_path(
+                            [tweet.id_field]), Set.new([tweet['TweetId']])
+        planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
+        query = Statement.parse 'SELECT COUNT(Tweet.TweetId), SUM(Tweet.Retweets), Tweet.Timestamp FROM Tweet WHERE ' \
+                                'Tweet.Body = ?', workload.model
+
+        tree = planner.find_plans_for_query(query)
+        expect(tree).to have(1).plan
+
+        first_index = tree.first.steps.first.index
+        expect(first_index.sum_fields).to include Set.new([tweet['Retweets']])
+        last_index = tree.first.steps.last.index
+        expect(last_index.count_fields).to include Set.new([tweet['TweetId']])
       end
 
       context 'when updating cardinality' do
@@ -261,16 +316,16 @@ module NoSE
           Index.new([user['Username']],
                     [user['UserId'], tweet['TweetId']], [],
                     QueryGraph::Graph.from_path([user.id_field,
-                                                user['Tweets']])),
+                                                 user['Tweets']])),
           Index.new([tweet['TweetId']], [], [tweet['Body']],
                     QueryGraph::Graph.from_path([tweet.id_field]))
         ]
 
         planner = QueryPlanner.new workload.model, indexes, cost_model
         expect(planner.min_plan(query)).to eq [
-          IndexLookupPlanStep.new(indexes[0]),
-          IndexLookupPlanStep.new(indexes[1])
-        ]
+                                                IndexLookupPlanStep.new(indexes[0]),
+                                                IndexLookupPlanStep.new(indexes[1])
+                                              ]
       end
 
       it 'can create plans which visit each entity' do
@@ -304,7 +359,7 @@ module NoSE
                                 'User.UserId = ? AND Tweets.Retweets = 0 ' \
                                 'ORDER BY Tweets.Timestamp', workload.model
         index = Index.new [user['UserId']], [tweet['Retweets'],
-                          tweet['Timestamp'], tweet['TweetId']],
+                                             tweet['Timestamp'], tweet['TweetId']],
                           [tweet['Body']],
                           QueryGraph::Graph.from_path(
                             [user.id_field, user['Tweets']]

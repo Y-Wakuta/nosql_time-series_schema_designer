@@ -12,9 +12,9 @@ module NoSE
 
       populate_conditions params
       @select = params[:select][:fields]
-      @counts = params[:select][:count] || []
-      @sums = params[:select][:sum] || []
-      @avgs = params[:select][:avg] || []
+      @counts = params[:select][:count] || Set.new
+      @sums = params[:select][:sum] || Set.new
+      @avgs = params[:select][:avg] || Set.new
       @order = params[:order] || []
 
       fail InvalidStatementException, 'can\'t order by IDs' \
