@@ -13,11 +13,13 @@ jobs:
       uses: actions/setup-ruby@v1
       with:
         ruby-version: 2.6.x
-    - name: Run Test
+    - name: Setup Environment
       run: |
         sudo apt-get update
         sudo apt-get install libmysqlclient-dev
         sudo apt-get update -qq
+        curl -L https://packagecloud.io/michaelmior/coinor/gpgkey | sudo apt-key add -
+        echo "deb https://packagecloud.io/michaelmior/coinor/ubuntu/ precise main" | sudo tee -a /etc/apt/sources.list
         sudo apt-get install -qq coinor-libcbc-dev coinor-libcbc3 coinor-libcoinutils-dev coinor-libcoinutils3v5 coinor-libosi-dev coinor-libosi1 coinor-libclp-dev coinor-libclp1 coinor-libcgl-dev coinor-libcgl1 libstdc++6
         sudo apt install libpq-dev
         gem install bundler
@@ -28,4 +30,7 @@ jobs:
         bundle install --jobs 4 --retry 3
         sed -i '/^--tag/d' .rspec
         sed -ie 's/GurobiModel/CbcModel/g' ./lib/nose/search/problem.rb
+        
+    - name: Run Test
+      run: |
         bundle exec rspec
