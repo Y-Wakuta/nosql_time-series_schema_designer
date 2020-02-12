@@ -5,7 +5,7 @@ module NoSE
   class Query < Statement
     include StatementConditions
 
-    attr_reader :select, :counts, :sums, :avgs, :order, :limit
+    attr_reader :select, :counts, :sums, :avgs, :order, :groupby, :limit
 
     def initialize(params, text, group: nil, label: nil)
       super params, text, group: group, label: label
@@ -16,6 +16,7 @@ module NoSE
       @sums = params[:select][:sum] || Set.new
       @avgs = params[:select][:avg] || Set.new
       @order = params[:order] || []
+      @groupby = params[:groupby] || []
 
       fail InvalidStatementException, 'can\'t order by IDs' \
         if @order.any? { |f| f.is_a? Fields::IDField }
@@ -36,6 +37,7 @@ module NoSE
       conditions_from_tree tree, params
       fields_from_tree tree, params
       order_from_tree tree, params
+      groupby_from_tree tree, params
       params[:limit] = tree[:limit].to_i if tree[:limit]
 
       new params, text, group: group, label: label
@@ -144,6 +146,16 @@ module NoSE
       end
     end
     private_class_method :order_from_tree
+
+    def self.groupby_from_tree(tree, params)
+      return params[:groupby] = [] if tree[:groupby].nil?
+
+      params[:groupby] = tree[:groupby][:fields].each_slice(2).map do |field|
+        field = field.first if field.first.is_a? Array
+        add_field_with_prefix tree[:path], field, params
+      end
+    end
+    private_class_method :groupby_from_tree
 
     private
 
