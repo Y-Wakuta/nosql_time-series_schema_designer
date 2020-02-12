@@ -169,9 +169,10 @@ module NoSE
             extra_fields = extra - hash_fields - order_fields
             next if order_fields.empty? && extra_fields.empty?
 
-            (0..count.length).map{|c_l| count.to_a.combination(c_l).map(&:to_set)}.flatten(1).each do |count_subset|
-              (0..sum.length).map{|s_l| sum.to_a.combination(s_l).map(&:to_set)}.flatten(1).each do |sum_subset|
-                (0..avg.length).map{|a_l| avg.to_a.combination(a_l).map(&:to_set)}.flatten(1).each do |avg_subset|
+            all_fields = hash_fields.to_set + order_fields.to_set + extra.to_set
+            (0..count.length).map{|c_l| count.to_a.combination(c_l).map(&:to_set)}.flatten(1).select{|c| all_fields >= c}.each do |count_subset|
+              (0..sum.length).map{|s_l| sum.to_a.combination(s_l).map(&:to_set)}.flatten(1).select{|s| all_fields >= s}.each do |sum_subset|
+                (0..avg.length).map{|a_l| avg.to_a.combination(a_l).map(&:to_set)}.flatten(1).select{|a| all_fields >= a}.each do |avg_subset|
                   new_index = generate_index hash_fields, order_fields, extra_fields, graph, count_subset, sum_subset, avg_subset
                   indexes << new_index unless new_index.nil?
                 end

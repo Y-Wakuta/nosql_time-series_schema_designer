@@ -182,7 +182,7 @@ module NoSE
                           [tweet['Body']],
                           QueryGraph::Graph.from_path(
                             [tweet.id_field]
-                          ),[tweet['Body']]
+                          ),Set.new([tweet['Body']])
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT COUNT(Tweet.Body) FROM Tweet WHERE ' \
                                 'Tweet.TweetId = ?', workload.model
