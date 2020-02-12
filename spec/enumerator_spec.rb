@@ -96,5 +96,23 @@ module NoSE
                   QueryGraph::Graph.from_path([user.id_field,
                                                user['Tweets']])
     end
+
+    it 'produces indexes that include aggregation processes' do
+      query = Statement.parse 'SELECT COUNT(Tweet.Body), COUNT(Tweet.TweetId), SUM(User.UserId), AVG(Tweet.Retweets) FROM Tweet.User ' \
+                              'WHERE User.City = ?', workload.model
+      indexes = enum.indexes_for_query query
+      expect(indexes.map(&:count_fields)).to include [tweet['Body'], tweet['TweetId']]
+      expect(indexes.map(&:sum_fields)).to include [user['UserId']]
+      expect(indexes.map(&:avg_fields)).to include [tweet['Retweets']]
+    end
+
+    it 'makes sure that all aggregation fields are included in index fields' do
+      query = Statement.parse 'SELECT COUNT(Tweet.Body), COUNT(Tweet.TweetId), SUM(User.UserId), AVG(Tweet.Retweets) FROM Tweet.User ' \
+                              'WHERE User.City = ?', workload.model
+      indexes = enum.indexes_for_query query
+      indexes.each do |index|
+        expect(index.all_fields).to be >= (index.count_fields + index.sum_fields + index.avg_fields)
+      end
+    end
   end
 end

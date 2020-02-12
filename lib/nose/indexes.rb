@@ -5,9 +5,9 @@ module NoSE
   class Index
     attr_reader :hash_fields, :order_fields, :extra, :all_fields, :path,
                 :entries, :entry_size, :size, :hash_count, :per_hash_count,
-                :graph
+                :graph, :count_fields, :sum_fields, :avg_fields
 
-    def initialize(hash_fields, order_fields, extra, graph,
+    def initialize(hash_fields, order_fields, extra, graph, count_fields = Set.new, sum_fields = Set.new, avg_fields = Set.new,
                    saved_key: nil)
       order_set = order_fields.to_set
       @hash_fields = hash_fields.to_set
@@ -16,6 +16,9 @@ module NoSE
         @hash_fields.include?(e) || order_set.include?(e)
       end
       @all_fields = Set.new(@hash_fields).merge(order_set).merge(@extra)
+      @count_fields = count_fields
+      @sum_fields = sum_fields
+      @avg_fields = avg_fields
 
       validate_hash_fields
 
@@ -73,11 +76,11 @@ module NoSE
 
     # :nocov:
     def to_color
-      fields = [@hash_fields, @order_fields, @extra].map do |field_group|
+      fields = [@hash_fields, @order_fields, @extra, @count_fields, @sum_fields, @avg_fields].map do |field_group|
         '[' + field_group.map(&:inspect).join(', ') + ']'
       end
 
-      "[magenta]#{key}[/] #{fields[0]} #{fields[1]} → #{fields[2]}" \
+      "[magenta]#{key}[/] #{fields[0]} #{fields[1]} → #{fields[2]} aggregate: {c: #{fields[3]}, s: #{fields[4]}, a: #{fields[5]}}" \
         " [yellow]$#{size}[/]" \
         " [magenta]#{@graph.inspect}[/]"
     end
@@ -97,7 +100,10 @@ module NoSE
         @hash_fields.map(&:id).sort!,
         @order_fields.map(&:id),
         @extra.map(&:id).sort!,
-        @graph.unique_edges.map(&:canonical_params).sort!
+        @graph.unique_edges.map(&:canonical_params).sort!,
+        @count_fields&.map(&:id)&.sort! || [],
+        @sum_fields&.map(&:id)&.sort! || [],
+        @avg_fields&.map(&:id)&.sort! || []
       ].to_s.freeze
     end
 
@@ -223,7 +229,7 @@ module NoSE
       order_fields = materialized_view_order(join_order.first) - eq
 
       Index.new(eq, order_fields,
-                all_fields - (@eq_fields + @order).to_set, @graph)
+                all_fields - (@eq_fields + @order).to_set, graph, @counts, @sums, @avgs)
     end
 
     private

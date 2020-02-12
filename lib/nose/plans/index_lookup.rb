@@ -56,11 +56,24 @@ module NoSE
           check_all_hash_fields parent, index, state
           check_graph_fields parent, index, state
           check_last_fields index, state
+          check_aggregate_fields parent, index
         rescue InvalidIndex
           return nil
         end
 
         IndexLookupPlanStep.new(index, state, parent)
+      end
+
+      # remove invalid query plans because of aggregation fields
+      def self.check_aggregate_fields(parent, index)
+        return unless parent.is_a? IndexLookupPlanStep
+
+        # fields used for join parent_index and current index
+        join_fields = parent.index.all_fields & (index.hash_fields + index.order_fields)
+        aggregation_fields = parent.index.count_fields + parent.index.sum_fields + parent.index.avg_fields
+
+        # if all primary fields used for joining column families are aggregate fields, raise InvalidIndex
+        fail InvalidIndex if join_fields.select(&:primary_key).all?{|f| aggregation_fields.include? f}
       end
 
       # Check that this index is a valid continuation of the set of joins
@@ -110,7 +123,7 @@ module NoSE
                            parent_index.graph != index.graph) ||
                            index.hash_fields == parent_ids
 
-        return true if is_useless_parent?(state, index,parent_index)
+        return true if is_useless_parent?(state, index, parent_index)
 
         false
       end
@@ -329,6 +342,9 @@ module NoSE
         # Remove fields resolved by this index
         @state.fields -= @index.all_fields
         @state.eq -= @eq_filter
+        @state.counts -= @index.count_fields.to_set
+        @state.sums -= @index.sum_fields
+        @state.avgs -= @index.avg_fields
 
         indexed_by_id = resolve_order
         strip_graph

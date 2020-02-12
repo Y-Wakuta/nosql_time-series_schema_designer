@@ -8,7 +8,7 @@ module NoSE
     # Ongoing state of a query throughout the execution plan
     class QueryState
       attr_accessor :fields, :eq, :range, :order_by, :graph,
-                    :joins, :cardinality, :hash_cardinality, :given_fields
+                    :joins, :cardinality, :hash_cardinality, :given_fields, :counts, :sums, :avgs
       attr_reader :query, :model
 
       def initialize(query, model)
@@ -20,6 +20,9 @@ module NoSE
         @graph = query.graph
         @joins = query.materialize_view.graph.join_order(@eq)
         @order_by = query.order.dup
+        @counts = query.counts
+        @sums = query.sums
+        @avgs = query.avgs
 
         # We never need to order by fields listed in equality predicates
         # since we'll only ever have rows with a single value
@@ -52,7 +55,8 @@ module NoSE
       # @return [Boolean]
       def answered?(check_limit: true)
         done = @fields.empty? && @eq.empty? && @range.nil? &&
-               @order_by.empty? && @joins.empty? && @graph.empty?
+               @order_by.empty? && @joins.empty? && @graph.empty? &&
+               @counts.empty? && @sums.empty? && @avgs.empty?
 
         # Check if the limit has been applied
         done &&= @cardinality <= @query.limit unless @query.limit.nil? ||
