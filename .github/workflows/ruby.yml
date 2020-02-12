@@ -18,6 +18,18 @@ jobs:
         sudo apt-get update
         sudo apt-get install libmysqlclient-dev
         sudo apt install libpq-dev
+        sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
+        curl -L https://packagecloud.io/michaelmior/coinor/gpgkey | sudo apt-key add -
+        echo "deb https://packagecloud.io/michaelmior/coinor/ubuntu/ precise main" | sudo tee -a /etc/apt/sources.list
+        sudo apt-get update -qq
+        sudo apt-get install -qq graphviz
+        sudo apt-get install -qq coinor-libcbc-dev coinor-libcbc3 coinor-libcoinutils-dev coinor-libcoinutils3v5 coinor-libosi-dev coinor-libosi1 coinor-libclp-dev coinor-libclp1 coinor-libcgl-dev coinor-libcgl1 libstdc++6
         gem install bundler
+        mysql -uroot -e 'create database nose;'
+        mysql -uroot -Dnose < spec/support/data/mysql.sql
+        sudo rm -rf /var/lib/cassandra/*
+        wget https://archive.apache.org/dist/cassandra/3.7/apache-cassandra-3.7-bin.tar.gz && tar -xvzf apache-cassandra-3.7-bin.tar.gz && sudo sh apache-cassandra-3.7/bin/cassandra -R && sleep 15
         bundle install --jobs 4 --retry 3
+        sed -i '/^--tag/d' .rspec
+        sed -ie 's/GurobiModel/CbcModel/g' ./lib/nose/search/problem.rb
         bundle exec rspec
