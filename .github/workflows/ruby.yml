@@ -17,6 +17,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install libmysqlclient-dev
+        sudo apt install libpq-dev
         gem install bundler
         bundle install --jobs 4 --retry 3
         bundle exec rspec
