@@ -58,5 +58,29 @@ module NoSE
         expect(plan.cost).to eq index.all_fields.sum_by(&:size)
       end
     end
+
+    describe 'DummyCost' do
+      include_context 'entities'
+      include_context 'dummy cost model'
+
+      it 'increase the cost if the index include aggregation field' do
+        query = Statement.parse 'SELECT Tweet.Body, Tweet.Timestamp, Tweet.Retweets, COUNT(Tweet.TweetId) FROM Tweet ' \
+                          'WHERE Tweet.TweetId = ?', workload.model
+        index = Index.new [tweet['TweetId']], [tweet['Body']],
+                          [tweet['Timestamp'], tweet['Retweets']],
+                          QueryGraph::Graph.from_path(
+                              [tweet.id_field]), Set.new([tweet['TweetId']])
+        planner = Plans::QueryPlanner.new workload.model, [index], cost_model
+        plan = planner.min_plan query
+
+        query = Statement.parse 'SELECT Tweet.* FROM Tweet ' \
+                          'WHERE Tweet.TweetId = ?', workload.model
+        simple_index = tweet.simple_index
+        planner = Plans::QueryPlanner.new workload.model, [simple_index], cost_model
+        simple_plan = planner.min_plan query
+
+        expect(plan.cost).to be > simple_plan.cost
+      end
+    end
   end
 end

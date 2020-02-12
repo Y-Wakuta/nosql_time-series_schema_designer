@@ -99,6 +99,14 @@ module NoSE
           Search.new(workload, cost_model).search_overlap indexes
         end.not_to raise_error
       end
+
+      it 'provide solution even when the query include aggregation fields' do
+        workload.add_statement(Statement.parse 'SELECT COUNT(Tweet.TweetId), SUM(Tweet.Retweets), Tweet.Timestamp FROM Tweet WHERE ' \
+                                'Tweet.Body = ?', workload.model)
+        indexes = IndexEnumerator.new(workload).indexes_for_workload.to_a
+        result = Search.new(workload, cost_model).search_overlap indexes
+        expect(result.plans).to have(1).plan
+      end
     end
   end
 end
