@@ -57,11 +57,18 @@ module NoSE
           check_graph_fields parent, index, state
           check_last_fields index, state
           check_aggregate_fields parent, index
+          check_parent_groupby parent
         rescue InvalidIndex
           return nil
         end
 
         IndexLookupPlanStep.new(index, state, parent)
+      end
+
+      def self.check_parent_groupby(parent)
+        return unless parent.is_a? Plans::IndexLookupPlanStep
+        # no column family with GROUP BY can become parent of any index
+        fail unless parent.index.groupby_fields.empty?
       end
 
       # remove invalid query plans because of aggregation fields
