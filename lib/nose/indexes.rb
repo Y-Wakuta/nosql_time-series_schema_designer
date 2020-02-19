@@ -102,9 +102,12 @@ module NoSE
         @order_fields.map(&:id),
         @extra.map(&:id).sort!,
         @graph.unique_edges.map(&:canonical_params).sort!,
-        @count_fields&.map(&:id)&.sort! || [],
-        @sum_fields&.map(&:id)&.sort! || [],
-        @avg_fields&.map(&:id)&.sort! || []
+        [
+          @count_fields&.map(&:id)&.sort! || [],
+          @sum_fields&.map(&:id)&.sort! || [],
+          @avg_fields&.map(&:id)&.sort! || [],
+          @groupby_fields&.map(&:id)&.sort! || []
+        ]
       ].to_s.freeze
     end
 
