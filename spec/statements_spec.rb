@@ -66,7 +66,7 @@ module NoSE
     end
 
     it 'parses GROUP BY' do
-      stmt = Statement.parse 'SELECT Tweet.* FROM Tweet ' \
+      stmt = Statement.parse 'SELECT Tweet.Retweets, SUM(Tweet.TweetId) FROM Tweet ' \
                               'WHERE Tweet.Retweets = 3 GROUP BY Tweet.Retweets', workload.model
       expect(stmt.groupby).to include tweet['Retweets']
     end
