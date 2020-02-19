@@ -82,9 +82,9 @@ module NoSE
       def self.check_joins(index, state)
         fail InvalidIndex \
           unless index.graph.entities.include?(state.joins.first) &&
-                 (index.graph.unique_edges &
-                  state.graph.unique_edges ==
-                  index.graph.unique_edges)
+          (index.graph.unique_edges &
+            state.graph.unique_edges ==
+            index.graph.unique_edges)
       end
       private_class_method :check_joins
 
@@ -95,7 +95,7 @@ module NoSE
         # XXX This disallows plans which look up additional attributes
         #     for entities other than the final one
         fail InvalidIndex if index.graph.size == 1 && state.graph.size > 1 &&
-                             !parent.is_a?(RootPlanStep)
+          !parent.is_a?(RootPlanStep)
         fail InvalidIndex if index.identity? && state.graph.size > 1
       end
       private_class_method :check_forward_lookup
@@ -241,7 +241,7 @@ module NoSE
           @index.order_fields - @eq_filter.to_a
         )
         if indexed_by_id && order_prefix.map(&:parent).to_set ==
-                            Set.new([@index.hash_fields.first.parent])
+          Set.new([@index.hash_fields.first.parent])
           order_prefix = []
         else
           @state.order_by -= order_prefix
@@ -260,7 +260,7 @@ module NoSE
         required_fields = @state.fields_for_graph(@index.graph, hash_entity,
                                                   select: true).to_set
         if required_fields.subset?(@index.all_fields) &&
-           @state.graph == @index.graph
+          @state.graph == @index.graph
           removed_nodes = @state.joins[0..@index.graph.size]
           @state.joins = @state.joins[@index.graph.size..-1]
         else
@@ -304,8 +304,8 @@ module NoSE
         # and the ordering of the query has already been resolved
         order_resolved = @state.order_by.empty? && @state.graph.size == 1
         return unless (@state.answered?(check_limit: false) ||
-                      parent.is_a?(RootPlanStep) && order_resolved) &&
-                      !@state.query.limit.nil?
+          parent.is_a?(RootPlanStep) && order_resolved) &&
+          !@state.query.limit.nil?
 
         # XXX Assume that everything is limited by the limit value
         #     which should be fine if the limit is small enough

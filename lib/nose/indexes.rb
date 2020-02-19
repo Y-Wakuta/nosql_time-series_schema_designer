@@ -5,9 +5,9 @@ module NoSE
   class Index
     attr_reader :hash_fields, :order_fields, :extra, :all_fields, :path,
                 :entries, :entry_size, :size, :hash_count, :per_hash_count,
-                :graph, :count_fields, :sum_fields, :avg_fields
+                :graph, :count_fields, :sum_fields, :avg_fields, :groupby_fields
 
-    def initialize(hash_fields, order_fields, extra, graph, count_fields = Set.new, sum_fields = Set.new, avg_fields = Set.new,
+    def initialize(hash_fields, order_fields, extra, graph, count_fields = Set.new, sum_fields = Set.new, avg_fields = Set.new, groupby_fields = Set.new,
                    saved_key: nil)
       order_set = order_fields.to_set
       @hash_fields = hash_fields.to_set
@@ -19,6 +19,7 @@ module NoSE
       @count_fields = count_fields
       @sum_fields = sum_fields
       @avg_fields = avg_fields
+      @groupby_fields = groupby_fields
 
       validate_hash_fields
 

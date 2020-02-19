@@ -16,7 +16,7 @@ module NoSE
       @sums = params[:select][:sum] || Set.new
       @avgs = params[:select][:avg] || Set.new
       @order = params[:order] || []
-      @groupby = params[:groupby] || []
+      @groupby = params[:groupby] || Set.new
 
       fail InvalidStatementException, 'can\'t order by IDs' \
         if @order.any? { |f| f.is_a? Fields::IDField }
@@ -29,6 +29,11 @@ module NoSE
         if @conditions.empty? || @conditions.values.all?(&:is_range)
 
       @limit = params[:limit]
+    end
+
+    def populate_conditions(params)
+      super params
+      @eq_fields += params[:groupby] unless params[:groupby].to_a.empty?
     end
 
     # Build a new query from a provided parse tree
@@ -148,12 +153,12 @@ module NoSE
     private_class_method :order_from_tree
 
     def self.groupby_from_tree(tree, params)
-      return params[:groupby] = [] if tree[:groupby].nil?
+      return params[:groupby] = Set.new if tree[:groupby].nil?
 
       params[:groupby] = tree[:groupby][:fields].each_slice(2).map do |field|
         field = field.first if field.first.is_a? Array
         add_field_with_prefix tree[:path], field, params
-      end
+      end.to_set
     end
     private_class_method :groupby_from_tree
 

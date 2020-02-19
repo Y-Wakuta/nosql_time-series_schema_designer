@@ -29,7 +29,7 @@ module NoSE
       range.default_proc = ->(*) { [] }
 
       query.graph.subgraphs.flat_map do |graph|
-        indexes_for_graph graph, query.select, query.counts, query.sums, query.avgs,eq, range
+        indexes_for_graph graph, query.select, query.counts, query.sums, query.avgs, eq, range, query.groupby
       end.uniq << query.materialize_view
     end
 
@@ -108,7 +108,7 @@ module NoSE
 
     # Get all possible choices of fields to use for equality
     # @return [Array<Array>]
-    def eq_choices(graph, eq)
+    def eq_choices(graph, eq, group_by)
       entity_choices = graph.entities.flat_map do |entity|
         # Get the fields for the entity and add in the IDs
         entity_fields = eq[entity] << entity.id_field
@@ -137,8 +137,8 @@ module NoSE
 
     # Get all possible indices which jump a given piece of a query graph
     # @return [Array<Index>]
-    def indexes_for_graph(graph, select, count, sum, avg, eq, range)
-      eq_choices = eq_choices graph, eq
+    def indexes_for_graph(graph, select, count, sum, avg, eq, range, group_by)
+      eq_choices = eq_choices graph, eq, group_by
       range_fields = graph.entities.map { |entity| range[entity] }.reduce(&:+)
       range_fields.uniq!
       order_choices = range_fields.prefixes.flat_map do |fields|
@@ -173,8 +173,10 @@ module NoSE
             (0..count.length).map{|c_l| count.to_a.combination(c_l).map(&:to_set)}.flatten(1).select{|c| all_fields >= c}.each do |count_subset|
               (0..sum.length).map{|s_l| sum.to_a.combination(s_l).map(&:to_set)}.flatten(1).select{|s| all_fields >= s}.each do |sum_subset|
                 (0..avg.length).map{|a_l| avg.to_a.combination(a_l).map(&:to_set)}.flatten(1).select{|a| all_fields >= a}.each do |avg_subset|
-                  new_index = generate_index hash_fields, order_fields, extra_fields, graph, count_subset, sum_subset, avg_subset
-                  indexes << new_index unless new_index.nil?
+                  [Set.new, group_by].each do |grp_set|
+                    new_index = generate_index hash_fields, order_fields, extra_fields, graph, count_subset, sum_subset, avg_subset, grp_set
+                    indexes << new_index unless new_index.nil?
+                  end
                 end
               end
             end
@@ -190,9 +192,9 @@ module NoSE
 
     # Generate a new index and ignore if invalid
     # @return [Index]
-    def generate_index(hash, order, extra, graph, count, sum, avg)
+    def generate_index(hash, order, extra, graph, count, sum, avg, grpby)
       begin
-        index = Index.new hash, order.uniq, extra, graph, count, sum, avg
+        index = Index.new hash, order.uniq, extra, graph, count, sum, avg, grpby
         @logger.debug { "Enumerated #{index.inspect}" }
       rescue InvalidIndexException
         # This combination of fields is not valid, that's ok
