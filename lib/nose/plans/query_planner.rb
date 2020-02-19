@@ -8,7 +8,7 @@ module NoSE
     # Ongoing state of a query throughout the execution plan
     class QueryState
       attr_accessor :fields, :eq, :range, :order_by, :graph,
-                    :joins, :cardinality, :hash_cardinality, :given_fields, :counts, :sums, :avgs
+                    :joins, :cardinality, :hash_cardinality, :given_fields, :counts, :sums, :avgs, :groupby
       attr_reader :query, :model
 
       def initialize(query, model)
@@ -23,6 +23,7 @@ module NoSE
         @counts = query.counts
         @sums = query.sums
         @avgs = query.avgs
+        @groupby = query.groupby || Set.new
 
         # We never need to order by fields listed in equality predicates
         # since we'll only ever have rows with a single value

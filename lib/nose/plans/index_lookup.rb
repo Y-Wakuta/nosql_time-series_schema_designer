@@ -116,19 +116,26 @@ module NoSE
         return true if parent_index.identity? &&
                        index.graph == parent_index.graph
 
-        # If the last step gave an ID, we must use it
-        # XXX This doesn't cover all cases
         last_parent_entity = state.joins.reverse.find do |entity|
           parent_index.graph.entities.include? entity
         end
         parent_ids = Set.new [last_parent_entity.id_field]
         has_ids = parent_ids.subset? parent_index.all_fields
-        return true if has_ids && index.hash_fields.to_set != parent_ids
 
-        # If we're looking up from a previous step, only allow lookup by ID
-        return true unless (index.graph.size == 1 &&
-                           parent_index.graph != index.graph) ||
-                           index.hash_fields == parent_ids
+        # GROUP BY clause affect the hash_fields.
+        if index.groupby_fields.empty? # if this index is not for GROUP BY,
+          # If the last step gave an ID, we must use it
+          # XXX This doesn't cover all cases
+          return true if has_ids && index.hash_fields.to_set != parent_ids
+
+          # If we're looking up from a previous step, only allow lookup by ID
+          return true unless (index.graph.size == 1 &&
+            parent_index.graph != index.graph) ||
+            index.hash_fields == parent_ids
+        else
+          # if this index is for GROUP BY, the hash_fields does not necessary to have ID.
+          return true unless has_ids && (index.hash_fields + index.order_fields) >= parent_ids
+        end
 
         return true if is_useless_parent?(state, index, parent_index)
 
@@ -352,6 +359,7 @@ module NoSE
         @state.counts -= @index.count_fields.to_set
         @state.sums -= @index.sum_fields
         @state.avgs -= @index.avg_fields
+        @state.groupby -= @index.groupby_fields
 
         indexed_by_id = resolve_order
         strip_graph
