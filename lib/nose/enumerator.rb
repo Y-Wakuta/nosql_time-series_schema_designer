@@ -170,15 +170,14 @@ module NoSE
             next if order_fields.empty? && extra_fields.empty?
 
             all_fields = hash_fields.to_set + order_fields.to_set + extra.to_set
-            (0..count.length).map{|c_l| count.to_a.combination(c_l).map(&:to_set)}.flatten(1).select{|c| all_fields >= c}.each do |count_subset|
-              (0..sum.length).map{|s_l| sum.to_a.combination(s_l).map(&:to_set)}.flatten(1).select{|s| all_fields >= s}.each do |sum_subset|
-                (0..avg.length).map{|a_l| avg.to_a.combination(a_l).map(&:to_set)}.flatten(1).select{|a| all_fields >= a}.each do |avg_subset|
-                  [Set.new, group_by].each do |grp_set|
-                    new_index = generate_index hash_fields, order_fields, extra_fields, graph, count_subset, sum_subset, avg_subset, grp_set
-                    indexes << new_index unless new_index.nil?
-                  end
-                end
-              end
+
+            new_index = generate_index hash_fields, order_fields, extra_fields, graph, Set.new, Set.new, Set.new, Set.new
+            indexes << new_index unless new_index.nil?
+
+            if [count, sum, avg, group_by].any?{|af| not af.empty?} && [count, sum, avg, group_by].all?{|af| all_fields >= af}
+              new_index = generate_index hash_fields, order_fields, extra_fields, graph,
+                                         count, sum, avg, group_by
+              indexes << new_index unless new_index.nil?
             end
           end
         end

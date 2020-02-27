@@ -243,7 +243,7 @@ module NoSE
         index = Index.new [tweet['TweetId']], [tweet['Retweets']],
                           [tweet['Timestamp']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field]), Set.new([tweet['TweetId']]), Set.new([tweet['Timestamp']]), [], Set.new([tweet['Retweets']])
+                            [tweet.id_field]), Set.new([tweet['TweetId']]), Set.new([tweet['Timestamp']]), Set.new, Set.new([tweet['Retweets']])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
         tree = planner.find_plans_for_query(query)
         expect(tree).to have(1).plan
@@ -252,7 +252,7 @@ module NoSE
         index = Index.new [tweet['Retweets']], [tweet['TweetId']],
                           [tweet['Timestamp']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field]), Set.new, Set.new, [], Set.new([tweet['Retweets']])
+                            [tweet.id_field]), Set.new, Set.new, Set.new, Set.new([tweet['Retweets']])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
         expect do
           planner.find_plans_for_query(query)
