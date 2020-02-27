@@ -22,6 +22,7 @@ module NoSE
       @groupby_fields = groupby_fields
 
       validate_hash_fields
+      validate_aggregation_fields
 
       # Store whether this index is an identity
       @identity = @hash_fields == [
@@ -146,6 +147,21 @@ module NoSE
 
       fail InvalidIndexException, 'hash fields can only involve one entity' \
         if @hash_fields.map(&:parent).to_set.size > 1
+    end
+
+    def validate_aggregation_fields
+
+      fail InvalidIndexException, 'COUNT, SUM, AVG must be Set' \
+        if [@count_fields, @sum_fields, @avg_fields].any?{|af| not af.is_a? Set}
+
+      fail InvalidIndexException, 'COUNT fields need to be exist in index fields' \
+        unless @all_fields >= @count_fields
+      fail InvalidIndexException, 'SUM fields need to be exist in index fields' \
+        unless @all_fields >= @sum_fields
+      fail InvalidIndexException, 'AVG fields need to be exist in index fields' \
+        unless @all_fields >= @avg_fields
+      fail InvalidIndexException, 'GROUP BY fields need to be exist in index fields' \
+        unless @all_fields >= @groupby_fields
     end
 
     # Ensure an index is nonempty

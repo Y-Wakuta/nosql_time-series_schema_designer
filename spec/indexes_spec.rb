@@ -132,6 +132,28 @@ module NoSE
                                                  tweet['User']])
         end.to raise_error InvalidIndexException
       end
+
+      it 'cannot have aggregation fields that are not in the index fields' do
+        expect do
+          Index.new [tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), Set.new([tweet['Retweets']])
+        end.to raise_error InvalidIndexException
+
+        expect do
+          Index.new [tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), Set.new(), Set.new([tweet['Retweets']])
+        end.to raise_error InvalidIndexException
+
+        expect do
+          Index.new [tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), Set.new(), Set.new(), Set.new([tweet['Retweets']])
+        end.to raise_error InvalidIndexException
+
+        expect do
+          Index.new [tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), Set.new(), Set.new(), Set.new(), Set.new([tweet['Retweets']])
+        end.to raise_error InvalidIndexException
+      end
     end
 
     context 'when reducing to an ID graph' do
