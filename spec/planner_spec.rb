@@ -214,22 +214,22 @@ module NoSE
                                  [],
                                  QueryGraph::Graph.from_path(
                                    [tweet.id_field]
-                                 ),Set.new(), Set.new([tweet['Retweets']])
+                                 )
         index = Index.new [tweet['TweetId']], [],
-                          [tweet['Timestamp']],
+                          [tweet['Timestamp'], tweet['Retweets']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field]), Set.new([tweet['TweetId']])
+                            [tweet.id_field]), Set.new([tweet['TweetId']]), Set.new([tweet['Retweets']]), Set.new([tweet['Timestamp']])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
-        query = Statement.parse 'SELECT COUNT(Tweet.TweetId), SUM(Tweet.Retweets), Tweet.Timestamp FROM Tweet WHERE ' \
+        query = Statement.parse 'SELECT COUNT(Tweet.TweetId), SUM(Tweet.Retweets), AVG(Tweet.Timestamp) FROM Tweet WHERE ' \
                                 'Tweet.Body = ?', workload.model
 
         tree = planner.find_plans_for_query(query)
         expect(tree).to have(1).plan
 
-        first_index = tree.first.steps.first.index
-        expect(first_index.sum_fields).to include Set.new([tweet['Retweets']])
         last_index = tree.first.steps.last.index
+        expect(last_index.sum_fields).to include Set.new([tweet['Retweets']])
         expect(last_index.count_fields).to include Set.new([tweet['TweetId']])
+        expect(last_index.avg_fields).to include Set.new([tweet['Timestamp']])
       end
 
       it 'can apply group by in the query' do

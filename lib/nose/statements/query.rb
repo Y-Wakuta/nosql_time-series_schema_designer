@@ -77,6 +77,10 @@ module NoSE
         @select == other.select &&
         @conditions == other.conditions &&
         @order == other.order &&
+        @sums == other.sums &&
+        @counts == other.counts &&
+        @avgs == other.avgs &&
+        @groupby == other.groupby &&
         @limit == other.limit &&
         @comment == other.comment
     end

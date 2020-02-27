@@ -126,6 +126,10 @@ module NoSE
       creation_coeff * @size
     end
 
+    def has_aggregation_fields
+      [@count_fields, @sum_fields, @avg_fields, @groupby_fields].any?{|af| not af.empty?}
+    end
+
     private
 
     # Initialize the hash function and freeze ourselves

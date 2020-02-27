@@ -68,7 +68,7 @@ module NoSE
       def self.check_parent_groupby(parent)
         return unless parent.is_a? Plans::IndexLookupPlanStep
         # no column family with GROUP BY can become parent of any index
-        fail unless parent.index.groupby_fields.empty?
+        fail InvalidIndex if parent.index.has_aggregation_fields
       end
 
       # remove invalid query plans because of aggregation fields

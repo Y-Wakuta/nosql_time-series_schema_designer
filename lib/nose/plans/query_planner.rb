@@ -57,7 +57,7 @@ module NoSE
       def answered?(check_limit: true)
         done = @fields.empty? && @eq.empty? && @range.nil? &&
                @order_by.empty? && @joins.empty? && @graph.empty? &&
-               @counts.empty? && @sums.empty? && @avgs.empty?
+               @counts.empty? && @sums.empty? && @avgs.empty? && @groupby.empty?
 
         # Check if the limit has been applied
         done &&= @cardinality <= @query.limit unless @query.limit.nil? ||
@@ -337,6 +337,7 @@ module NoSE
       def find_nonindexed_steps(parent, state)
         steps = []
         return steps if parent.is_a? RootPlanStep
+        return steps if parent.is_a?(IndexLookupPlanStep) and parent.index.has_aggregation_fields
 
         [SortPlanStep, FilterPlanStep, LimitPlanStep].each \
           { |step| steps.push step.apply(parent, state) }
