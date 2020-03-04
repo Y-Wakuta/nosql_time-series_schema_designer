@@ -116,8 +116,6 @@ module NoSE
     end
 
     it 'only enumerates indexes with hash_fields that satisfy GROUP BY clause' do
-      #query = Statement.parse 'SELECT Tweet.Retweets, SUM(Tweet.TweetId) FROM Tweet ' \
-      #                        'WHERE Tweet.TweetId = 3 GROUP BY Tweet.Retweets', workload.model
       query = Statement.parse 'SELECT COUNT(Tweet.TweetId), Tweet.Retweets, SUM(Tweet.Timestamp) FROM Tweet WHERE ' \
                                 'Tweet.Body = ? GROUP BY Tweet.Retweets', workload.model
       indexes = enum.indexes_for_query query
