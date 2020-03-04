@@ -78,11 +78,11 @@ module NoSE
 
     # :nocov:
     def to_color
-      fields = [@hash_fields, @order_fields, @extra, @count_fields, @sum_fields, @avg_fields].map do |field_group|
+      fields = [@hash_fields, @order_fields, @extra, @count_fields, @sum_fields, @avg_fields, @groupby_fields].map do |field_group|
         '[' + field_group.map(&:inspect).join(', ') + ']'
       end
 
-      "[magenta]#{key}[/] #{fields[0]} #{fields[1]} → #{fields[2]} aggregate: {c: #{fields[3]}, s: #{fields[4]}, a: #{fields[5]}}" \
+      "[magenta]#{key}[/] #{fields[0]} #{fields[1]} → #{fields[2]} aggregate: {c: #{fields[3]}, s: #{fields[4]}, a: #{fields[5]}, g: #{fields[6]}}" \
         " [yellow]$#{size}[/]" \
         " [magenta]#{@graph.inspect}[/]"
     end
