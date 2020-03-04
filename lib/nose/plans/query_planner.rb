@@ -8,7 +8,7 @@ module NoSE
     # Ongoing state of a query throughout the execution plan
     class QueryState
       attr_accessor :fields, :eq, :range, :order_by, :graph,
-                    :joins, :cardinality, :hash_cardinality, :given_fields, :counts, :sums, :avgs
+                    :joins, :cardinality, :hash_cardinality, :given_fields, :counts, :sums, :avgs, :groupby
       attr_reader :query, :model
 
       def initialize(query, model)
@@ -23,6 +23,7 @@ module NoSE
         @counts = query.counts
         @sums = query.sums
         @avgs = query.avgs
+        @groupby = query.groupby || Set.new
 
         # We never need to order by fields listed in equality predicates
         # since we'll only ever have rows with a single value
@@ -56,7 +57,7 @@ module NoSE
       def answered?(check_limit: true)
         done = @fields.empty? && @eq.empty? && @range.nil? &&
                @order_by.empty? && @joins.empty? && @graph.empty? &&
-               @counts.empty? && @sums.empty? && @avgs.empty?
+               @counts.empty? && @sums.empty? && @avgs.empty? && @groupby.empty?
 
         # Check if the limit has been applied
         done &&= @cardinality <= @query.limit unless @query.limit.nil? ||
@@ -336,6 +337,7 @@ module NoSE
       def find_nonindexed_steps(parent, state)
         steps = []
         return steps if parent.is_a? RootPlanStep
+        return steps if parent.is_a?(IndexLookupPlanStep) and parent.index.has_aggregation_fields
 
         [SortPlanStep, FilterPlanStep, LimitPlanStep].each \
           { |step| steps.push step.apply(parent, state) }

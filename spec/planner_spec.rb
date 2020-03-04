@@ -214,22 +214,49 @@ module NoSE
                                  [],
                                  QueryGraph::Graph.from_path(
                                    [tweet.id_field]
-                                 ),Set.new(), Set.new([tweet['Retweets']])
+                                 )
         index = Index.new [tweet['TweetId']], [],
-                          [tweet['Timestamp']],
+                          [tweet['Timestamp'], tweet['Retweets']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field]), Set.new([tweet['TweetId']])
+                            [tweet.id_field]), Set.new([tweet['TweetId']]), Set.new([tweet['Retweets']]), Set.new([tweet['Timestamp']])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
-        query = Statement.parse 'SELECT COUNT(Tweet.TweetId), SUM(Tweet.Retweets), Tweet.Timestamp FROM Tweet WHERE ' \
+        query = Statement.parse 'SELECT COUNT(Tweet.TweetId), SUM(Tweet.Retweets), AVG(Tweet.Timestamp) FROM Tweet WHERE ' \
                                 'Tweet.Body = ?', workload.model
 
         tree = planner.find_plans_for_query(query)
         expect(tree).to have(1).plan
 
-        first_index = tree.first.steps.first.index
-        expect(first_index.sum_fields).to include Set.new([tweet['Retweets']])
         last_index = tree.first.steps.last.index
+        expect(last_index.sum_fields).to include Set.new([tweet['Retweets']])
         expect(last_index.count_fields).to include Set.new([tweet['TweetId']])
+        expect(last_index.avg_fields).to include Set.new([tweet['Timestamp']])
+      end
+
+      it 'can apply group by in the query' do
+        query = Statement.parse 'SELECT COUNT(Tweet.TweetId), Tweet.Retweets, SUM(Tweet.Timestamp) FROM Tweet WHERE ' \
+                                'Tweet.Body = ? GROUP BY Tweet.Retweets', workload.model
+        parent_index = Index.new [tweet['Body']], [tweet['TweetId']],
+                                 [tweet['Retweets']],
+                                 QueryGraph::Graph.from_path(
+                                   [tweet.id_field]
+                                 )
+        index = Index.new [tweet['TweetId']], [tweet['Retweets']],
+                          [tweet['Timestamp']],
+                          QueryGraph::Graph.from_path(
+                            [tweet.id_field]), Set.new([tweet['TweetId']]), Set.new([tweet['Timestamp']]), Set.new, Set.new([tweet['Retweets']])
+        planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
+        tree = planner.find_plans_for_query(query)
+        expect(tree).to have(1).plan
+
+        # this index does not have enough aggregation fields
+        index = Index.new [tweet['Retweets']], [tweet['TweetId']],
+                          [tweet['Timestamp']],
+                          QueryGraph::Graph.from_path(
+                            [tweet.id_field]), Set.new, Set.new, Set.new, Set.new([tweet['Retweets']])
+        planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
+        expect do
+          planner.find_plans_for_query(query)
+        end.to raise_error NoPlanException
       end
 
       context 'when updating cardinality' do

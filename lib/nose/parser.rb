@@ -129,6 +129,7 @@ module NoSE
     rule(:comma)       { str(',') >> space? }
 
     rule(:limit)       { space >> str('LIMIT') >> space >> integer.as(:limit) }
+    rule(:groupby)       { space >> str('GROUP BY') >> space >> fields.as_array(:fields) }
     rule(:order)       {
       space >> str('ORDER BY') >> space >> fields.as_array(:fields) }
 
@@ -137,7 +138,7 @@ module NoSE
     rule(:query) {
       str('SELECT') >> space >> select_fields.as_array(:select) >>
       space >> str('FROM') >> space >> path.as_array(:path) >>
-      where.maybe.as(:where) >> order.maybe.as(:order) >>
+      where.maybe.as(:where) >> order.maybe.as(:order) >> groupby.maybe.as(:groupby) >>
       limit.maybe.capture(:limit) >> comment.maybe.as(:comment) }
 
     rule(:update) {

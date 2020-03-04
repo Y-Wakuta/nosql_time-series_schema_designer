@@ -57,11 +57,18 @@ module NoSE
           check_graph_fields parent, index, state
           check_last_fields index, state
           check_aggregate_fields parent, index
+          check_parent_groupby parent
         rescue InvalidIndex
           return nil
         end
 
         IndexLookupPlanStep.new(index, state, parent)
+      end
+
+      def self.check_parent_groupby(parent)
+        return unless parent.is_a? Plans::IndexLookupPlanStep
+        # no column family with GROUP BY can become parent of any index
+        fail InvalidIndex if parent.index.has_aggregation_fields
       end
 
       # remove invalid query plans because of aggregation fields
@@ -82,9 +89,9 @@ module NoSE
       def self.check_joins(index, state)
         fail InvalidIndex \
           unless index.graph.entities.include?(state.joins.first) &&
-                 (index.graph.unique_edges &
-                  state.graph.unique_edges ==
-                  index.graph.unique_edges)
+          (index.graph.unique_edges &
+            state.graph.unique_edges ==
+            index.graph.unique_edges)
       end
       private_class_method :check_joins
 
@@ -95,7 +102,7 @@ module NoSE
         # XXX This disallows plans which look up additional attributes
         #     for entities other than the final one
         fail InvalidIndex if index.graph.size == 1 && state.graph.size > 1 &&
-                             !parent.is_a?(RootPlanStep)
+          !parent.is_a?(RootPlanStep)
         fail InvalidIndex if index.identity? && state.graph.size > 1
       end
       private_class_method :check_forward_lookup
@@ -109,19 +116,26 @@ module NoSE
         return true if parent_index.identity? &&
                        index.graph == parent_index.graph
 
-        # If the last step gave an ID, we must use it
-        # XXX This doesn't cover all cases
         last_parent_entity = state.joins.reverse.find do |entity|
           parent_index.graph.entities.include? entity
         end
         parent_ids = Set.new [last_parent_entity.id_field]
         has_ids = parent_ids.subset? parent_index.all_fields
-        return true if has_ids && index.hash_fields.to_set != parent_ids
 
-        # If we're looking up from a previous step, only allow lookup by ID
-        return true unless (index.graph.size == 1 &&
-                           parent_index.graph != index.graph) ||
-                           index.hash_fields == parent_ids
+        # GROUP BY clause affect the hash_fields.
+        if index.groupby_fields.empty? # if this index is not for GROUP BY,
+          # If the last step gave an ID, we must use it
+          # XXX This doesn't cover all cases
+          return true if has_ids && index.hash_fields.to_set != parent_ids
+
+          # If we're looking up from a previous step, only allow lookup by ID
+          return true unless (index.graph.size == 1 &&
+            parent_index.graph != index.graph) ||
+            index.hash_fields == parent_ids
+        else
+          # if this index is for GROUP BY, the hash_fields does not necessary to have ID.
+          return true unless has_ids && (index.hash_fields + index.order_fields) >= parent_ids
+        end
 
         return true if is_useless_parent?(state, index, parent_index)
 
@@ -241,7 +255,7 @@ module NoSE
           @index.order_fields - @eq_filter.to_a
         )
         if indexed_by_id && order_prefix.map(&:parent).to_set ==
-                            Set.new([@index.hash_fields.first.parent])
+          Set.new([@index.hash_fields.first.parent])
           order_prefix = []
         else
           @state.order_by -= order_prefix
@@ -260,7 +274,7 @@ module NoSE
         required_fields = @state.fields_for_graph(@index.graph, hash_entity,
                                                   select: true).to_set
         if required_fields.subset?(@index.all_fields) &&
-           @state.graph == @index.graph
+          @state.graph == @index.graph
           removed_nodes = @state.joins[0..@index.graph.size]
           @state.joins = @state.joins[@index.graph.size..-1]
         else
@@ -304,8 +318,8 @@ module NoSE
         # and the ordering of the query has already been resolved
         order_resolved = @state.order_by.empty? && @state.graph.size == 1
         return unless (@state.answered?(check_limit: false) ||
-                      parent.is_a?(RootPlanStep) && order_resolved) &&
-                      !@state.query.limit.nil?
+          parent.is_a?(RootPlanStep) && order_resolved) &&
+          !@state.query.limit.nil?
 
         # XXX Assume that everything is limited by the limit value
         #     which should be fine if the limit is small enough
@@ -345,6 +359,7 @@ module NoSE
         @state.counts -= @index.count_fields.to_set
         @state.sums -= @index.sum_fields
         @state.avgs -= @index.avg_fields
+        @state.groupby -= @index.groupby_fields
 
         indexed_by_id = resolve_order
         strip_graph

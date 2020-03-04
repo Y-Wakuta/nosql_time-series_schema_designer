@@ -5,17 +5,22 @@ module NoSE
   class Query < Statement
     include StatementConditions
 
-    attr_reader :select, :counts, :sums, :avgs, :order, :limit
+    attr_reader :select, :counts, :sums, :avgs, :order, :groupby, :limit
 
     def initialize(params, text, group: nil, label: nil)
       super params, text, group: group, label: label
 
       populate_conditions params
       @select = params[:select][:fields]
+      @order = params[:order] || []
       @counts = params[:select][:count] || Set.new
       @sums = params[:select][:sum] || Set.new
       @avgs = params[:select][:avg] || Set.new
-      @order = params[:order] || []
+      @groupby = params[:groupby] || Set.new
+
+      aggregate_fields = (@counts + @sums + @avgs + @groupby).to_set
+      fail InvalidStatementException, 'must have aggregation function for all field if any field has aggregation' \
+        unless aggregate_fields.empty? or @select == aggregate_fields
 
       fail InvalidStatementException, 'can\'t order by IDs' \
         if @order.any? { |f| f.is_a? Fields::IDField }
@@ -30,12 +35,18 @@ module NoSE
       @limit = params[:limit]
     end
 
+    def populate_conditions(params)
+      super params
+      @eq_fields += params[:groupby] unless params[:groupby].to_a.empty?
+    end
+
     # Build a new query from a provided parse tree
     # @return [Query]
     def self.parse(tree, params, text, group: nil, label: nil)
       conditions_from_tree tree, params
       fields_from_tree tree, params
       order_from_tree tree, params
+      groupby_from_tree tree, params
       params[:limit] = tree[:limit].to_i if tree[:limit]
 
       new params, text, group: group, label: label
@@ -70,6 +81,10 @@ module NoSE
         @select == other.select &&
         @conditions == other.conditions &&
         @order == other.order &&
+        @sums == other.sums &&
+        @counts == other.counts &&
+        @avgs == other.avgs &&
+        @groupby == other.groupby &&
         @limit == other.limit &&
         @comment == other.comment
     end
@@ -93,7 +108,7 @@ module NoSE
     # All fields referenced anywhere in the query
     # @return [Set<Fields::Field>]
     def all_fields
-      (@select + @conditions.each_value.map(&:field) + @order).to_set
+      (@select + @conditions.each_value.map(&:field) + @order + @groupby).to_set
     end
 
     def self.get_fields(tree, params, field)
@@ -144,6 +159,16 @@ module NoSE
       end
     end
     private_class_method :order_from_tree
+
+    def self.groupby_from_tree(tree, params)
+      return params[:groupby] = Set.new if tree[:groupby].nil?
+
+      params[:groupby] = tree[:groupby][:fields].each_slice(2).map do |field|
+        field = field.first if field.first.is_a? Array
+        add_field_with_prefix tree[:path], field, params
+      end.to_set
+    end
+    private_class_method :groupby_from_tree
 
     private
 

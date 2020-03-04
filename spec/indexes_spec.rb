@@ -70,7 +70,7 @@ module NoSE
 
       it 'keeps a static key' do
         index = combo_query.materialize_view
-        expect(index.key).to eq 'i929617818'
+        expect(index.key).to eq 'i3751701527'
       end
 
       it 'includes only one entity in the hash fields' do
@@ -130,6 +130,28 @@ module NoSE
           Index.new [user['City']], [], [],
                     QueryGraph::Graph.from_path([tweet.id_field,
                                                  tweet['User']])
+        end.to raise_error InvalidIndexException
+      end
+
+      it 'cannot have aggregation fields that are not in the index fields' do
+        expect do
+          Index.new [tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), Set.new([tweet['Retweets']])
+        end.to raise_error InvalidIndexException
+
+        expect do
+          Index.new [tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), Set.new(), Set.new([tweet['Retweets']])
+        end.to raise_error InvalidIndexException
+
+        expect do
+          Index.new [tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), Set.new(), Set.new(), Set.new([tweet['Retweets']])
+        end.to raise_error InvalidIndexException
+
+        expect do
+          Index.new [tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), Set.new(), Set.new(), Set.new(), Set.new([tweet['Retweets']])
         end.to raise_error InvalidIndexException
       end
     end
