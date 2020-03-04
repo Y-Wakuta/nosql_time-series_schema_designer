@@ -364,6 +364,7 @@ module NoSE
         # Produce a CQL where clause using the given conditions
         # @return [String]
         def cql_where_clause(conditions)
+          # TODO: sort eq_fields to put GROUP BY fields first
           where = @eq_fields.map do |field|
             "\"#{field.id}\" = ?"
           end.join ' AND '

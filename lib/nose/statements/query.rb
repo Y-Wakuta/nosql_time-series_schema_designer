@@ -12,11 +12,15 @@ module NoSE
 
       populate_conditions params
       @select = params[:select][:fields]
+      @order = params[:order] || []
       @counts = params[:select][:count] || Set.new
       @sums = params[:select][:sum] || Set.new
       @avgs = params[:select][:avg] || Set.new
-      @order = params[:order] || []
       @groupby = params[:groupby] || Set.new
+
+      aggregate_fields = (@counts + @sums + @avgs + @groupby).to_set
+      fail InvalidStatementException, 'must have aggregation function for all field if any field has aggregation' \
+        unless aggregate_fields.empty? or @select == aggregate_fields
 
       fail InvalidStatementException, 'can\'t order by IDs' \
         if @order.any? { |f| f.is_a? Fields::IDField }
@@ -104,7 +108,7 @@ module NoSE
     # All fields referenced anywhere in the query
     # @return [Set<Fields::Field>]
     def all_fields
-      (@select + @conditions.each_value.map(&:field) + @order).to_set
+      (@select + @conditions.each_value.map(&:field) + @order + @groupby).to_set
     end
 
     def self.get_fields(tree, params, field)

@@ -164,8 +164,14 @@ module NoSE
         unless @all_fields >= @sum_fields
       fail InvalidIndexException, 'AVG fields need to be exist in index fields' \
         unless @all_fields >= @avg_fields
-      fail InvalidIndexException, 'GROUP BY fields need to be exist in index fields' \
-        unless @all_fields >= @groupby_fields
+      fail InvalidIndexException, 'GROUP BY fields should be exist in key fields' \
+        unless @groupby_fields.empty? or
+                ((@hash_fields + @order_fields) >= @groupby_fields and \
+                @groupby_fields.any? {|gf| @hash_fields.include? gf})
+
+      aggregation_fields = (@count_fields + @sum_fields + @avg_fields + @groupby_fields).to_set
+      fail InvalidIndexException, 'At least, all of extra fields should be aggregated' \
+        unless aggregation_fields.empty? or aggregation_fields >= @extra
     end
 
     # Ensure an index is nonempty
@@ -253,7 +259,7 @@ module NoSE
       order_fields = materialized_view_order(join_order.first) - eq
 
       Index.new(eq, order_fields,
-                all_fields - (@eq_fields + @order).to_set, graph, @counts, @sums, @avgs)
+                all_fields - (@eq_fields + @order).to_set, graph, @counts, @sums, @avgs, @groupby)
     end
 
     private
