@@ -18,6 +18,7 @@ module NoSE
         lookup_cost += count_cost step unless step.index.count_fields.empty?
         lookup_cost += sum_cost step unless step.index.sum_fields.empty?
         lookup_cost += avg_cost step unless step.index.avg_fields.empty?
+        lookup_cost += max_cost step unless step.index.max_fields.empty?
         lookup_cost += groupby_cost step unless step.index.groupby_fields.empty?
         lookup_cost
       end
@@ -59,6 +60,11 @@ module NoSE
       def avg_cost(step)
         avg_fields = step.index.count_fields
         avg_fields.map{|_| @options[:avg_cost] * step.state.hash_cardinality}.sum()
+      end
+
+      def max_cost(step)
+        max_fields = step.index.max_fields
+        max_fields.map{|_| @options[:max_cost] * step.state.hash_cardinality}.sum()
       end
 
       def groupby_cost(step)

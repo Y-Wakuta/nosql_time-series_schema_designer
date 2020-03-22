@@ -63,6 +63,11 @@ module NoSE
         Statement.parse 'SELECT SUM(Tweet.TweetId), SUM(Tweet.Retweets) FROM Tweet ' \
               'WHERE Tweet.TweetId = ?', workload.model
       end.not_to raise_error
+
+      expect do
+        Statement.parse 'SELECT MAX(Tweet.TweetId), MAX(Tweet.Retweets) FROM Tweet ' \
+              'WHERE Tweet.TweetId = ?', workload.model
+      end.not_to raise_error
     end
 
     it 'parses GROUP BY' do

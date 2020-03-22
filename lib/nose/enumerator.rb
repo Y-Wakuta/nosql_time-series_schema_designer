@@ -29,7 +29,7 @@ module NoSE
       range.default_proc = ->(*) { [] }
 
       query.graph.subgraphs.flat_map do |graph|
-        indexes_for_graph graph, query.select, query.counts, query.sums, query.avgs, eq, range, query.groupby
+        indexes_for_graph graph, query.select, query.counts, query.sums, query.maxes, query.avgs, eq, range, query.groupby
       end.uniq << query.materialize_view
     end
 
@@ -137,7 +137,7 @@ module NoSE
 
     # Get all possible indices which jump a given piece of a query graph
     # @return [Array<Index>]
-    def indexes_for_graph(graph, select, count, sum, avg, eq, range, group_by)
+    def indexes_for_graph(graph, select, count, sum, max, avg, eq, range, group_by)
       eq_choices = eq_choices graph, eq, group_by
       range_fields = graph.entities.map { |entity| range[entity] }.reduce(&:+)
       range_fields.uniq!
@@ -171,12 +171,12 @@ module NoSE
 
             all_fields = hash_fields.to_set + order_fields.to_set + extra.to_set
 
-            new_index = generate_index hash_fields, order_fields, extra_fields, graph, Set.new, Set.new, Set.new, Set.new
+            new_index = generate_index hash_fields, order_fields, extra_fields, graph, Set.new, Set.new, Set.new, Set.new, Set.new
             indexes << new_index unless new_index.nil?
 
-            if [count, sum, avg, group_by].any?{|af| not af.empty?} && [count, sum, avg, group_by].all?{|af| all_fields >= af}
+            if [count, sum, max, avg, group_by].any?{|af| not af.empty?} && [count, sum, avg, group_by].all?{|af| all_fields >= af}
               new_index = generate_index hash_fields, order_fields, extra_fields, graph,
-                                         count, sum, avg, group_by
+                                         count, sum, max, avg, group_by
               indexes << new_index unless new_index.nil?
             end
           end
@@ -191,9 +191,9 @@ module NoSE
 
     # Generate a new index and ignore if invalid
     # @return [Index]
-    def generate_index(hash, order, extra, graph, count, sum, avg, grpby)
+    def generate_index(hash, order, extra, graph, count, sum, max, avg, grpby)
       begin
-        index = Index.new hash, order.uniq, extra, graph, count, sum, avg, grpby
+        index = Index.new hash, order.uniq, extra, graph, count_fields: count, sum_fields: sum, max_fields: max, avg_fields: avg, groupby_fields: grpby
         @logger.debug { "Enumerated #{index.inspect}" }
       rescue InvalidIndexException
         # This combination of fields is not valid, that's ok

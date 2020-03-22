@@ -182,7 +182,7 @@ module NoSE
                           [tweet['Body']],
                           QueryGraph::Graph.from_path(
                             [tweet.id_field]
-                          ),Set.new([tweet['Body']])
+                          ), count_fields: Set.new([tweet['Body']])
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT COUNT(Tweet.Body) FROM Tweet WHERE ' \
                                 'Tweet.TweetId = ?', workload.model
@@ -196,7 +196,7 @@ module NoSE
                                  [],
                                  QueryGraph::Graph.from_path(
                                    [tweet.id_field]
-                                 ),Set.new([tweet['TweetId']])
+                                 ), count_fields: Set.new([tweet['TweetId']])
         index = Index.new [tweet['TweetId']], [],
                           [tweet['Timestamp']],
                           QueryGraph::Graph.from_path(
@@ -218,7 +218,8 @@ module NoSE
         index = Index.new [tweet['TweetId']], [],
                           [tweet['Timestamp'], tweet['Retweets']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field]), Set.new([tweet['TweetId']]), Set.new([tweet['Retweets']]), Set.new([tweet['Timestamp']])
+                            [tweet.id_field]), count_fields: Set.new([tweet['TweetId']]),
+                          sum_fields: Set.new([tweet['Retweets']]), avg_fields: Set.new([tweet['Timestamp']])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
         query = Statement.parse 'SELECT COUNT(Tweet.TweetId), SUM(Tweet.Retweets), AVG(Tweet.Timestamp) FROM Tweet WHERE ' \
                                 'Tweet.Body = ?', workload.model
@@ -240,10 +241,12 @@ module NoSE
                                  QueryGraph::Graph.from_path(
                                    [tweet.id_field]
                                  )
-        index = Index.new [tweet['TweetId']], [tweet['Retweets']],
+        index = Index.new  [tweet['Retweets']], [tweet['TweetId']],
                           [tweet['Timestamp']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field]), Set.new([tweet['TweetId']]), Set.new([tweet['Timestamp']]), Set.new, Set.new([tweet['Retweets']])
+                            [tweet.id_field]), count_fields: Set.new([tweet['TweetId']]),
+                           sum_fields: Set.new([tweet['Timestamp']]),
+                           avg_fields: Set.new, groupby_fields: Set.new([tweet['Retweets']])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
         tree = planner.find_plans_for_query(query)
         expect(tree).to have(1).plan
@@ -252,7 +255,8 @@ module NoSE
         index = Index.new [tweet['Retweets']], [tweet['TweetId']],
                           [tweet['Timestamp']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field]), Set.new, Set.new, Set.new, Set.new([tweet['Retweets']])
+                            [tweet.id_field]), count_fields: Set.new, sum_fields: Set.new,
+                          avg_fields: Set.new, groupby_fields: Set.new([tweet['Retweets']])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
         expect do
           planner.find_plans_for_query(query)

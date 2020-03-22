@@ -6,7 +6,7 @@ NoSE::Workload.new do
   # Define queries and their relative weights, weights taken from below
   # http://rubis.ow2.org/results/SB-BMP/Bidding/JBoss-SB-BMP-Bi-1500/perf.html#run_stat
   # http://rubis.ow2.org/results/SB-BMP/Browsing/JBoss-SB-BMP-Br-1500/perf.html#run_stat
-  DefaultMix :browsing
+  DefaultMix :bidding
 
   Group 'BrowseCategories', browsing: 4.44,
                             bidding: 7.65,
