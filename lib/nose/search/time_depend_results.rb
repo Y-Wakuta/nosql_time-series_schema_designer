@@ -166,7 +166,17 @@ module NoSE
           min_plan = possible_plans.sort_by {|qp| qp.cost}.first
           next if min_plan.indexes.length == 1 and min_plan.indexes.first == step.index
 
-          prepare_plans << Plans::MigratePreparePlan.new(step.index, min_plan)
+          # if step.index already exists at timestep t, new prepare plan for timestep t + 1 is not required
+          next if not @workload.include_migration_cost and @time_depend_indexes.indexes_all_timestep[timestep]
+                                                             .indexes
+                                                             .include? step.index
+          fail "New CF cannot be included in the preparing plan" if prepare_plan_for_the_timestep.first
+                                                                      .steps
+                                                                      .select{|s| s.is_a? Plans::IndexLookupPlanStep}
+                                                                      .map{|s| s.index}
+                                                                      .include? step.index
+
+          prepare_plans << Plans::MigratePreparePlan.new(step.index, prepare_plan_for_the_timestep.first, timestep)
         end
         prepare_plans
       end

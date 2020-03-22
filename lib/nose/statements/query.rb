@@ -13,6 +13,11 @@ module NoSE
       populate_conditions params
       @select = params[:select]
       @order = params[:order] || []
+      @counts = params[:select][:count] || Set.new
+      @sums = params[:select][:sum] || Set.new
+      @avgs = params[:select][:avg] || Set.new
+      @maxes = params[:select][:max] || Set.new
+      @groupby = params[:groupby] || Set.new
 
       fail InvalidStatementException, 'can\'t order by IDs' \
         if @order.any? { |f| f.is_a? Fields::IDField }
