@@ -70,7 +70,7 @@ module NoSE
 
       it 'keeps a static key' do
         index = combo_query.materialize_view
-        expect(index.key).to eq 'i3751701527'
+        expect(index.key).to eq 'i4151454629'
       end
 
       it 'includes only one entity in the hash fields' do
