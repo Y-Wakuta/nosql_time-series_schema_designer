@@ -11,6 +11,8 @@ require_relative 'plans/time_depend_plan'
 require 'logging'
 require 'ostruct'
 require 'tempfile'
+require 'parallel'
+require 'etc'
 
 module NoSE
   # ILP construction and schema search
@@ -34,9 +36,10 @@ module NoSE
       # Search for optimal indices using an ILP which searches for
       # non-overlapping indices
       # @return [Results]
-      def search_overlap(indexes, max_space = Float::INFINITY, creation_cost = 0)
+      def search_overlap(indexes, max_space = Float::INFINITY)
         return if indexes.empty?
 
+        STDERR.puts("set basic query plans")
         # Get the costs of all queries and updates
         query_weights = combine_query_weights indexes
         costs, trees = query_costs query_weights, indexes
@@ -47,15 +50,24 @@ module NoSE
         log_search_start costs, query_weights
 
         solver_params = {
-          max_space: max_space,
-          costs: costs,
-          update_costs: update_costs,
-          prepare_update_costs: prepare_update_costs,
-          cost_model: @cost_model,
-          by_id_graph: @by_id_graph,
-          trees: trees,
-          creation_cost: creation_cost
+            max_space: max_space,
+            costs: costs,
+            update_costs: update_costs,
+            prepare_update_costs: prepare_update_costs,
+            cost_model: @cost_model,
+            by_id_graph: @by_id_graph,
+            trees: trees
         }
+
+        if @workload.is_a? TimeDependWorkload
+          STDERR.puts("set migration query plans")
+
+          # TODO: pass this variable by nose.yml
+          migrate_prepare_plans = get_migrate_preparing_plans(indexes)
+          costs.merge!(migrate_prepare_plans.values.map{|v| v[:costs]}.reduce(&:merge))
+          solver_params[:migrate_prepare_plans] = migrate_prepare_plans
+        end
+
         search_result query_weights, indexes, solver_params, trees,
                       update_plans
       end
@@ -93,6 +105,7 @@ module NoSE
       def search_result(query_weights, indexes, solver_params, trees,
                         update_plans)
         # Solve the LP using MIPPeR
+        STDERR.puts "start optimization"
         result = solve_mipper query_weights.keys, indexes, **solver_params
 
         result.workload = @workload
@@ -101,11 +114,12 @@ module NoSE
         result.cost_model = @cost_model
 
         if result.is_a? TimeDependResults
+          STDERR.puts "set migration plans"
           result.calculate_cost_each_timestep
           result.set_time_depend_plans
           result.set_time_depend_indexes
           result.set_time_depend_update_plans
-          result.set_migrate_preparing_plans(get_migrate_preparing_plans(indexes))
+          result.set_migrate_preparing_plans solver_params[:migrate_prepare_plans]
         end
 
         result.validate
@@ -131,8 +145,8 @@ module NoSE
       def solve_mipper(queries, indexes, data)
         # Construct and solve the ILP
         problem = @workload.is_a?(TimeDependWorkload) ?
-                    TimeDependProblem.new(queries, @workload.updates, data, @objective, @workload.timesteps)
-                    : Problem.new(queries, @workload.updates, data, @objective)
+                      TimeDependProblem.new(queries, @workload, data, @objective)
+                      : Problem.new(queries, @workload.updates, data, @objective)
 
         problem.solve
 
@@ -213,14 +227,29 @@ module NoSE
       end
 
       def get_migrate_preparing_plans(indexes)
-        migrate_plans = {}
-        planner = Plans::QueryPlanner.new @workload, indexes, @cost_model
-        indexes.each do |index|
-          migrate_support_query = @workload.migrate_support_queries(index)
+        migrate_plans = Parallel.map(indexes, in_threads: [Etc.nprocessors - 3, 2].max()) do |base_index|
+          # if the base_index does not have non-key field, migrate support query is not necessary
+          next if base_index.extra.empty?
+
+          migrate_support_query = @workload.migrate_support_queries(base_index)
+
+          planner = Plans::PreparingQueryPlanner.new @workload, indexes, @cost_model, 2
           # TODO: migrate support query executed only once, therefore treat this as free
-          _, tree = query_cost planner, migrate_support_query, 0
-          migrate_plans[index] = tree
-        end
+          _costs, tree = query_cost planner, migrate_support_query, [1] * @workload.timesteps
+
+          # calculate cost
+          _costs = _costs.map do |index, (step, costs)|
+            {index =>  [step, costs.map{|cost| @workload.migrate_support_coeff * cost * index.size}]}
+          end.reduce(&:merge)
+
+          costs = Hash[migrate_support_query, _costs]
+          migrate_plan = {}
+          migrate_plan[migrate_support_query] = {
+              costs: costs,
+              tree: tree
+          }
+          migrate_plan
+        end.compact.reduce(&:merge)
         migrate_plans
       end
 
@@ -271,21 +300,26 @@ module NoSE
 
           # Calculate the cost for just these steps in the plan
           cost = weight.is_a?(Array) ? weight.map{|w| steps.sum_by(&:cost) * w}
-                   : steps.sum_by(&:cost) * weight
+                     : steps.sum_by(&:cost) * weight
 
           # Don't count the cost for sorting at the end
           sort_step = steps.find { |s| s.is_a? Plans::SortPlanStep }
           unless sort_step.nil?
             weight.is_a?(Array) ? weight.map.with_index{|w, i| cost[i] -= sort_step.cost * w}
-              : (cost -= sort_step.cost * weight)
+                : (cost -= sort_step.cost * weight)
           end
 
           if query_costs.key? index_step.index
             current_cost = query_costs[index_step.index].last
 
             # We must always have the same cost
-            if not is_same_cost(current_cost, cost)
+            # WARNING: fix this invalid conditions.
+            # Ignoring steps that have filtering steps just overwrites the cost value of step in another query plan.
+            if not is_same_cost(current_cost, cost) \
+              and not steps.any?{|step| step.is_a? Plans::FilterPlanStep} \
+              and not query_costs[index_step.index].first.any?{|s| s.is_a? Plans::FilterPlanStep }
               index = index_step.index
+              p query.class
               p query
               puts "Index #{index.key} does not have equivalent cost"
               puts "Current cost: #{current_cost}, discovered cost: #{cost}"

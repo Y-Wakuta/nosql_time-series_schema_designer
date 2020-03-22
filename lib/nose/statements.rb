@@ -583,7 +583,7 @@ module NoSE
       return nil if select.empty?
 
       params = {
-        select: select,
+        select: {fields: select},
         graph: graph,
         key_path: graph.longest_path,
         entity: key_path.first.parent,

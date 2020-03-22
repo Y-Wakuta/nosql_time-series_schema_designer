@@ -13,7 +13,7 @@ module NoSE
     include Loader
 
     attr_reader :model
-    attr_accessor :mix
+    attr_accessor :mix, :statement_weights
 
     def initialize(model = nil, &block)
       @statement_weights = { default: {} }

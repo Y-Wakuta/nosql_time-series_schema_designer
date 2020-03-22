@@ -53,6 +53,29 @@ module NoSE
       expect(stmt1).to eq stmt2
     end
 
+    it 'parses aggregate functions' do
+      expect do
+        Statement.parse 'SELECT COUNT(Tweet.TweetId), COUNT(Tweet.Retweets) FROM Tweet ' \
+              'WHERE Tweet.TweetId = ?', workload.model
+      end.not_to raise_error
+
+      expect do
+        Statement.parse 'SELECT SUM(Tweet.TweetId), SUM(Tweet.Retweets) FROM Tweet ' \
+              'WHERE Tweet.TweetId = ?', workload.model
+      end.not_to raise_error
+
+      expect do
+        Statement.parse 'SELECT MAX(Tweet.TweetId), MAX(Tweet.Retweets) FROM Tweet ' \
+              'WHERE Tweet.TweetId = ?', workload.model
+      end.not_to raise_error
+    end
+
+    it 'parses GROUP BY' do
+      stmt = Statement.parse 'SELECT Tweet.Retweets, SUM(Tweet.TweetId) FROM Tweet ' \
+                              'WHERE Tweet.Retweets = 3 GROUP BY Tweet.Retweets', workload.model
+      expect(stmt.groupby).to include tweet['Retweets']
+    end
+
     context 'when parsing literals' do
       it 'can find strings' do
         stmt = Statement.parse 'SELECT User.* FROM User ' \
@@ -123,8 +146,8 @@ module NoSE
 
     it 'can parse field settings' do
       expect(update.settings).to match_array [
-        FieldSetting.new(tweet['Body'], 'foo')
-      ]
+                                               FieldSetting.new(tweet['Body'], 'foo')
+                                             ]
     end
 
     it 'does not produce a support query for unaffected indexes' do
@@ -159,8 +182,8 @@ module NoSE
                                'User.UserId = ?', workload.model
       index = Index.new [user['Username'], user['UserId']], [],
                         [user['City']], QueryGraph::Graph.from_path(
-                          [user.id_field]
-                        )
+          [user.id_field]
+        )
       expect(update.support_queries(index).first.unparse).to start_with \
         'SELECT User.Username FROM User WHERE User.UserId = ?'
     end
@@ -187,16 +210,16 @@ module NoSE
 
     it 'can parse field settings' do
       expect(insert.settings).to match_array [
-        FieldSetting.new(tweet['Body'], 'Test'),
-        FieldSetting.new(tweet['TweetId'], '1')
-      ]
+                                               FieldSetting.new(tweet['Body'], 'Test'),
+                                               FieldSetting.new(tweet['TweetId'], '1')
+                                             ]
     end
 
     it 'can parse connections' do
       expect(insert.conditions.values).to match_array [
-        Condition.new(tweet['User'], :'=', '1'),
-        Condition.new(tweet['Link'], :'=', '1')
-      ]
+                                                        Condition.new(tweet['User'], :'=', '1'),
+                                                        Condition.new(tweet['Link'], :'=', '1')
+                                                      ]
     end
 
     it 'knows which entity is being inserted' do
@@ -213,8 +236,8 @@ module NoSE
     it 'uses a support query for connected entities' do
       index = Index.new [user['Username']], [user['UserId'], tweet['TweetId']],
                         [tweet['Body']], QueryGraph::Graph.from_path(
-                          [user['UserId'], user['Tweets']]
-                        )
+          [user['UserId'], user['Tweets']]
+        )
       queries = insert.support_queries index
       expect(queries).to have(1).item
       expect(queries.first.unparse).to start_with \

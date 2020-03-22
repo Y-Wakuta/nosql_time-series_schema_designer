@@ -114,7 +114,13 @@ module NoSE
 
         Index.new f.call(fragment['hash_fields']),
                   f.call(fragment['order_fields']),
-                  f.call(fragment['extra']), graph, saved_key: fragment['key']
+                  f.call(fragment['extra']),
+                  graph,
+                  count_fields: f.call(fragment['count_fields']).to_set,
+                  sum_fields: f.call(fragment['sum_fields']).to_set,
+                  avg_fields: f.call(fragment['avg_fields']).to_set,
+                  groupby_fields: f.call(fragment['groupby_fields']).to_set,
+                  saved_key: fragment['key']
       end
     end
 
@@ -151,6 +157,10 @@ module NoSE
       property :size
       property :hash_count
       property :per_hash_count
+      collection :count_fields, decorator: FieldRepresenter
+      collection :sum_fields, decorator: FieldRepresenter
+      collection :avg_fields, decorator: FieldRepresenter
+      collection :groupby_fields, decorator: FieldRepresenter
     end
 
     class TimeDependIndexesBuilder

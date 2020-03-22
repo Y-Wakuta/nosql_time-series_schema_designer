@@ -27,6 +27,21 @@ module NoSE
             end
           end
         end
+
+        # find indexes for MigrateSupportQuery
+        @problem.prepare_vars.each do |index, query_var|
+          query_var.each do |query, time_var|
+            time_var.each do |ts, var|
+              next unless var.value
+              # the index of migrate support query is newly created
+              next unless problem.migrate_vars[query.index][ts + 1].value
+
+              @query_indexes[query] = {} if @query_indexes[query].nil?
+              @query_indexes[query][ts] = Set.new if @query_indexes[query][ts].nil?
+              @query_indexes[query][ts].add index
+            end
+          end
+        end
       end
 
       # After setting the cost model, recalculate the cost
@@ -147,24 +162,21 @@ module NoSE
         indexes_query + indexes_support_query
       end
 
+      # given timestep is one of obsolete timestep
       def get_prepare_plans(plan, migrate_prepare_plans ,timestep)
         prepare_plans = []
         plan.each do |step|
           next unless step.is_a?(Plans::IndexLookupPlanStep)
+          next if step.index.extra.empty?
 
-          indexes_for_this_timestep = indexes_used_in_plans(timestep)
-
-          # if the index already exists, we do not need to create the index
-          next if indexes_for_this_timestep.include? step.index
-
-          possible_plans = migrate_prepare_plans[step.index].select do |query_plan|
-            query_plan.select {|step| step.is_a?(Plans::IndexLookupPlanStep)} \
-                          .all? {|step| @indexes[timestep].include? step.index }
+          migrate_support_query = migrate_prepare_plans.select{|p| p.index == step.index}.keys.first
+          migrate_support_tree = migrate_prepare_plans.select{|p| p.index == step.index}.values.first[:tree]
+          prepare_plan_for_the_timestep = migrate_support_tree.select do |plan|
+            plan.indexes.to_set == @query_indexes[migrate_support_query]&.fetch(timestep, nil)
           end
 
-          # if min_plan has the same index as the target index, this prepare plan is unnecessary
-          min_plan = possible_plans.sort_by {|qp| qp.cost}.first
-          next if min_plan.indexes.length == 1 and min_plan.indexes.first == step.index
+          next if prepare_plan_for_the_timestep.empty?
+          fail "more than one query plan found for one query" if prepare_plan_for_the_timestep.size > 1
 
           # if step.index already exists at timestep t, new prepare plan for timestep t + 1 is not required
           next if not @workload.include_migration_cost and @time_depend_indexes.indexes_all_timestep[timestep]

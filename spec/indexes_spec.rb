@@ -70,7 +70,7 @@ module NoSE
 
       it 'keeps a static key' do
         index = combo_query.materialize_view
-        expect(index.key).to eq 'i1632091596'
+        expect(index.key).to eq 'i4151454629'
       end
 
       it 'includes only one entity in the hash fields' do
@@ -130,6 +130,30 @@ module NoSE
           Index.new [user['City']], [], [],
                     QueryGraph::Graph.from_path([tweet.id_field,
                                                  tweet['User']])
+        end.to raise_error InvalidIndexException
+      end
+
+      it 'cannot have aggregation fields that are not in the index fields' do
+        expect do
+          Index.new [tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), count_fields: Set.new([tweet['Retweets']])
+        end.to raise_error InvalidIndexException
+
+        expect do
+          Index.new [tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), count_fields: Set.new(), sum_fields: Set.new([tweet['Retweets']])
+        end.to raise_error InvalidIndexException
+
+        expect do
+          Index.new [tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), count_fields: Set.new(), sum_fields: Set.new(), avg_fields: Set.new([tweet['Retweets']])
+        end.to raise_error InvalidIndexException
+
+        expect do
+          Index.new [tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), count_fields: Set.new(),
+                                                sum_fields: Set.new(), avg_fields: Set.new(),
+                                                groupby_fields: Set.new([tweet['Retweets']])
         end.to raise_error InvalidIndexException
       end
     end

@@ -5,13 +5,13 @@ module NoSE
   class Query < Statement
     include StatementConditions
 
-    attr_reader :select, :order, :limit
+    attr_reader :select, :counts, :sums, :avgs, :maxes, :order, :groupby, :limit
 
     def initialize(params, text, group: nil, label: nil)
       super params, text, group: group, label: label
 
       populate_conditions params
-      @select = params[:select]
+      @select = params[:select][:fields]
       @order = params[:order] || []
       @counts = params[:select][:count] || Set.new
       @sums = params[:select][:sum] || Set.new
@@ -32,12 +32,18 @@ module NoSE
       @limit = params[:limit]
     end
 
+    def populate_conditions(params)
+      super params
+      @eq_fields += params[:groupby] unless params[:groupby].to_a.empty?
+    end
+
     # Build a new query from a provided parse tree
     # @return [Query]
     def self.parse(tree, params, text, group: nil, label: nil)
       conditions_from_tree tree, params
       fields_from_tree tree, params
       order_from_tree tree, params
+      groupby_from_tree tree, params
       params[:limit] = tree[:limit].to_i if tree[:limit]
 
       new params, text, group: group, label: label
@@ -72,6 +78,10 @@ module NoSE
         @select == other.select &&
         @conditions == other.conditions &&
         @order == other.order &&
+        @sums == other.sums &&
+        @counts == other.counts &&
+        @avgs == other.avgs &&
+        @groupby == other.groupby &&
         @limit == other.limit &&
         @comment == other.comment
     end
@@ -95,13 +105,10 @@ module NoSE
     # All fields referenced anywhere in the query
     # @return [Set<Fields::Field>]
     def all_fields
-      (@select + @conditions.each_value.map(&:field) + @order).to_set
+      (@select + @conditions.each_value.map(&:field) + @order + @groupby).to_set
     end
 
-    # Extract fields to be selected from a parse tree
-    # @return [Set<Field>]
-    def self.fields_from_tree(tree, params)
-      params[:select] = tree[:select].flat_map do |field|
+    def self.get_fields(tree, params, field)
         if field.last == '*'
           # Find the entity along the path
           entity = params[:key_path].entities[tree[:path].index(field.first)]
@@ -112,9 +119,30 @@ module NoSE
           fail InvalidStatementException, 'Foreign keys cannot be selected' \
             if field.is_a? Fields::ForeignKeyField
 
-          field
+          [field]
         end
-      end.to_set
+    end
+
+    # Extract fields to be selected from a parse tree
+    # @return [Set<Field>]
+    def self.fields_from_tree(tree, params)
+      params[:select] = {}
+      params[:select][:fields]= Set.new
+      params[:select][:count] = Set.new
+      params[:select][:sum] = Set.new
+      params[:select][:avg] = Set.new
+      params[:select][:max] = Set.new
+
+      tree[:select].flat_map do |field|
+        if field.is_a?(Hash)
+          field[field.keys.first]&.each_slice(2) do |f|
+            params[:select][field.keys.first].merge(get_fields(tree, params, f))
+          end
+        else
+          params[:select][:fields].merge(get_fields(tree, params, field).to_set)
+        end
+      end
+      params[:select][:fields] += (params[:select][:count] + params[:select][:sum] + params[:select][:avg] + params[:select][:max])
     end
     private_class_method :fields_from_tree
 
@@ -129,6 +157,16 @@ module NoSE
       end
     end
     private_class_method :order_from_tree
+
+    def self.groupby_from_tree(tree, params)
+      return params[:groupby] = Set.new if tree[:groupby].nil?
+
+      params[:groupby] = tree[:groupby][:fields].each_slice(2).map do |field|
+        field = field.first if field.first.is_a? Array
+        add_field_with_prefix tree[:path], field, params
+      end.to_set
+    end
+    private_class_method :groupby_from_tree
 
     private
 
@@ -168,5 +206,23 @@ module NoSE
       super.to_color + ' for [magenta]' + @index.key + '[/]'
     end
     # :nocov:
+  end
+
+  # place holder class for query that supports migration process
+  class MigrateSupportQuery < Query
+    attr_reader :statement, :index
+
+    def initialize(params, text, group: nil, label: nil)
+      super params, text, group: group, label: label
+      @index = params[:index]
+    end
+
+    # Migrate support queries must also have their statement and index checked
+    def ==(other)
+      other.is_a?(MigrateSupportQuery) && @statement == other.statement &&
+        @index == other.index && @comment == other.comment
+    end
+    alias eql? ==
+
   end
 end

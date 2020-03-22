@@ -94,8 +94,12 @@ module NoSE
     rule(:identifier)    { match('[A-z]').repeat(1).as(:identifier) }
     rule(:field)         { identifier >> (str('.') >> identifier).repeat(1) }
     rule(:fields)        { field >> (comma >> field).repeat }
+    rule(:count)         { str('COUNT(') >> field >> str(')')}
+    rule(:sum)         { str('SUM(') >> field >> str(')')}
+    rule(:max)         { str('MAX(') >> field >> str(')')}
+    rule(:avg)         { str('AVG(') >> field >> str(')')}
     rule(:select_field)  {
-      field.as_array(:field) | (identifier >> str('.') >>
+      field.as_array(:field) | count.as_array(:count) | sum.as_array(:sum) | max.as_array(:max) | avg.as_array(:avg) | (identifier >> str('.') >>
                                 str('*').repeat(1, 2).as(:identifier2)) }
     rule(:select_fields) { select_field >> (comma >> select_field).repeat }
     rule(:path)          { identifier >> (str('.') >> identifier).repeat }
@@ -126,6 +130,7 @@ module NoSE
     rule(:comma)       { str(',') >> space? }
 
     rule(:limit)       { space >> str('LIMIT') >> space >> integer.as(:limit) }
+    rule(:groupby)       { space >> str('GROUP BY') >> space >> fields.as_array(:fields) }
     rule(:order)       {
       space >> str('ORDER BY') >> space >> fields.as_array(:fields) }
 
@@ -134,7 +139,7 @@ module NoSE
     rule(:query) {
       str('SELECT') >> space >> select_fields.as_array(:select) >>
       space >> str('FROM') >> space >> path.as_array(:path) >>
-      where.maybe.as(:where) >> order.maybe.as(:order) >>
+      where.maybe.as(:where) >> order.maybe.as(:order) >> groupby.maybe.as(:groupby) >>
       limit.maybe.capture(:limit) >> comment.maybe.as(:comment) }
 
     rule(:update) {

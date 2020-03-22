@@ -9,14 +9,21 @@ module NoSE
   # A representation of a query workload over a given set of entities
   class TimeDependWorkload < Workload
 
-    attr_accessor :timesteps, :interval, :is_static, :time_depend_statement_weights
+    attr_accessor :timesteps, :interval, :is_static, :time_depend_statement_weights,
+                  :include_migration_cost, :creation_coeff, :migrate_support_coeff,
+                  :start_workload_set, :end_workload_set, :start_workload_ratio, :end_workload_ratio,
+                  :definition_type
 
     def initialize(model = nil, &block)
       @time_depend_statement_weights = { default: {} }
       @model = model || Model.new
       @mix = :default
       @interval = 3600 # set seconds in an hour as default
+      @creation_coeff = 0.01
+      @migrate_support_coeff = 0.00000001
       @is_static = false
+      @include_migration_cost = true
+      @definition_type = DEFINITION_TYPE::FLOAT_ARRAY
 
       # Apply the DSL
       TimeDependWorkloadDSL.new(self).instance_eval(&block) if block_given?
@@ -32,16 +39,33 @@ module NoSE
 
       mixes = { default: mixes } if mixes.is_a? Numeric
       mixes = { default: [1.0] * @timesteps } if mixes.empty?
-      mixes.each do |mix, weight|
-        @time_depend_statement_weights[mix] = {} unless @time_depend_statement_weights.key? mix
-        fail "Frequency is required for #{statement.text}" if weight.nil? and frequency.nil?
-        fail "number of Frequency should be same as timesteps for #{statement.text}" \
-          unless weight.size == @timesteps or frequency&.size == @timestep
-        fail "Frequency cannot become 0 for #{statement.text}" if weight.include?(0) or frequency&.include?(0)
-        # ensure that all query has the same # of timesteps
-        fail if @time_depend_statement_weights[mix].map{|_, weights| weights.size}.uniq.size > 1
-        frequencies = (frequency.nil? ? weight : frequency).map{|f| f * @interval}
-        @time_depend_statement_weights[mix][statement] = frequencies
+      if @definition_type == DEFINITION_TYPE::FLOAT_ARRAY
+        mixes.each do |mix, weight|
+          @time_depend_statement_weights[mix] = {} unless @time_depend_statement_weights.key? mix
+          fail "Frequency is required for #{statement.text}" if weight.nil? and frequency.nil?
+
+          fail "number of Frequency should be same as timesteps for #{statement.text}" \
+            unless weight.size == @timesteps or frequency&.size == @timestep
+          fail "Frequency cannot become 0 for #{statement.text}" if weight.include?(0) or frequency&.include?(0)
+          # ensure that all query has the same # of timesteps
+          fail if @time_depend_statement_weights[mix].map{|_, weights| weights.size}.uniq.size > 1
+          frequencies = (frequency.nil? ? weight : frequency).map{|f| f * @interval}
+          @time_depend_statement_weights[mix][statement] = frequencies
+        end
+      elsif @definition_type == DEFINITION_TYPE::WORKLOAD_SET_RATIO
+        fail "required field is not given" if @start_workload_ratio.nil? or @end_workload_ratio.nil? \
+                                              or @start_workload_set.nil? or @end_workload_set.nil?
+        mixes[@start_workload_set] = 0 if mixes[@start_workload_set].nil?
+        mixes[@end_workload_set] = 0 if mixes[@end_workload_set].nil?
+
+        @time_depend_statement_weights[@mix] = {} unless @time_depend_statement_weights.key? @mix
+        @time_depend_statement_weights[@mix][statement] = calculate_td_frequency_by_ratio(mixes[@start_workload_set],
+                                                                                                  @start_workload_ratio,
+                                                                                                  mixes[@end_workload_set],
+                                                                                                  @end_workload_ratio,
+                                                                                                  @timesteps)
+      else
+        fail "DEFINITION_TYPE is required"
       end
 
       sync_statement_weights
@@ -64,27 +88,28 @@ module NoSE
     # @return[Array<Statement>]
     def migrate_support_queries(index)
       # Get all fields which need to be selected by support queries
-      select = index.all_fields
+      select = index.all_fields - index.hash_fields - index.order_fields
       return [] if select.empty?
 
       # Build conditions by traversing the foreign keys
       conditions = (index.hash_fields + index.order_fields).map do |c|
         next unless index.graph.entities.include? c.parent
 
-        Condition.new c.parent.id_field, '='.to_sym, nil
+        Condition.new c, '='.to_sym, nil
       end.compact
       conditions = Hash[conditions.map do |condition|
         [condition.field.id, condition]
       end]
 
       params = {
-        select: select,
+        select: {fields: select},
         graph: index.graph,
         key_path: index.graph.longest_path,
         entity: index.graph.entities,
-        conditions: conditions
+        conditions: conditions,
+        index: index
       }
-      query = Query.new(params, nil, group: "PrepareQuery")
+      query = MigrateSupportQuery.new(params, nil, group: "PrepareQuery")
       query.set_text
       query
     end
@@ -111,10 +136,30 @@ module NoSE
     def average_array(values)
       [values.sum / values.length] * values.length
     end
+
+    def calculate_td_frequency_by_ratio(start_mix_freq, start_ratio, end_mix_freq, end_ratio, timestep)
+      fail "Sum of ratios must be 1.0" unless (1.0 - start_ratio - end_ratio).abs < 0.001
+      start_freq = start_mix_freq * start_ratio + end_mix_freq * end_ratio
+      end_freq = start_mix_freq * end_ratio + end_mix_freq * start_ratio
+      step_size = (end_freq - start_freq) / timestep
+      (0...timestep).map do |t|
+        t * step_size + start_freq
+      end.to_a
+    end
   end
 
 
   class TimeDependWorkloadDSL < WorkloadDSL
+
+    def DefaultMix(mix)
+      fail "DefaultMix method cannot be used in #{DEFINITION_TYPE::WORKLOAD_SET_RATIO} TimeDependWorkload" \
+        if @workload.definition_type == DEFINITION_TYPE::WORKLOAD_SET_RATIO
+      super(mix)
+    end
+
+    def DefinitionType(definition_type)
+      @workload.definition_type = definition_type
+    end
 
     def TimeSteps(timestep)
       @workload.timesteps = timestep
@@ -128,5 +173,35 @@ module NoSE
       puts "\e[31mexecute optimization for average weight\e[0m"
       @workload.is_static = is_static
     end
+
+    def IncludeMigrationCost(include_migration_cost)
+      puts "ignore migration cost" unless include_migration_cost
+      @workload.include_migration_cost = include_migration_cost
+    end
+
+    # cost for creating new column family in migration process
+    def CreationCoeff(creation_coeff)
+      @workload.creation_coeff = creation_coeff
+    end
+
+    # cost for preparing data for new column families
+    def MigrateSupportCoeff(migrate_support_coeff)
+      @workload.migrate_support_coeff = migrate_support_coeff
+    end
+
+    def StartWorkloadSet(start_workload_set, first_ratio)
+      @workload.start_workload_set = start_workload_set
+      @workload.start_workload_ratio = first_ratio
+    end
+
+    def EndWorkloadSet(end_workload_set, first_ratio)
+      @workload.end_workload_set = end_workload_set
+      @workload.end_workload_ratio = first_ratio
+    end
+  end
+
+  module DEFINITION_TYPE
+    FLOAT_ARRAY = "FLOAT_ARRAY".freeze
+    WORKLOAD_SET_RATIO = "WORKLOAD_SET_RATIO".freeze
   end
 end
