@@ -178,6 +178,16 @@ module NoSE
           next if prepare_plan_for_the_timestep.empty?
           fail "more than one query plan found for one query" if prepare_plan_for_the_timestep.size > 1
 
+          # if step.index already exists at timestep t, new prepare plan for timestep t + 1 is not required
+          next if not @workload.include_migration_cost and @time_depend_indexes.indexes_all_timestep[timestep]
+                                                             .indexes
+                                                             .include? step.index
+          fail "New CF cannot be included in the preparing plan" if prepare_plan_for_the_timestep.first
+                                                                      .steps
+                                                                      .select{|s| s.is_a? Plans::IndexLookupPlanStep}
+                                                                      .map{|s| s.index}
+                                                                      .include? step.index
+
           prepare_plans << Plans::MigratePreparePlan.new(step.index, prepare_plan_for_the_timestep.first, timestep)
         end
         prepare_plans

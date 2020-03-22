@@ -19,10 +19,6 @@ module NoSE
       @maxes = params[:select][:max] || Set.new
       @groupby = params[:groupby] || Set.new
 
-      aggregate_fields = (@counts + @sums + @avgs + @groupby).to_set
-      fail InvalidStatementException, 'must have aggregation function for all field if any field has aggregation' \
-        unless aggregate_fields.empty? or @select == aggregate_fields
-
       fail InvalidStatementException, 'can\'t order by IDs' \
         if @order.any? { |f| f.is_a? Fields::IDField }
 
