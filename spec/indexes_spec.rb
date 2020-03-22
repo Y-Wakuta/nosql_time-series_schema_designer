@@ -136,22 +136,24 @@ module NoSE
       it 'cannot have aggregation fields that are not in the index fields' do
         expect do
           Index.new [tweet['TweetId']], [], [tweet['Body']],
-                    QueryGraph::Graph.from_path([tweet.id_field]), Set.new([tweet['Retweets']])
+                    QueryGraph::Graph.from_path([tweet.id_field]), count_fields: Set.new([tweet['Retweets']])
         end.to raise_error InvalidIndexException
 
         expect do
           Index.new [tweet['TweetId']], [], [tweet['Body']],
-                    QueryGraph::Graph.from_path([tweet.id_field]), Set.new(), Set.new([tweet['Retweets']])
+                    QueryGraph::Graph.from_path([tweet.id_field]), count_fields: Set.new(), sum_fields: Set.new([tweet['Retweets']])
         end.to raise_error InvalidIndexException
 
         expect do
           Index.new [tweet['TweetId']], [], [tweet['Body']],
-                    QueryGraph::Graph.from_path([tweet.id_field]), Set.new(), Set.new(), Set.new([tweet['Retweets']])
+                    QueryGraph::Graph.from_path([tweet.id_field]), count_fields: Set.new(), sum_fields: Set.new(), avg_fields: Set.new([tweet['Retweets']])
         end.to raise_error InvalidIndexException
 
         expect do
           Index.new [tweet['TweetId']], [], [tweet['Body']],
-                    QueryGraph::Graph.from_path([tweet.id_field]), Set.new(), Set.new(), Set.new(), Set.new([tweet['Retweets']])
+                    QueryGraph::Graph.from_path([tweet.id_field]), count_fields: Set.new(),
+                                                sum_fields: Set.new(), avg_fields: Set.new(),
+                                                groupby_fields: Set.new([tweet['Retweets']])
         end.to raise_error InvalidIndexException
       end
     end

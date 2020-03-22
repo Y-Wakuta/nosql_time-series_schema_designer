@@ -9,7 +9,7 @@ NoSE::TimeDependWorkload.new do
   DefaultMix :bidding
 
   #increase = [0.1, 3, 8, 20, 30, 5, 1, 0.01, 10, 100, 50, 10, 1, 0.1, 20]
-  increase = [0.1, 3, 8, 20, 30]
+  increase = [0.1, 3, 8, 20]
   decrease = increase.reverse
 
   timestep = increase.size

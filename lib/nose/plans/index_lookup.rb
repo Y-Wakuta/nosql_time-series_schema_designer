@@ -77,7 +77,7 @@ module NoSE
 
         # fields used for join parent_index and current index
         join_fields = parent.index.all_fields & (index.hash_fields + index.order_fields)
-        aggregation_fields = parent.index.count_fields + parent.index.sum_fields + parent.index.avg_fields
+        aggregation_fields = parent.index.count_fields + parent.index.sum_fields + parent.index.max_fields + parent.index.avg_fields
 
         # if all primary fields used for joining column families are aggregate fields, raise InvalidIndex
         fail InvalidIndex if join_fields.select(&:primary_key).all?{|f| aggregation_fields.include? f}
@@ -358,6 +358,7 @@ module NoSE
         @state.eq -= @eq_filter
         @state.counts -= @index.count_fields.to_set
         @state.sums -= @index.sum_fields
+        @state.maxes -= @index.max_fields
         @state.avgs -= @index.avg_fields
         @state.groupby -= @index.groupby_fields
 

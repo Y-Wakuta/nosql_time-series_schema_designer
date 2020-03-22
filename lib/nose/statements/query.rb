@@ -5,7 +5,7 @@ module NoSE
   class Query < Statement
     include StatementConditions
 
-    attr_reader :select, :counts, :sums, :avgs, :order, :groupby, :limit
+    attr_reader :select, :counts, :sums, :avgs, :maxes, :order, :groupby, :limit
 
     def initialize(params, text, group: nil, label: nil)
       super params, text, group: group, label: label
@@ -16,6 +16,7 @@ module NoSE
       @counts = params[:select][:count] || Set.new
       @sums = params[:select][:sum] || Set.new
       @avgs = params[:select][:avg] || Set.new
+      @maxes = params[:select][:max] || Set.new
       @groupby = params[:groupby] || Set.new
 
       aggregate_fields = (@counts + @sums + @avgs + @groupby).to_set
@@ -134,6 +135,7 @@ module NoSE
       params[:select][:count] = Set.new
       params[:select][:sum] = Set.new
       params[:select][:avg] = Set.new
+      params[:select][:max] = Set.new
 
       tree[:select].flat_map do |field|
         if field.is_a?(Hash)
@@ -144,7 +146,7 @@ module NoSE
           params[:select][:fields].merge(get_fields(tree, params, field).to_set)
         end
       end
-      params[:select][:fields] += (params[:select][:count] + params[:select][:sum] + params[:select][:avg])
+      params[:select][:fields] += (params[:select][:count] + params[:select][:sum] + params[:select][:avg] + params[:select][:max])
     end
     private_class_method :fields_from_tree
 

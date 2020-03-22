@@ -47,8 +47,7 @@ NoSE::TimeDependWorkload.new do
     Q 'SELECT bids.* FROM items.bids WHERE items.id = ? -- 6'
     Q 'SELECT users.nickname FROM users WHERE users.id=? -- 17'
     # aggregate
-    # TODO: make SUM to MAX
-    Q 'SELECT SUM(bids.bid) FROM bids.item WHERE item.id=? -- 19.5'
+    Q 'SELECT MAX(bids.bid) FROM bids.item WHERE item.id=? -- 19.5'
     Q 'SELECT bids.bid, bids.qty FROM bids.item WHERE item.id=? ' \
       'ORDER BY bids.bid LIMIT 2 -- 19'
     Q 'SELECT COUNT(bids.id), COUNT(bids.qty), COUNT(bids.bid), COUNT(bids.date) FROM bids.item WHERE item.id=? -- 19.55'
@@ -115,8 +114,7 @@ NoSE::TimeDependWorkload.new do
     Q 'SELECT bids.qty, bids.date FROM bids.item WHERE item.id=? ' \
       'ORDER BY bids.bid LIMIT 2 -- 19'
     # aggregate
-    # TODO: change SUM to MAX
-    Q 'SELECT SUM(bids.bid) FROM bids.item WHERE item.id=? -- 19.5'
+    Q 'SELECT MAX(bids.bid) FROM bids.item WHERE item.id=? -- 19.5'
     Q 'SELECT COUNT(bids.id), COUNT(bids.qty), COUNT(bids.bid), COUNT(bids.date) FROM bids.item WHERE item.id=? -- 19.55'
   end
 
