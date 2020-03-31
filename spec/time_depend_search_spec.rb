@@ -118,6 +118,33 @@ module NoSE
         expect(result.migrate_plans.size).to eq 2
       end
 
+      it 'migrates plan is not set if there is no interval' do
+        ts = timesteps
+        qi = query_increase
+        qd = query_decrease
+        td_workload_no_interval = TimeDependWorkload.new do
+          TimeSteps ts
+          DefaultMix :default
+          Interval 0
+          Model 'rubis'
+
+          Group 'Test1', 1.0, default: [0.001, 0.5, 9] do
+            Q 'SELECT users.* FROM users WHERE users.id = ? -- 0'
+            Q qi
+          end
+
+          Group 'Test2', 1.0, default: [9, 0.5, 0.001] do
+            Q 'SELECT items.* FROM items WHERE items.id = ? -- 2'
+            Q qd
+          end
+        end
+
+        indexes = IndexEnumerator.new(td_workload_no_interval).indexes_for_workload.to_a
+        result = Search.new(td_workload_no_interval, cost_model).search_overlap indexes, 12250000
+
+        expect(result.migrate_plans.size).to eq 0
+      end
+
       it 'time depend workload get the same cost as static workload if the frequency does not change' do
         interval = 3600
         timesteps = 3

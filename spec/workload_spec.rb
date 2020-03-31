@@ -107,7 +107,7 @@ module NoSE
     let(:time_steps)       { 3 }
     let(:query) {'SELECT Foo.Bar FROM Foo WHERE Foo.Id = ?'}
     let(:freq_array){[1.2,1.3,1.4]}
-    let(:td_workload) {
+    let(:td_workload_float_array) {
       q = query
       fa = freq_array
       ts = time_steps
@@ -128,12 +128,44 @@ module NoSE
 
     context "add frequency type for the statement"  do
       it "specify the frequency array" do
-        weights = td_workload
+        weights = td_workload_float_array
                     .statement_weights
                     .select{|q, _| q.text == query}
                     .map{|_, weights| weights}
         expect(weights.first.size).to eq freq_array.size
       end
+    end
+
+    let(:td_workload_workload_ratio) {
+      q = query
+      TimeDependWorkload.new do
+        TimeSteps 4
+        DefinitionType DEFINITION_TYPE::WORKLOAD_SET_RATIO
+        StartWorkloadSet :type1, 0.9
+        EndWorkloadSet :type2, 0.1
+
+        Entity 'Foo' do
+          ID 'Id'
+          String 'Bar'
+        end
+
+        Group 'Test1', type1: 0.1, type2: 1 do
+          Q q
+        end
+      end
+    }
+
+    it 'properly mixes the two type of workload frequency' do
+      weights = td_workload_workload_ratio
+                  .statement_weights
+                  .select{|q, _| q.text == query}
+                  .map{|_, weights| weights}
+                  .first
+
+      expected_first_freq = (0.1 * 0.9 + 1 * 0.1) * td_workload_workload_ratio.interval
+      expected_last_freq = (0.1 * 0.1 + 1 * 0.9) * td_workload_workload_ratio.interval
+      expect((weights.first - expected_first_freq).abs).to be < 0.01
+      expect((weights.last - expected_last_freq).abs).to be < 0.01
     end
   end
 end
