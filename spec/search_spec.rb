@@ -101,7 +101,7 @@ module NoSE
       end
 
       it 'provide solution even when the query include aggregation fields' do
-        workload.add_statement(Statement.parse 'SELECT COUNT(Tweet.TweetId), SUM(Tweet.Retweets), Tweet.Timestamp FROM Tweet WHERE ' \
+        workload.add_statement(Statement.parse 'SELECT count(Tweet.TweetId), sum(Tweet.Retweets), Tweet.Timestamp FROM Tweet WHERE ' \
                                 'Tweet.Body = ?', workload.model)
         indexes = IndexEnumerator.new(workload).indexes_for_workload.to_a
         result = Search.new(workload, cost_model).search_overlap indexes
@@ -109,7 +109,7 @@ module NoSE
       end
 
       it 'provide solution even when the query include GROUP BY clause' do
-        workload.add_statement(Statement.parse 'SELECT COUNT(Tweet.TweetId), Tweet.Retweets, COUNT(Tweet.Timestamp) FROM Tweet WHERE ' \
+        workload.add_statement(Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, count(Tweet.Timestamp) FROM Tweet WHERE ' \
                                 'Tweet.Body = ? GROUP BY Tweet.Retweets', workload.model)
         indexes = IndexEnumerator.new(workload).indexes_for_workload.to_a
         result = Search.new(workload, cost_model).search_overlap indexes

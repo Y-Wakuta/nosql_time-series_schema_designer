@@ -151,7 +151,7 @@ module NoSE
       # @return [Entity]
       def entity_for_table(client, table)
         entity = Entity.new table
-        count = client.query("SELECT COUNT(*) FROM #{table}").first
+        count = client.query("SELECT count(*) FROM #{table}").first
         entity.count = count.is_a?(Hash) ? count.values.first : count
 
         describe = if @array_options

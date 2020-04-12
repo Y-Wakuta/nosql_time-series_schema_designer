@@ -55,23 +55,23 @@ module NoSE
 
     it 'parses aggregate functions' do
       expect do
-        Statement.parse 'SELECT COUNT(Tweet.TweetId), COUNT(Tweet.Retweets) FROM Tweet ' \
+        Statement.parse 'SELECT count(Tweet.TweetId), count(Tweet.Retweets) FROM Tweet ' \
               'WHERE Tweet.TweetId = ?', workload.model
       end.not_to raise_error
 
       expect do
-        Statement.parse 'SELECT SUM(Tweet.TweetId), SUM(Tweet.Retweets) FROM Tweet ' \
+        Statement.parse 'SELECT sum(Tweet.TweetId), sum(Tweet.Retweets) FROM Tweet ' \
               'WHERE Tweet.TweetId = ?', workload.model
       end.not_to raise_error
 
       expect do
-        Statement.parse 'SELECT MAX(Tweet.TweetId), MAX(Tweet.Retweets) FROM Tweet ' \
+        Statement.parse 'SELECT max(Tweet.TweetId), max(Tweet.Retweets) FROM Tweet ' \
               'WHERE Tweet.TweetId = ?', workload.model
       end.not_to raise_error
     end
 
     it 'parses GROUP BY' do
-      stmt = Statement.parse 'SELECT Tweet.Retweets, SUM(Tweet.TweetId) FROM Tweet ' \
+      stmt = Statement.parse 'SELECT Tweet.Retweets, sum(Tweet.TweetId) FROM Tweet ' \
                               'WHERE Tweet.Retweets = 3 GROUP BY Tweet.Retweets', workload.model
       expect(stmt.groupby).to include tweet['Retweets']
     end

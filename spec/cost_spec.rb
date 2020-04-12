@@ -64,7 +64,7 @@ module NoSE
       include_context 'dummy cost model'
 
       it 'increase the cost if the index include aggregation field' do
-        query = Statement.parse 'SELECT Tweet.Body, Tweet.Timestamp, Tweet.Retweets, COUNT(Tweet.TweetId) FROM Tweet ' \
+        query = Statement.parse 'SELECT Tweet.Body, Tweet.Timestamp, Tweet.Retweets, count(Tweet.TweetId) FROM Tweet ' \
                           'WHERE Tweet.TweetId = ?', workload.model
         index = Index.new [tweet['TweetId']], [tweet['Body']],
                           [tweet['Timestamp'], tweet['Retweets']],

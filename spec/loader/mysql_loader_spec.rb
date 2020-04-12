@@ -30,7 +30,7 @@ module NoSE
         loader = mock_loader(
           {
             'SHOW TABLES' => EachArray.new([['Foo']]),
-            'SELECT COUNT(*) FROM Foo' => [{ 'COUNT()*)' => 10 }],
+            'SELECT count(*) FROM Foo' => [{ 'count()*)' => 10 }],
             'DESCRIBE Foo' => EachArray.new(
               [
                 ['FooId', 'int(10) unsigned', 'NO', 'PRI', 'NULL', ''],
