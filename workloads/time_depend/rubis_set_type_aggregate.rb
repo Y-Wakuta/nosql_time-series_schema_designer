@@ -47,10 +47,10 @@ NoSE::TimeDependWorkload.new do
     Q 'SELECT bids.* FROM items.bids WHERE items.id = ? -- 6'
     Q 'SELECT users.nickname FROM users WHERE users.id=? -- 17'
     # aggregate
-    Q 'SELECT MAX(bids.bid) FROM bids.item WHERE item.id=? -- 19.5'
+    Q 'SELECT max(bids.bid) FROM bids.item WHERE item.id=? -- 19.5'
     Q 'SELECT bids.bid, bids.qty FROM bids.item WHERE item.id=? ' \
       'ORDER BY bids.bid LIMIT 2 -- 19'
-    Q 'SELECT COUNT(bids.id), COUNT(bids.qty), COUNT(bids.bid), COUNT(bids.date) FROM bids.item WHERE item.id=? -- 19.55'
+    Q 'SELECT count(bids.id), count(bids.qty), count(bids.bid), count(bids.date) FROM bids.item WHERE item.id=? -- 19.55'
   end
 
   Group 'SearchItemsByCategory', browsing: 27.77,
@@ -114,8 +114,8 @@ NoSE::TimeDependWorkload.new do
     Q 'SELECT bids.qty, bids.date FROM bids.item WHERE item.id=? ' \
       'ORDER BY bids.bid LIMIT 2 -- 19'
     # aggregate
-    Q 'SELECT MAX(bids.bid) FROM bids.item WHERE item.id=? -- 19.5'
-    Q 'SELECT COUNT(bids.id), COUNT(bids.qty), COUNT(bids.bid), COUNT(bids.date) FROM bids.item WHERE item.id=? -- 19.55'
+    Q 'SELECT max(bids.bid) FROM bids.item WHERE item.id=? -- 19.5'
+    Q 'SELECT count(bids.id), count(bids.qty), count(bids.bid), count(bids.date) FROM bids.item WHERE item.id=? -- 19.55'
   end
 
   Group 'StoreBid', bidding: 3.74,
