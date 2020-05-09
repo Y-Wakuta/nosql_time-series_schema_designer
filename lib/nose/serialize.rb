@@ -118,6 +118,7 @@ module NoSE
                   graph,
                   count_fields: f.call(fragment['count_fields']).to_set,
                   sum_fields: f.call(fragment['sum_fields']).to_set,
+                  max_fields: f.call(fragment['max_fields']).to_set,
                   avg_fields: f.call(fragment['avg_fields']).to_set,
                   groupby_fields: f.call(fragment['groupby_fields']).to_set,
                   saved_key: fragment['key']
@@ -159,6 +160,7 @@ module NoSE
       property :per_hash_count
       collection :count_fields, decorator: FieldRepresenter
       collection :sum_fields, decorator: FieldRepresenter
+      collection :max_fields, decorator: FieldRepresenter
       collection :avg_fields, decorator: FieldRepresenter
       collection :groupby_fields, decorator: FieldRepresenter
     end
@@ -537,7 +539,7 @@ module NoSE
       def call(_, fragment:, represented:, **)
         index = IndexBuilder.new.call(_, fragment: fragment['index'], represented: represented)
         query_plan = QueryPlanBuilder.new.call(_, fragment: fragment['query_plan'], represented: represented)
-        Plans::MigratePreparePlan.new(index, query_plan)
+        Plans::MigratePreparePlan.new(index, query_plan, fragment['timestep'])
       end
     end
 
@@ -909,6 +911,7 @@ module NoSE
 
       property :index, decorator: FullIndexRepresenter, deserialize: IndexBuilder.new
       property :query_plan, decorator: QueryPlanRepresenter, deserialize: QueryPlanBuilder.new
+      property :timestep
     end
 
     class MigratePlanRepresenter < Representable::Decorator

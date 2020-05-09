@@ -94,10 +94,10 @@ module NoSE
     rule(:identifier)    { match('[A-z]').repeat(1).as(:identifier) }
     rule(:field)         { identifier >> (str('.') >> identifier).repeat(1) }
     rule(:fields)        { field >> (comma >> field).repeat }
-    rule(:count)         { str('COUNT(') >> field >> str(')')}
-    rule(:sum)         { str('SUM(') >> field >> str(')')}
-    rule(:max)         { str('MAX(') >> field >> str(')')}
-    rule(:avg)         { str('AVG(') >> field >> str(')')}
+    rule(:count)         { str('count(') >> field >> str(')')}
+    rule(:sum)         { str('sum(') >> field >> str(')')}
+    rule(:max)         { str('max(') >> field >> str(')')}
+    rule(:avg)         { str('avg(') >> field >> str(')')}
     rule(:select_field)  {
       field.as_array(:field) | count.as_array(:count) | sum.as_array(:sum) | max.as_array(:max) | avg.as_array(:avg) | (identifier >> str('.') >>
                                 str('*').repeat(1, 2).as(:identifier2)) }

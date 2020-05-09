@@ -26,7 +26,7 @@ module NoSE
         indexes.map!(&:to_id_graph).uniq! if @backend.by_id_graph
 
         # XXX Assuming backend is thread-safe
-        Parallel.each(indexes, in_processes: Etc.nprocessors - 2) do |index|
+        Parallel.each(indexes, in_threads: [Etc.nprocessors - 2, 5].max()) do |index|
           load_index index, config, show_progress, limit, skip_existing
         end
       end
@@ -151,7 +151,7 @@ module NoSE
       # @return [Entity]
       def entity_for_table(client, table)
         entity = Entity.new table
-        count = client.query("SELECT COUNT(*) FROM #{table}").first
+        count = client.query("SELECT count(*) FROM #{table}").first
         entity.count = count.is_a?(Hash) ? count.values.first : count
 
         describe = if @array_options

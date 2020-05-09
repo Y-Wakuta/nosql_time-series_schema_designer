@@ -177,21 +177,21 @@ module NoSE
                                                          tweet['Timestamp'])
       end
 
-      it 'can apply an index lookup step that includes COUNT()' do
+      it 'can apply an index lookup step that includes count()' do
         index = Index.new [tweet['TweetId']], [],
                           [tweet['Body']],
                           QueryGraph::Graph.from_path(
                             [tweet.id_field]
                           ), count_fields: Set.new([tweet['Body']])
         planner = QueryPlanner.new workload.model, [index], cost_model
-        query = Statement.parse 'SELECT COUNT(Tweet.Body) FROM Tweet WHERE ' \
+        query = Statement.parse 'SELECT count(Tweet.Body) FROM Tweet WHERE ' \
                                 'Tweet.TweetId = ?', workload.model
         tree = planner.find_plans_for_query(query)
         expect(tree).to have(1).plan
         expect(tree.first).to have(1).steps
       end
 
-      it 'rejects join column families that use COUNT() fields' do
+      it 'rejects join column families that use count() fields' do
         parent_index = Index.new [tweet['Body']], [tweet['TweetId']],
                                  [],
                                  QueryGraph::Graph.from_path(
@@ -202,7 +202,7 @@ module NoSE
                           QueryGraph::Graph.from_path(
                             [tweet.id_field])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
-        query = Statement.parse 'SELECT COUNT(Tweet.TweetId), Tweet.Timestamp FROM Tweet WHERE ' \
+        query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Timestamp FROM Tweet WHERE ' \
                                 'Tweet.Body = ?', workload.model
         expect do
           planner.find_plans_for_query(query)
@@ -221,7 +221,7 @@ module NoSE
                             [tweet.id_field]), count_fields: Set.new([tweet['TweetId']]),
                           sum_fields: Set.new([tweet['Retweets']]), avg_fields: Set.new([tweet['Timestamp']])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
-        query = Statement.parse 'SELECT COUNT(Tweet.TweetId), SUM(Tweet.Retweets), AVG(Tweet.Timestamp) FROM Tweet WHERE ' \
+        query = Statement.parse 'SELECT count(Tweet.TweetId), sum(Tweet.Retweets), avg(Tweet.Timestamp) FROM Tweet WHERE ' \
                                 'Tweet.Body = ?', workload.model
 
         tree = planner.find_plans_for_query(query)
@@ -234,7 +234,7 @@ module NoSE
       end
 
       it 'can apply group by in the query' do
-        query = Statement.parse 'SELECT COUNT(Tweet.TweetId), Tweet.Retweets, SUM(Tweet.Timestamp) FROM Tweet WHERE ' \
+        query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, sum(Tweet.Timestamp) FROM Tweet WHERE ' \
                                 'Tweet.Body = ? GROUP BY Tweet.Retweets', workload.model
         parent_index = Index.new [tweet['Body']], [tweet['TweetId']],
                                  [tweet['Retweets']],

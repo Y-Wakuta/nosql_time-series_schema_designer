@@ -141,10 +141,10 @@ module NoSE
       fail "Sum of ratios must be 1.0" unless (1.0 - start_ratio - end_ratio).abs < 0.001
       start_freq = start_mix_freq * start_ratio + end_mix_freq * end_ratio
       end_freq = start_mix_freq * end_ratio + end_mix_freq * start_ratio
-      step_size = (end_freq - start_freq) / timestep
+      step_size = (end_freq - start_freq) / (timestep - 1)
       (0...timestep).map do |t|
         t * step_size + start_freq
-      end.to_a
+      end.to_a.map{|f| BigDecimal((f * @interval).to_s).ceil(3).to_f}
     end
   end
 
