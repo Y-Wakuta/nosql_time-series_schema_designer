@@ -53,11 +53,13 @@ module NoSE
     def indexes_for_workload(additional_indexes = [], by_id_graph = false)
       queries = @workload.queries
       indexes = indexes_for_queries queries, additional_indexes
+      puts("basic query enumeration done")
 
       # Add indexes generated for support queries
       supporting = support_indexes indexes, by_id_graph
       supporting += support_indexes supporting, by_id_graph
       indexes += supporting
+      puts("support query enumeration done")
 
       # Deduplicate indexes, combine them and deduplicate again
       indexes.uniq!

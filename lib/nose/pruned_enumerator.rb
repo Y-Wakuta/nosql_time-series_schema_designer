@@ -80,19 +80,13 @@ module NoSE
         entity_fields.uniq!
         # get entity fields that has frequent entity fields
         entity_fields_patterns.select{|efp| entity_fields.to_set >= efp.content.to_set}
-      end.sort_by { |ec| -ec.content.size}
-
-      frequent_entity_choices = entity_choices.dup
-      entity_choices.each_with_index do |larger_entity_choice, larger_idx|
-        entity_choices.slice((larger_idx+ 1)..-1).each do |entity_choice|
-          if larger_entity_choice.support > @eq_threshold and larger_entity_choice.content.to_set >= entity_choice.content.to_set
-            frequent_entity_choices.delete(entity_choice)
-          end
-        end
       end
 
+      median_support = [get_median(entity_choices.map{|ef| ef.support}), 1].max()
+      frequent_entity_choices = remove_overlapping entity_choices, median_support
+
       eq_choices = 2.upto(graph.entities.length).flat_map do |n|
-        frequent_entity_choices.map{|fec| fec.content}.permutation(n).map(&:flatten).to_a
+        frequent_entity_choices.permutation(n).map(&:flatten).to_a
       end + entity_choices.map{|ec| ec.content}
 
       unless group_by.empty?
@@ -102,20 +96,15 @@ module NoSE
       eq_choices
     end
 
-    def get_median(a)
-      a.sort!
-      (a.size % 2).zero? ? a[a.size/2 - 1, 2].inject(:+) / 2.0 : a[a.size/2]
-    end
-
     def frequent_extra_choices(graph, select, eq, range, extra_fields)
       extra_choices = extra_choices(graph, select, eq, range)
-      median_support = get_median(extra_fields.map{|ef| ef.support})
-      puts("max frequency is #{median_support}")
       current_extra_fields = extra_fields
-                                 .select{|ef| extra_choices
-                                                  .any?{|ec| ec.to_set >= ef.content.to_set or ec.to_set <= ef.content.to_set} and ef.support > [1, median_support].max()}
-                                 .map{|ef| ef.content}
-      extra_choices + current_extra_fields
+                                 .select{|ef| extra_choices.any?{|ec| ec.to_set >= ef.content.to_set}
+                                 }
+      median_support = [get_median(extra_fields.map{|ef| ef.support}), 1].max()
+      frequent_extra_fields = remove_overlapping current_extra_fields, median_support
+
+      extra_choices + frequent_extra_fields
     end
 
     def get_choices(graph, select, eq, range, group_by, entity_fields_patterns, extra_fields)
@@ -126,6 +115,7 @@ module NoSE
         fields.permutation.to_a
       end.uniq << []
       extra_choices = frequent_extra_choices(graph, select, eq, range, extra_fields)
+      puts("extra_choices : #{extra_choices.size}")
 
       [eq_choices, order_choices, extra_choices]
     end
@@ -141,6 +131,25 @@ module NoSE
       indexes.uniq!
 
       indexes
+    end
+
+    def remove_overlapping(basics, threshold)
+      basics = basics.sort_by {|b| -b.content.size}
+      frequent_basics = basics.dup
+      basics.each_with_index do |larger_basic, larger_idx|
+        next if larger_basic.support <= threshold
+        basics.slice((larger_idx + 1)..-1).each do |small_basic|
+          if larger_basic.content.to_set >= small_basic.content.to_set
+            frequent_basics.delete(small_basic)
+          end
+        end
+      end
+      frequent_basics.map(&:content)
+    end
+
+    def get_median(a)
+      a.sort!
+      (a.size % 2).zero? ? a[a.size/2 - 1, 2].inject(:+) / 2.0 : a[a.size/2]
     end
   end
 end
