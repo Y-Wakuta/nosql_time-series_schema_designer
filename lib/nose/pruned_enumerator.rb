@@ -7,6 +7,7 @@ module NoSE
   # Produces potential indices to be used in schemas
   class PrunedIndexEnumerator < IndexEnumerator
     def initialize(workload)
+      @eq_threshold = 1
       super(workload)
     end
 
@@ -28,7 +29,7 @@ module NoSE
       entity_fields = get_frequent_entity_choices queries
       extra_fields = get_frequent_extra_choices queries
       Parallel.map(queries) do |query|
-        #indexes = queries.map do |query|
+        #queries.map do |query|
         indexes_for_query(query, entity_fields: entity_fields, extra_fields: extra_fields).to_a
       end.inject(additional_indexes, &:+)
     end
@@ -73,42 +74,48 @@ module NoSE
     end
 
     def eq_choices(graph, eq, group_by, entity_fields_patterns)
-      threshold = 1
       entity_choices = graph.entities.flat_map do |entity|
         # Get the fields for the entity and add in the IDs
         entity_fields = eq[entity] << entity.id_field
         entity_fields.uniq!
         # get entity fields that has frequent entity fields
-        frequent_patterns = entity_fields_patterns.select{|efp| entity_fields.to_set >= efp.content.to_set \
-                                            and efp.support > threshold}
-        whole_fields = entity_fields_patterns.find{|efp| entity_fields.to_set == efp.content.to_set}
-        frequent_patterns + [whole_fields]
+        entity_fields_patterns.select{|efp| entity_fields.to_set >= efp.content.to_set}
+      end.sort_by { |ec| -ec.content.size}
+
+      frequent_entity_choices = entity_choices.dup
+      entity_choices.each_with_index do |larger_entity_choice, larger_idx|
+        entity_choices.slice((larger_idx+ 1)..-1).each do |entity_choice|
+          if larger_entity_choice.support > @eq_threshold and larger_entity_choice.content.to_set >= entity_choice.content.to_set
+            frequent_entity_choices.delete(entity_choice)
+          end
+        end
       end
 
-      # sort entity choices by the support of each entity choices
-      whole_eq_choices = entity_choices.sort_by{|ec| -ec.support}
-                             .map(&:content)
-                             .flatten(1)
-                             .uniq
-
-      eq_choices = 1.upto(graph.entities.length).map do |n|
-        eq_choice = []
-        whole_eq_choices.each do |wec|
-          tmp_eq_choice = eq_choice.dup
-          tmp_eq_choice.push wec
-          if tmp_eq_choice.map(&:parent).uniq.size > n
-            break
-          end
-          eq_choice = tmp_eq_choice.dup
-        end
-        eq_choice
-      end.uniq
+      eq_choices = 2.upto(graph.entities.length).flat_map do |n|
+        frequent_entity_choices.map{|fec| fec.content}.permutation(n).map(&:flatten).to_a
+      end + entity_choices.map{|ec| ec.content}
 
       unless group_by.empty?
         eq_choices = prune_eq_choices_for_groupby eq_choices, group_by
       end
 
       eq_choices
+    end
+
+    def get_median(a)
+      a.sort!
+      (a.size % 2).zero? ? a[a.size/2 - 1, 2].inject(:+) / 2.0 : a[a.size/2]
+    end
+
+    def frequent_extra_choices(graph, select, eq, range, extra_fields)
+      extra_choices = extra_choices(graph, select, eq, range)
+      median_support = get_median(extra_fields.map{|ef| ef.support})
+      puts("max frequency is #{median_support}")
+      current_extra_fields = extra_fields
+                                 .select{|ef| extra_choices
+                                                  .any?{|ec| ec.to_set >= ef.content.to_set or ec.to_set <= ef.content.to_set} and ef.support > [1, median_support].max()}
+                                 .map{|ef| ef.content}
+      extra_choices + current_extra_fields
     end
 
     def get_choices(graph, select, eq, range, group_by, entity_fields_patterns, extra_fields)
@@ -118,13 +125,8 @@ module NoSE
       order_choices = range_fields.prefixes.flat_map do |fields|
         fields.permutation.to_a
       end.uniq << []
-      extra_choices = extra_choices graph, select, eq, range
-      max_frequency = extra_fields.map{|ef| ef.support}.max()
-      current_extra_fields = extra_fields
-                                 .select{|ef| extra_choices
-                                                  .any?{|ec| ec.to_set >= ef.content.to_set or ec.to_set <= ef.content.to_set} and ef.support > [1, max_frequency].max()}
-                                 .map{|ef| ef.content}
-      extra_choices += current_extra_fields
+      extra_choices = frequent_extra_choices(graph, select, eq, range, extra_fields)
+
       [eq_choices, order_choices, extra_choices]
     end
 
@@ -136,44 +138,9 @@ module NoSE
       ## Generate all possible indices based on the field choices
       choices = eq_choices.product(extra_choices)
       indexes = indexes_for_choices(graph, count, sum, max, avg, group_by, choices, order_choices)
-
-      additional_indexes = additional_indexes_4_eq_choices(graph, eq_choices)
-      indexes += additional_indexes
       indexes.uniq!
 
       indexes
-    end
-
-    def additional_indexes_4_eq_choices(graph, key_choices)
-      key_choices = key_choices.map do |key_choice|
-        id_fields = key_choice.map{|ec| ec.parent.id_field}
-        key_choice += id_fields
-        key_choice.uniq
-      end
-
-      Parallel.map(key_choices.select{|kc| kc.size > 1}, in_processes: 4) do |key_choice|
-        tmp = Parallel.map((2..key_choice.size), in_processes: 2) do |field_size|
-          key_choice.combination(field_size).map do |all_fields|
-            not_included_nodes = graph.nodes.reject{|n| all_fields.map(&:parent).include? n.entity}
-            current_graph = graph.dup
-            current_graph.remove_nodes(not_included_nodes)
-            next unless current_graph.is_valid?
-
-            indexes = (1...all_fields.size).map do |key_size|
-              all_fields.combination(key_size).map do |hash_fields|
-                order_fields = all_fields - hash_fields
-                next unless order_fields.any?{|af| af.primary_key?}
-                order_fields = order_fields.sort_by { |of | of.hash}
-                hash_fields.permutation(hash_fields.size).map do |hash_field|
-                  generate_index hash_field, order_fields, [], current_graph, Set.new, Set.new, Set.new, Set.new, Set.new
-                end
-              end.compact
-            end
-            indexes
-          end
-        end
-        tmp
-      end.flatten(5).uniq.compact.uniq
     end
   end
 end

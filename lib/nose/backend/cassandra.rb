@@ -262,6 +262,9 @@ module NoSE
 
             begin
               @client.execute(@prepared, arguments: values)
+            rescue ArgumentError => e
+              puts "Possible cause for this problem is too small number of records in mysql"
+              throw e
             rescue Cassandra::Errors::InvalidError
               # We hit a value which does not actually need to be
               # inserted based on the data since some foreign

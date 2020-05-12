@@ -401,6 +401,20 @@ module NoSE
 
         expect(plan.steps).not_to include(a_kind_of(SortPlanStep))
       end
+
+      it 'enumerates query plans that uses non-materialized view CF' do
+        tpch_workload = Workload.new {|_| Model('tpch')}
+        query_text = 'SELECT lineitem.l_orderkey, sum(lineitem.l_extendedprice), sum(lineitem.l_discount), to_orders.o_orderdate, to_orders.o_shippriority '\
+            'FROM lineitem.to_orders.to_customer '\
+            'WHERE to_customer.c_mktsegment = ? AND to_orders.o_orderdate < ? AND lineitem.l_shipdate > ? '\
+            'ORDER BY lineitem.l_extendedprice, lineitem.l_discount, to_orders.o_orderdate ' \
+            'GROUP BY to_orders.o_orderdate, lineitem.l_orderkey, to_orders.o_shippriority'
+        tpch_workload.add_statement query_text
+        indexes = PrunedIndexEnumerator.new(tpch_workload).indexes_for_workload
+        planner = QueryPlanner.new tpch_workload.model, indexes, cost_model
+        plans = planner.find_plans_for_query tpch_workload.statement_weights.keys.first
+        expect(plans.to_a.size).to be > 10
+      end
     end
 
     describe UpdatePlanner do

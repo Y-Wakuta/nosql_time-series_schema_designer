@@ -75,7 +75,7 @@ module NoSE
       indexes
     end
 
-    private
+    protected
 
     # Produce the indexes necessary for support queries for these indexes
     # @return [Array<Index>]
@@ -93,10 +93,10 @@ module NoSE
 
       # Enumerate indexes for each support query
       queries.uniq!
-      queries.flat_map do |query|
-        indexes_for_query(query).to_a
-      end
+      indexes_for_queries queries, []
     end
+
+    private
 
     # Combine the data of indices based on matching hash fields
     def combine_indexes(indexes)
