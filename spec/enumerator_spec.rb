@@ -110,7 +110,7 @@ module NoSE
       expect(indexes.map(&:count_fields)).to include [tweet['Body'], tweet['TweetId']]
       expect(indexes.map(&:sum_fields)).to include [user['UserId']]
       expect(indexes.map(&:avg_fields)).to include [tweet['Retweets']]
-      expect(indexes.size).to be 32
+      expect(indexes.size).to be 34
     end
 
     it 'makes sure that all aggregation fields are included in index fields' do
@@ -120,7 +120,7 @@ module NoSE
       indexes.each do |index|
         expect(index.all_fields).to be >= (index.count_fields + index.sum_fields + index.avg_fields)
       end
-      expect(indexes.size).to be 32
+      expect(indexes.size).to be 34
     end
 
     it 'only enumerates indexes with hash_fields that satisfy GROUP BY clause' do
@@ -128,7 +128,7 @@ module NoSE
                                 'Tweet.Body = ? GROUP BY Tweet.Retweets', workload.model
       indexes = enum.indexes_for_query query
       expect(indexes.any?{|i| i.hash_fields >= Set.new([tweet['Retweets']])}).to be(true)
-      expect(indexes.size).to be 49
+      expect(indexes.size).to be 51
     end
 
     describe PrunedIndexEnumerator do
