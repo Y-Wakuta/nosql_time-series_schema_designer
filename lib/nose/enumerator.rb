@@ -125,7 +125,7 @@ module NoSE
 
     # Get all possible choices of fields to use for equality
     # @return [Array<Array>]
-    def eq_choices(graph, eq, group_by)
+    def eq_choices(graph, eq)
       entity_choices = graph.entities.flat_map do |entity|
         # Get the fields for the entity and add in the IDs
         entity_fields = eq[entity] << entity.id_field
@@ -153,7 +153,7 @@ module NoSE
     end
 
     def indexes_for_choices(graph, count, sum, max, avg, group_by, choices, order_choices)
-      indexes = choices.map! do |index, extra|
+      choices.map do |index, extra|
         indexes = []
 
         order_choices.each do |order|
@@ -162,8 +162,8 @@ module NoSE
               (index + order)
 
           # Partition into the ordering portion
-          #Parallel.each(index.partitions) do |index_prefix, order_prefix|
-          index.partitions.each do |index_prefix, order_prefix|
+          indexes += Parallel.flat_map(index.partitions, in_processes: 4) do |index_prefix, order_prefix|
+          #index.partitions.each do |index_prefix, order_prefix|
             hash_fields = index_prefix.take_while do |field|
               field.parent == index.first.parent
             end
@@ -173,27 +173,24 @@ module NoSE
             next if order_fields.empty? && extra_fields.empty?
 
             all_fields = hash_fields.to_set + order_fields.to_set + extra.to_set
-
-            new_index = generate_index hash_fields, order_fields, extra_fields, graph, Set.new, Set.new, Set.new, Set.new, Set.new
-            indexes << new_index unless new_index.nil?
+            non_aggregate_index = generate_index hash_fields, order_fields, extra_fields, graph, Set.new, Set.new, Set.new, Set.new, Set.new
 
             if [count, sum, max, avg, group_by].any?{|af| not af.empty?} && [count, sum, avg, group_by].all?{|af| all_fields >= af}
-              new_index = generate_index hash_fields, order_fields, extra_fields, graph,
+              aggregate_index = generate_index hash_fields, order_fields, extra_fields, graph,
                                          count, sum, max, avg, group_by
-              indexes << new_index unless new_index.nil?
             end
+            [non_aggregate_index, aggregate_index].compact
           end
         end
 
         indexes
-      end.inject([], &:+)
-      indexes.flatten.uniq
+      end.inject([], &:+).compact.uniq
     end
 
     # Get all possible indices which jump a given piece of a query graph
     # @return [Array<Index>]
     def indexes_for_graph(graph, select, count, sum, max, avg, eq, range, group_by)
-      eq_choices = eq_choices graph, eq, group_by
+      eq_choices = eq_choices graph, eq
       range_fields = graph.entities.map { |entity| range[entity] }.reduce(&:+)
       range_fields.uniq!
       order_choices = range_fields.prefixes.flat_map do |fields|
