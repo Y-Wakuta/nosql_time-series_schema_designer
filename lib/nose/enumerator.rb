@@ -36,9 +36,12 @@ module NoSE
       range = get_query_range query
       eq = get_query_eq query
 
-      query.graph.subgraphs.flat_map do |graph|
+      indexes = query.graph.subgraphs.flat_map do |graph|
         indexes_for_graph graph, query.select, query.counts, query.sums, query.maxes, query.avgs, eq, range, query.groupby
       end.uniq << query.materialize_view
+
+      puts "ie ==== #{query.text} ============================ " + indexes.size.to_s
+      indexes
     end
 
     def indexes_for_queries(queries, additional_indexes)
@@ -53,7 +56,7 @@ module NoSE
     def indexes_for_workload(additional_indexes = [], by_id_graph = false)
       queries = @workload.queries
       indexes = indexes_for_queries queries, additional_indexes
-      puts("basic query enumeration done")
+      puts("basic query enumeration done : " + indexes.size.to_s)
 
       # Add indexes generated for support queries
       supporting = support_indexes indexes, by_id_graph
@@ -66,13 +69,18 @@ module NoSE
       combine_indexes indexes
       indexes.uniq!
 
+      puts "# of basic indexes is #{indexes.size}"
+
+      #pattern_miner = PatternMiner.new
+      #pattern_miner.pattern_for_workload @workload
+      #indexes = pattern_miner.validate_indexes indexes
+      #puts "# of pattern pruned indexes is #{indexes.size}"
+
       @logger.debug do
         "Indexes for workload:\n" + indexes.map.with_index do |index, i|
           "#{i} #{index.inspect}"
         end.join("\n")
       end
-
-      puts "# of indexes is #{indexes.size}"
 
       indexes
     end
@@ -200,6 +208,9 @@ module NoSE
       extra_choices = 1.upto(extra_choices.length).flat_map do |n|
         extra_choices.combination(n).map(&:flatten).map(&:uniq)
       end.uniq
+      puts("graph : #{graph.inspect}")
+      puts("eq_choices : #{eq_choices.size}")
+      puts("extra_choices : #{extra_choices.size}")
 
       # Generate all possible indices based on the field choices
       choices = eq_choices.product(extra_choices)
