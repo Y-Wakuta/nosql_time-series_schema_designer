@@ -29,11 +29,11 @@ module NoSE
     def get_used_indexes_in_query_plans(queries, indexes)
       puts "whole indexes : " + indexes.size.to_s
       planner = Plans::QueryPlanner.new @workload.model, indexes, @cost_model
-      used_indexes = queries.flat_map do |query|
+      used_indexes = Parallel.flat_map(queries, in_threads: 10) do |query|
         plan = planner.find_plans_for_query(query)
-        plan.flat_map{|p| p.steps.map{|s| s.index}}.uniq
+        plan.flat_map{|p| p.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}.map{|s| s.index}}.uniq
       end
-      puts "uesd indexes : " + used_indexes.size.to_s
+      puts "used indexes : " + used_indexes.size.to_s
       used_indexes
     end
 
@@ -52,6 +52,12 @@ module NoSE
 
       puts "pie == #{query.text} =============================== " + indexes.size.to_s
       indexes
+    end
+
+    # Since support queries are simple, use IndexEnumerator to make migration easier
+    def support_indexes(indexes, by_id_graph)
+      index_enumerator = IndexEnumerator.new(@workload)
+      return index_enumerator.support_indexes indexes, by_id_graph
     end
 
     private
