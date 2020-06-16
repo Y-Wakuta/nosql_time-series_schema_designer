@@ -161,7 +161,9 @@ module NoSE
     end
 
     def indexes_for_choices(graph, count, sum, max, avg, group_by, choices, order_choices)
-      choices.map do |index, extra|
+      return [] if choices.size == 0
+      puts("choices size: " + choices.size.to_s)
+      Parallel.flat_map(choices, in_processes: 6) do |index, extra|
         indexes = []
 
         order_choices.each do |order|
@@ -170,7 +172,7 @@ module NoSE
               (index + order)
 
           # Partition into the ordering portion
-          indexes += Parallel.flat_map(index.partitions, in_processes: 4) do |index_prefix, order_prefix|
+          indexes += Parallel.flat_map(index.partitions, in_threads: 5) do |index_prefix, order_prefix|
           #index.partitions.each do |index_prefix, order_prefix|
             hash_fields = index_prefix.take_while do |field|
               field.parent == index.first.parent
@@ -191,8 +193,8 @@ module NoSE
           end
         end
 
-        indexes
-      end.inject([], &:+).compact.uniq
+        indexes.compact.uniq
+      end.compact.uniq
     end
 
     # Get all possible indices which jump a given piece of a query graph
@@ -208,9 +210,6 @@ module NoSE
       extra_choices = 1.upto(extra_choices.length).flat_map do |n|
         extra_choices.combination(n).map(&:flatten).map(&:uniq)
       end.uniq
-      puts("graph : #{graph.inspect}")
-      puts("eq_choices : #{eq_choices.size}")
-      puts("extra_choices : #{extra_choices.size}")
 
       # Generate all possible indices based on the field choices
       choices = eq_choices.product(extra_choices)
