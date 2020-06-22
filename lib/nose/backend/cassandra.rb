@@ -392,6 +392,7 @@ module NoSE
             "\"#{field.id}\" = ?"
           end.join ' AND '
           unless @range_field.nil?
+            # TODO: allow several range fields
             condition = conditions.each_value.find(&:range?)
             where << " AND \"#{condition.field.id}\" #{condition.operator} ?"
           end

@@ -40,8 +40,6 @@ module NoSE
         indexes_for_graph graph, query.select, query.counts, query.sums, query.maxes, query.avgs, eq, range, query.groupby
       end.uniq << query.materialize_view
 
-      puts "ie ==== #{query.text} ============================ " + indexes.size.to_s
-      indexes
     end
 
     def indexes_for_queries(queries, additional_indexes)
@@ -162,7 +160,6 @@ module NoSE
 
     def indexes_for_choices(graph, count, sum, max, avg, group_by, choices, order_choices)
       return [] if choices.size == 0
-      puts("choices size: " + choices.size.to_s)
       Parallel.flat_map(choices, in_processes: 6) do |index, extra|
         indexes = []
 

@@ -21,9 +21,7 @@ module NoSE
 
       indexes = Parallel.flat_map(queries, in_processes: 12) do |query|
       #indexes = queries.flat_map do |query|
-        idxs = indexes_for_query(query, entity_fields[query], extra_fields).to_a
-        get_used_indexes_in_query_plans [query], idxs
-        idxs
+        indexes_for_query(query, entity_fields[query], extra_fields).to_a
       end
       indexes += additional_indexes
 
@@ -146,7 +144,8 @@ module NoSE
       shared_patterns = entity_fields_patterns[:shared].select{|efs| efs.all?{|ef| graph.entities.include? ef.parent}}
       unique_patterns = entity_fields_patterns[:unique].select{|efpu| efpu.all?{|efp| graph.entities.include? efp.parent}}
 
-      # frequent entity_choies are combined. However, this result in no eq_choices for smapp subgraphs
+      # frequent entity_choices are combined. However, this result in no eq_choices for small sub-graphs
+      # Only the reduced, in other words combined, field set have fields from more than two entities
       if shared_patterns.empty?
         shared_patterns = entity_fields_patterns[:shared]
                               .select{|efs| efs.map(&:parent).uniq.size > 1}

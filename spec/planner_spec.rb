@@ -40,7 +40,7 @@ module NoSE
         index = Index.new [user['City']], [user['UserId'], tweet['TweetId']],
                           [tweet['Timestamp'], tweet['Body']],
                           QueryGraph::Graph.from_path(
-                            [user.id_field, user['Tweets']]
+                              [user.id_field, user['Tweets']]
                           )
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT Tweet.Body FROM Tweet.User ' \
@@ -49,8 +49,8 @@ module NoSE
 
         tree = planner.find_plans_for_query query
         steps = [
-          IndexLookupPlanStep.new(index),
-          SortPlanStep.new([tweet['Timestamp']])
+            IndexLookupPlanStep.new(index),
+            SortPlanStep.new([tweet['Timestamp']])
         ]
         steps.each { |step| step.calculate_cost cost_model }
         expect(tree.first).to eq steps
@@ -61,7 +61,7 @@ module NoSE
         index1 = Index.new [user['UserId']], [tweet['TweetId']],
                            [user['Username']],
                            QueryGraph::Graph.from_path(
-                             [user.id_field, user['Tweets']]
+                               [user.id_field, user['Tweets']]
                            )
         index2 = Index.new [tweet['TweetId']], [], [tweet['Body']],
                            QueryGraph::Graph.from_path([tweet.id_field])
@@ -70,9 +70,9 @@ module NoSE
                                 'User.UserId = ? ORDER BY User.Username',
                                 workload.model
         expect(planner.min_plan(query)).to eq [
-                                                IndexLookupPlanStep.new(index1),
-                                                SortPlanStep.new([user['Username']]),
-                                                IndexLookupPlanStep.new(index2)
+                                                  IndexLookupPlanStep.new(index1),
+                                                  SortPlanStep.new([user['Username']]),
+                                                  IndexLookupPlanStep.new(index2)
                                               ]
       end
 
@@ -92,7 +92,7 @@ module NoSE
         index = Index.new [user['UserId']], [tweet['TweetId']],
                           [tweet['Timestamp'], tweet['Body']],
                           QueryGraph::Graph.from_path(
-                            [user.id_field, user['Tweets']]
+                              [user.id_field, user['Tweets']]
                           )
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT Tweet.Body FROM Tweet.User ' \
@@ -101,9 +101,9 @@ module NoSE
 
         tree = planner.find_plans_for_query query
         steps = [
-          IndexLookupPlanStep.new(index),
-          SortPlanStep.new([tweet['Timestamp']]),
-          LimitPlanStep.new(5)
+            IndexLookupPlanStep.new(index),
+            SortPlanStep.new([tweet['Timestamp']]),
+            LimitPlanStep.new(5)
         ]
         steps.each { |step| step.calculate_cost cost_model }
         expect(tree.first).to eq steps
@@ -123,12 +123,12 @@ module NoSE
                            [tweet['Timestamp'], tweet['TweetId']],
                            [tweet['Body']],
                            QueryGraph::Graph.from_path(
-                             [user.id_field, user['Tweets']]
+                               [user.id_field, user['Tweets']]
                            )
         index2 = Index.new [user['UserId']], [tweet['TweetId']],
                            [tweet['Timestamp'], tweet['Body']],
                            QueryGraph::Graph.from_path(
-                             [user.id_field, user['Tweets']]
+                               [user.id_field, user['Tweets']]
                            )
         planner = QueryPlanner.new workload.model, [index1, index2], cost_model
         query = Statement.parse 'SELECT Tweet.Body FROM Tweet.User WHERE ' \
@@ -137,11 +137,11 @@ module NoSE
 
         tree = planner.find_plans_for_query query
         expect(tree.to_a).to match_array [
-                                           [IndexLookupPlanStep.new(index1)],
-                                           [
-                                             IndexLookupPlanStep.new(index2),
-                                             SortPlanStep.new([tweet['Timestamp']])
-                                           ]
+                                             [IndexLookupPlanStep.new(index1)],
+                                             [
+                                                 IndexLookupPlanStep.new(index2),
+                                                 SortPlanStep.new([tweet['Timestamp']])
+                                             ]
                                          ]
       end
 
@@ -149,7 +149,7 @@ module NoSE
         index = Index.new [tweet['TweetId']], [],
                           [tweet['Body'], tweet['Timestamp']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field]
+                              [tweet.id_field]
                           )
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT Tweet.Body FROM Tweet ' \
@@ -164,7 +164,7 @@ module NoSE
         index = Index.new [tweet['TweetId']], [],
                           [tweet['Body'], tweet['Timestamp']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field]
+                              [tweet.id_field]
                           )
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT Tweet.Body FROM Tweet WHERE ' \
@@ -181,7 +181,7 @@ module NoSE
         index = Index.new [tweet['TweetId']], [],
                           [tweet['Body']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field]
+                              [tweet.id_field]
                           ), count_fields: Set.new([tweet['Body']])
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT count(Tweet.Body) FROM Tweet WHERE ' \
@@ -195,12 +195,12 @@ module NoSE
         parent_index = Index.new [tweet['Body']], [tweet['TweetId']],
                                  [],
                                  QueryGraph::Graph.from_path(
-                                   [tweet.id_field]
+                                     [tweet.id_field]
                                  ), count_fields: Set.new([tweet['TweetId']])
         index = Index.new [tweet['TweetId']], [],
                           [tweet['Timestamp']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field])
+                              [tweet.id_field])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
         query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Timestamp FROM Tweet WHERE ' \
                                 'Tweet.Body = ?', workload.model
@@ -213,12 +213,12 @@ module NoSE
         parent_index = Index.new [tweet['Body']], [tweet['TweetId'], tweet['Retweets']],
                                  [],
                                  QueryGraph::Graph.from_path(
-                                   [tweet.id_field]
+                                     [tweet.id_field]
                                  )
         index = Index.new [tweet['TweetId']], [],
                           [tweet['Timestamp'], tweet['Retweets']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field]), count_fields: Set.new([tweet['TweetId']]),
+                              [tweet.id_field]), count_fields: Set.new([tweet['TweetId']]),
                           sum_fields: Set.new([tweet['Retweets']]), avg_fields: Set.new([tweet['Timestamp']])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
         query = Statement.parse 'SELECT count(Tweet.TweetId), sum(Tweet.Retweets), avg(Tweet.Timestamp) FROM Tweet WHERE ' \
@@ -239,12 +239,12 @@ module NoSE
         parent_index = Index.new [tweet['Body']], [tweet['TweetId']],
                                  [tweet['Retweets']],
                                  QueryGraph::Graph.from_path(
-                                   [tweet.id_field]
+                                     [tweet.id_field]
                                  )
         index = Index.new  [tweet['Retweets']], [tweet['TweetId']],
-                          [tweet['Timestamp']],
-                          QueryGraph::Graph.from_path(
-                            [tweet.id_field]), count_fields: Set.new([tweet['TweetId']]),
+                           [tweet['Timestamp']],
+                           QueryGraph::Graph.from_path(
+                               [tweet.id_field]), count_fields: Set.new([tweet['TweetId']]),
                            sum_fields: Set.new([tweet['Timestamp']]),
                            avg_fields: Set.new, groupby_fields: Set.new([tweet['Retweets']])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
@@ -255,7 +255,7 @@ module NoSE
         index = Index.new [tweet['Retweets']], [tweet['TweetId']],
                           [tweet['Timestamp']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field]), count_fields: Set.new, sum_fields: Set.new,
+                              [tweet.id_field]), count_fields: Set.new, sum_fields: Set.new,
                           avg_fields: Set.new, groupby_fields: Set.new([tweet['Retweets']])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
         expect do
@@ -303,7 +303,7 @@ module NoSE
           index = Index.new [user['UserId']], [tweet['TweetId']],
                             [tweet['Body']],
                             QueryGraph::Graph.from_path(
-                              [user.id_field, user['Tweets']]
+                                [user.id_field, user['Tweets']]
                             )
           step = IndexLookupPlanStep.new index, @state,
                                          RootPlanStep.new(@state)
@@ -313,10 +313,10 @@ module NoSE
 
       it 'fails if required fields are not available' do
         indexes = [
-          Index.new([user['Username']], [user['UserId']], [user['City']],
-                    QueryGraph::Graph.from_path([user.id_field])),
-          Index.new([tweet['TweetId']], [], [tweet['Body']],
-                    QueryGraph::Graph.from_path([tweet.id_field]))
+            Index.new([user['Username']], [user['UserId']], [user['City']],
+                      QueryGraph::Graph.from_path([user.id_field])),
+            Index.new([tweet['TweetId']], [], [tweet['Body']],
+                      QueryGraph::Graph.from_path([tweet.id_field]))
         ]
         planner = QueryPlanner.new workload.model, indexes, cost_model
         query = Statement.parse 'SELECT Tweet.Body FROM Tweet.User ' \
@@ -344,18 +344,18 @@ module NoSE
         workload.add_statement query
 
         indexes = [
-          Index.new([user['Username']],
-                    [user['UserId'], tweet['TweetId']], [],
-                    QueryGraph::Graph.from_path([user.id_field,
-                                                 user['Tweets']])),
-          Index.new([tweet['TweetId']], [], [tweet['Body']],
-                    QueryGraph::Graph.from_path([tweet.id_field]))
+            Index.new([user['Username']],
+                      [user['UserId'], tweet['TweetId']], [],
+                      QueryGraph::Graph.from_path([user.id_field,
+                                                   user['Tweets']])),
+            Index.new([tweet['TweetId']], [], [tweet['Body']],
+                      QueryGraph::Graph.from_path([tweet.id_field]))
         ]
 
         planner = QueryPlanner.new workload.model, indexes, cost_model
         expect(planner.min_plan(query)).to eq [
-                                                IndexLookupPlanStep.new(indexes[0]),
-                                                IndexLookupPlanStep.new(indexes[1])
+                                                  IndexLookupPlanStep.new(indexes[0]),
+                                                  IndexLookupPlanStep.new(indexes[1])
                                               ]
       end
 
@@ -393,7 +393,7 @@ module NoSE
                                              tweet['Timestamp'], tweet['TweetId']],
                           [tweet['Body']],
                           QueryGraph::Graph.from_path(
-                            [user.id_field, user['Tweets']]
+                              [user.id_field, user['Tweets']]
                           )
 
         planner = QueryPlanner.new workload.model, [index], cost_model
@@ -402,18 +402,74 @@ module NoSE
         expect(plan.steps).not_to include(a_kind_of(SortPlanStep))
       end
 
-      it 'enumerates query plans that uses non-materialized view CF' do
-        tpch_workload = Workload.new {|_| Model('tpch')}
-        query_text = 'SELECT lineitem.l_orderkey, sum(lineitem.l_extendedprice), sum(lineitem.l_discount), to_orders.o_orderdate, to_orders.o_shippriority '\
-            'FROM lineitem.to_orders.to_customer '\
-            'WHERE to_customer.c_mktsegment = ? AND to_orders.o_orderdate < ? AND lineitem.l_shipdate > ? '\
-            'ORDER BY lineitem.l_extendedprice, lineitem.l_discount, to_orders.o_orderdate ' \
-            'GROUP BY to_orders.o_orderdate, lineitem.l_orderkey, to_orders.o_shippriority'
-        tpch_workload.add_statement query_text
-        indexes = PrunedIndexEnumerator.new(tpch_workload).indexes_for_workload
+      it 'enumerates more than one query plan' do
+        tpch_workload = Workload.new do |_| Model('tpch')
+          Group 'Group1', default: 1 do
+            Q 'SELECT lineitem.l_orderkey, sum(lineitem.l_extendedprice), sum(lineitem.l_discount), to_orders.o_orderdate, to_orders.o_shippriority '\
+              'FROM lineitem.to_orders.to_customer '\
+              'WHERE to_customer.c_mktsegment = ? AND to_orders.o_orderdate < ? AND lineitem.l_shipdate > ? '\
+              'ORDER BY lineitem.l_extendedprice, lineitem.l_discount, to_orders.o_orderdate ' \
+              'GROUP BY lineitem.l_orderkey, to_orders.o_orderdate, to_orders.o_shippriority -- Q3'
+
+            Q 'SELECT to_orders.o_orderpriority, count(to_orders.o_orderkey), count(to_orders.o_orderstatus), count(to_orders.o_totalprice), ' \
+              'count(to_orders.o_orderdate), count(to_orders.o_orderpriority), count(to_orders.o_clerk), count(to_orders.o_shippriority), count(to_orders.o_comment) ' \
+              'FROM lineitem.to_orders '\
+              'WHERE to_orders.o_orderkey = ? AND to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? AND lineitem.l_commitdate < ? AND lineitem.l_receiptdate > ? ' \
+              'ORDER BY to_orders.o_orderpriority ' \
+              'GROUP BY to_orders.o_orderpriority -- Q4'
+
+            Q 'SELECT to_nation.n_name, sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
+              'FROM lineitem.to_orders.to_customer.to_supplier.to_nation.to_region ' \
+              'WHERE to_region.r_name = ? AND to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? ' \
+              'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
+              'GROUP BY to_nation.n_name -- Q5'
+          end
+        end
+
+        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model).indexes_for_workload
         planner = QueryPlanner.new tpch_workload.model, indexes, cost_model
-        plans = planner.find_plans_for_query tpch_workload.statement_weights.keys.first
-        expect(plans.to_a.size).to be > 10
+        tpch_workload.statement_weights.keys.each do |q|
+          plan = planner.find_plans_for_query q
+          index_lookup_steps = plan.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}
+          expect(index_lookup_steps.size).to be > 1
+        end
+      end
+
+      it 'queries share indexes' do
+        tpch_workload = Workload.new do |_|
+          Model 'tpch'
+          DefaultMix :default
+          Group 'Group1', default: 1 do
+            Q 'SELECT to_nation.n_name, lineitem.l_extendedprice, lineitem.l_discount ' \
+              'FROM lineitem.to_orders.to_customer.to_nation.to_region ' \
+              'WHERE to_region.r_name = ? AND to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? ' \
+              'ORDER BY lineitem.l_extendedprice, lineitem.l_discount -- Q5'
+            Q 'SELECT to_nation.n_name, lineitem.l_shipdate, '\
+              'lineitem.l_extendedprice, lineitem.l_discount ' \
+              'FROM lineitem.to_orders.to_customer.to_nation '\
+              'WHERE lineitem.l_orderkey = ? AND lineitem.l_shipdate < ? AND lineitem.l_shipdate > ? ' \
+              'ORDER BY to_nation.n_name, lineitem.l_shipdate -- Q7'
+            Q 'SELECT to_orders.o_orderdate, from_lineitem.l_extendedprice, from_lineitem.l_discount, to_nation.n_name '\
+              'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation.to_region ' \
+              'WHERE to_region.r_name = ? AND to_orders.o_orderdate < ? AND to_orders.o_orderdate > ? AND part.p_type = ? ' \
+              'ORDER BY to_orders.o_orderdate -- Q8'
+            Q 'SELECT to_nation.n_name, to_orders.o_orderdate, from_lineitem.l_extendedprice, from_lineitem.l_discount, '  \
+              'from_partsupp.ps_supplycost, from_lineitem.l_quantity ' \
+              'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation ' \
+              'WHERE part.p_name = ? AND from_lineitem.l_orderkey = ? ' \
+              'ORDER BY to_nation.n_name, to_orders.o_orderdate -- Q9'
+          end
+        end
+        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model).indexes_for_workload.to_a
+        pruned_planner = QueryPlanner.new tpch_workload.model, indexes, cost_model
+        query_indexes_hash = tpch_workload.statement_weights.keys.flat_map do |q|
+          pruned_plan = pruned_planner.find_plans_for_query q
+          plan_indexes = pruned_plan.map{|p| p.select{|s| s.is_a? Plans::IndexLookupPlanStep}.map{|s| s.index}}.flatten
+          Hash[q, plan_indexes]
+        end.inject(&:merge)
+
+        used_indexes = query_indexes_hash.values.map(&:uniq).flatten
+        expect(used_indexes.size - used_indexes.uniq.size).to be 120
       end
     end
 
@@ -427,7 +483,7 @@ module NoSE
         index = Index.new [tweet['Timestamp']],
                           [tweet['TweetId'], user['UserId']], [user['City']],
                           QueryGraph::Graph.from_path(
-                            [tweet.id_field, tweet['User']]
+                              [tweet.id_field, tweet['User']]
                           )
         workload.add_statement update
         indexes = IndexEnumerator.new(workload).indexes_for_workload [index]
@@ -441,7 +497,7 @@ module NoSE
         plans.each { |plan| plan.select_query_plans indexes }
 
         update_steps = [
-          InsertPlanStep.new(index)
+            InsertPlanStep.new(index)
         ]
         plan = UpdatePlan.new update, index, trees, update_steps, cost_model
         plan.select_query_plans indexes

@@ -130,32 +130,74 @@ module NoSE
       expect(indexes.any?{|i| i.hash_fields >= Set.new([tweet['Retweets']])}).to be(true)
       expect(indexes.size).to be 51
     end
+  end
 
-    describe PrunedIndexEnumerator do
-      it 'enumerates indexes for complicated queries and insert' do
-        tpch_workload = Workload.new do |_|
-          Model 'tpch'
-          DefaultMix :default
-          Group 'Group1', default: 1 do
-            Q 'SELECT to_supplier.s_acctbal, to_supplier.s_name, to_nation.n_name, part.p_partkey, part.p_mfgr, '\
-              'to_supplier.s_address, to_supplier.s_phone, to_supplier.s_comment ' \
-              'FROM part.from_partsupp.to_supplier.to_nation.to_region ' \
-              'WHERE part.p_size = ? AND part.p_type = ? AND to_region.r_name = ? AND from_partsupp.ps_supplycost = ? '\
-              'ORDER BY to_supplier.s_acctbal, to_nation.n_name, to_supplier.s_name -- Q2_outer'
+  describe PrunedIndexEnumerator do
+    include_context 'dummy cost model'
 
-            Q 'SELECT lineitem.l_orderkey, sum(lineitem.l_extendedprice), sum(lineitem.l_discount), to_orders.o_orderdate, to_orders.o_shippriority '\
+    it 'enumerates indexes for simple queries' do
+      tpch_workload = Workload.new do |_|
+        Model 'tpch'
+        DefaultMix :default
+        Group 'Group1', default: 1 do
+          Q 'SELECT to_supplier.s_acctbal '\
+            'FROM part.from_partsupp.to_supplier ' \
+            'WHERE part.p_size = ?'
+
+          Q 'SELECT lineitem.l_orderkey '\
+            'FROM lineitem.to_orders.to_customer '\
+            'WHERE to_customer.c_mktsegment = ?'\
+        end
+      end
+      indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model).indexes_for_workload.to_a
+      expect(indexes.size).to be 49
+    end
+
+    it 'enumerates indexes for complicated queries and insert' do
+      tpch_workload = Workload.new do |_|
+        Model 'tpch'
+        DefaultMix :default
+        Group 'Group1', default: 1 do
+          Q 'SELECT to_supplier.s_acctbal, to_supplier.s_name, to_nation.n_name, part.p_partkey, part.p_mfgr, '\
+                'to_supplier.s_address, to_supplier.s_phone, to_supplier.s_comment ' \
+                'FROM part.from_partsupp.to_supplier.to_nation.to_region ' \
+                'WHERE part.p_size = ? AND part.p_type = ? AND to_region.r_name = ? AND from_partsupp.ps_supplycost = ? '\
+                'ORDER BY to_supplier.s_acctbal, to_nation.n_name, to_supplier.s_name -- Q2_outer'
+
+          Q 'SELECT lineitem.l_orderkey, sum(lineitem.l_extendedprice), sum(lineitem.l_discount), to_orders.o_orderdate, to_orders.o_shippriority '\
               'FROM lineitem.to_orders.to_customer '\
               'WHERE to_customer.c_mktsegment = ? AND to_orders.o_orderdate < ? AND lineitem.l_shipdate > ? '\
               'ORDER BY lineitem.l_extendedprice, lineitem.l_discount, to_orders.o_orderdate ' \
               'GROUP BY lineitem.l_orderkey, to_orders.o_orderdate, to_orders.o_shippriority -- Q3'
-
-            Q 'INSERT INTO lineitem SET l_orderkey=?, l_linenumber=?, l_quantity=?, l_extendedprice=?, l_discount=?, ' \
-                  'l_tax = ?, l_returnflag=?, l_linestatus=?, l_shipdate=?, l_commitdate=?, l_receiptdate=?, ' \
-                  'l_shipmode=?, l_comment=? AND CONNECT TO to_partsupp(?), to_orders(?) -- 1'
-          end
         end
-        indexes = PrunedIndexEnumerator.new(tpch_workload).indexes_for_workload.to_a
-        expect(indexes.size).to be > 1
+      end
+      indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model).indexes_for_workload.to_a
+      expect(indexes.size).to be 130
+    end
+
+    it 'enumerates indexes that have partial GROUP BYs' do
+      tpch_workload = Workload.new do |_|
+        Model 'tpch'
+        DefaultMix :default
+        Group 'Group1', default: 1 do
+          Q 'SELECT to_supplier.s_acctbal, to_supplier.s_name, to_supplier.s_address ' \
+                'FROM part.from_partsupp.to_supplier.to_nation.to_region ' \
+                'WHERE part.p_size = ? AND part.p_type = ? AND to_region.r_name = ? '\
+                'ORDER BY to_supplier.s_acctbal, to_nation.n_name, to_supplier.s_name'
+
+          Q 'SELECT lineitem.l_orderkey, sum(lineitem.l_extendedprice), to_orders.o_shippriority '\
+              'FROM lineitem.to_orders.to_customer '\
+              'WHERE to_customer.c_mktsegment = ? AND to_orders.o_orderdate < ? '\
+              'GROUP BY lineitem.l_orderkey, to_orders.o_orderdate, to_orders.o_shippriority'
+        end
+      end
+      indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model).indexes_for_workload.to_a
+      indexes.flat_map{|idx| idx.groupby_fields}.uniq.each do |grpby_field|
+        expect(
+          indexes.select do |index|
+            index.groupby_fields.size == 1 and index.groupby_fields.first == grpby_field
+          end
+        ).to be > 0
       end
     end
   end
