@@ -32,10 +32,10 @@ module NoSE
         workload.add_statement query
 
         indexes = [
-          Index.new([user['City']], [user['UserId']], [],
-                    QueryGraph::Graph.from_path([user.id_field])),
-          Index.new([user['UserId']], [], [user['Username']],
-                    QueryGraph::Graph.from_path([user.id_field]))
+            Index.new([user['City']], [user['UserId']], [],
+                      QueryGraph::Graph.from_path([user.id_field])),
+            Index.new([user['UserId']], [], [user['Username']],
+                      QueryGraph::Graph.from_path([user.id_field]))
         ]
         search = Search.new(workload, cost_model)
         expect do
@@ -63,12 +63,12 @@ module NoSE
         indexes = plans.flat_map(&:indexes).to_set
 
         expect(indexes).to match_array [
-                                         Index.new([user['Country']], [user['UserId']], [],
-                                                   QueryGraph::Graph.from_path([user.id_field])),
-                                         Index.new([user['City']], [user['UserId']], [],
-                                                   QueryGraph::Graph.from_path([user.id_field])),
-                                         Index.new([user['UserId']], [], [user['Username']],
-                                                   QueryGraph::Graph.from_path([user.id_field]))
+                                           Index.new([user['Country']], [user['UserId']], [],
+                                                     QueryGraph::Graph.from_path([user.id_field])),
+                                           Index.new([user['City']], [user['UserId']], [],
+                                                     QueryGraph::Graph.from_path([user.id_field])),
+                                           Index.new([user['UserId']], [], [user['Username']],
+                                                     QueryGraph::Graph.from_path([user.id_field]))
                                        ]
       end
 

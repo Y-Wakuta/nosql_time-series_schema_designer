@@ -72,7 +72,7 @@ module NoSE
 
     # A graph identifying entities and relationships involved in a query
     class Graph
-      attr_reader :nodes, :entities
+      attr_reader :nodes, :entities, :edges
 
       def initialize(nodes = [], *edges)
         @nodes = Set.new
@@ -253,6 +253,13 @@ module NoSE
         end
 
         remove_nodes @nodes - reachable
+      end
+
+      def is_valid?
+        total_nodes_size = @nodes.size
+        tmp_graph = self.dup
+        tmp_graph.prune(@nodes.first)
+        total_nodes_size == tmp_graph.nodes.size
       end
 
       # Remove nodes (or entities) from the graph

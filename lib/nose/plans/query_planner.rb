@@ -338,7 +338,7 @@ module NoSE
       def find_nonindexed_steps(parent, state)
         steps = []
         return steps if parent.is_a? RootPlanStep
-        return steps if parent.is_a?(IndexLookupPlanStep) and parent.index.has_aggregation_fields
+        return steps if parent.is_a?(IndexLookupPlanStep) and parent.index.has_aggregation_fields?
 
         [SortPlanStep, FilterPlanStep, LimitPlanStep].each \
           { |step| steps.push step.apply(parent, state) }

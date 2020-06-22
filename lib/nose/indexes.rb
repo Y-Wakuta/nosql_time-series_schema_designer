@@ -128,7 +128,7 @@ module NoSE
       creation_coeff * @size
     end
 
-    def has_aggregation_fields
+    def has_aggregation_fields?
       [@count_fields, @sum_fields, @max_fields, @avg_fields, @groupby_fields].any?{|af| not af.empty?}
     end
 
@@ -170,10 +170,6 @@ module NoSE
         unless @groupby_fields.empty? or
                 ((@hash_fields + @order_fields) >= @groupby_fields and \
                 @groupby_fields.any? {|gf| @hash_fields.include? gf})
-
-      aggregation_fields = (@count_fields + @sum_fields + @avg_fields + @groupby_fields).to_set
-      fail InvalidIndexException, 'At least, all of extra fields should be aggregated' \
-        unless aggregation_fields.empty? or aggregation_fields >= @extra
     end
 
     # Ensure an index is nonempty

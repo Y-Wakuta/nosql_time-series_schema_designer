@@ -262,6 +262,9 @@ module NoSE
 
             begin
               @client.execute(@prepared, arguments: values)
+            rescue ArgumentError => e
+              puts "Possible cause for this problem is too small number of records in mysql"
+              throw e
             rescue Cassandra::Errors::InvalidError
               # We hit a value which does not actually need to be
               # inserted based on the data since some foreign
@@ -389,6 +392,7 @@ module NoSE
             "\"#{field.id}\" = ?"
           end.join ' AND '
           unless @range_field.nil?
+            # TODO: allow several range fields
             condition = conditions.each_value.find(&:range?)
             where << " AND \"#{condition.field.id}\" #{condition.operator} ?"
           end

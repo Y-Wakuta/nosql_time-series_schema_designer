@@ -11,45 +11,68 @@ module NoSE
       @workload = workload
     end
 
-    # Produce all possible indices for a given query
-    # @return [Array<Index>]
-    def indexes_for_query(query)
-      @logger.debug "Enumerating indexes for query #{query.text}"
+    def get_query_eq(query)
+      eq = query.eq_fields.group_by(&:parent)
+      eq.default_proc = ->(*) { [] }
+      eq
+    end
 
+    def get_query_range(query)
       range = if query.range_field.nil?
                 query.order
               else
                 [query.range_field] + query.order
               end
-
-      eq = query.eq_fields.group_by(&:parent)
-      eq.default_proc = ->(*) { [] }
-
       range = range.group_by(&:parent)
       range.default_proc = ->(*) { [] }
+      range
+    end
 
-      query.graph.subgraphs.flat_map do |graph|
+    # Produce all possible indices for a given query
+    # @return [Array<Index>]
+    def indexes_for_query(query)
+      @logger.debug "Enumerating indexes for query #{query.text}"
+
+      range = get_query_range query
+      eq = get_query_eq query
+
+      indexes = query.graph.subgraphs.flat_map do |graph|
         indexes_for_graph graph, query.select, query.counts, query.sums, query.maxes, query.avgs, eq, range, query.groupby
       end.uniq << query.materialize_view
+
+    end
+
+    def indexes_for_queries(queries, additional_indexes)
+      #Parallel.map(queries) do |query|
+      queries.map do |query|
+        indexes_for_query(query).to_a
+      end.inject(additional_indexes, &:+)
     end
 
     # Produce all possible indices for a given workload
     # @return [Set<Index>]
     def indexes_for_workload(additional_indexes = [], by_id_graph = false)
       queries = @workload.queries
-      indexes = Parallel.map(queries) do |query|
-        indexes_for_query(query).to_a
-      end.inject(additional_indexes, &:+)
+      indexes = indexes_for_queries queries, additional_indexes
+      puts("basic query enumeration done : " + indexes.size.to_s)
 
       # Add indexes generated for support queries
       supporting = support_indexes indexes, by_id_graph
       supporting += support_indexes supporting, by_id_graph
       indexes += supporting
+      puts("support query enumeration done")
 
       # Deduplicate indexes, combine them and deduplicate again
       indexes.uniq!
       combine_indexes indexes
       indexes.uniq!
+
+      puts "# of basic indexes is #{indexes.size}"
+
+      #pattern_miner = PatternMiner.new
+      #pattern_miner.pattern_for_workload @workload
+      #indexes = pattern_miner.validate_indexes indexes
+      #puts "# of pattern pruned indexes is #{indexes.size}"
 
       @logger.debug do
         "Indexes for workload:\n" + indexes.map.with_index do |index, i|
@@ -60,7 +83,7 @@ module NoSE
       indexes
     end
 
-    private
+    protected
 
     # Produce the indexes necessary for support queries for these indexes
     # @return [Array<Index>]
@@ -78,10 +101,10 @@ module NoSE
 
       # Enumerate indexes for each support query
       queries.uniq!
-      queries.flat_map do |query|
-        indexes_for_query(query).to_a
-      end
+      indexes_for_queries queries, []
     end
+
+    private
 
     # Combine the data of indices based on matching hash fields
     def combine_indexes(indexes)
@@ -108,7 +131,7 @@ module NoSE
 
     # Get all possible choices of fields to use for equality
     # @return [Array<Array>]
-    def eq_choices(graph, eq, group_by)
+    def eq_choices(graph, eq)
       entity_choices = graph.entities.flat_map do |entity|
         # Get the fields for the entity and add in the IDs
         entity_fields = eq[entity] << entity.id_field
@@ -135,10 +158,46 @@ module NoSE
       choices.reject(&:empty?) << []
     end
 
+    def indexes_for_choices(graph, count, sum, max, avg, group_by, choices, order_choices)
+      return [] if choices.size == 0
+      Parallel.flat_map(choices, in_processes: 6) do |index, extra|
+        indexes = []
+
+        order_choices.each do |order|
+          # Append the primary key of the entities in the graph if needed
+          order += graph.entities.sort_by(&:name).map(&:id_field) -
+              (index + order)
+
+          # Partition into the ordering portion
+          indexes += Parallel.flat_map(index.partitions, in_threads: 5) do |index_prefix, order_prefix|
+          #index.partitions.each do |index_prefix, order_prefix|
+            hash_fields = index_prefix.take_while do |field|
+              field.parent == index.first.parent
+            end
+            order_fields = index_prefix[hash_fields.length..-1] + \
+                           order_prefix + order
+            extra_fields = extra - hash_fields - order_fields
+            next if order_fields.empty? && extra_fields.empty?
+
+            all_fields = hash_fields.to_set + order_fields.to_set + extra.to_set
+            non_aggregate_index = generate_index hash_fields, order_fields, extra_fields, graph, Set.new, Set.new, Set.new, Set.new, Set.new
+
+            if [count, sum, max, avg, group_by].any?{|af| not af.empty?} && [count, sum, avg, group_by].all?{|af| all_fields >= af}
+              aggregate_index = generate_index hash_fields, order_fields, extra_fields, graph,
+                                         count, sum, max, avg, group_by
+            end
+            [non_aggregate_index, aggregate_index].compact
+          end
+        end
+
+        indexes.compact.uniq
+      end.compact.uniq
+    end
+
     # Get all possible indices which jump a given piece of a query graph
     # @return [Array<Index>]
     def indexes_for_graph(graph, select, count, sum, max, avg, eq, range, group_by)
-      eq_choices = eq_choices graph, eq, group_by
+      eq_choices = eq_choices graph, eq
       range_fields = graph.entities.map { |entity| range[entity] }.reduce(&:+)
       range_fields.uniq!
       order_choices = range_fields.prefixes.flat_map do |fields|
@@ -151,42 +210,7 @@ module NoSE
 
       # Generate all possible indices based on the field choices
       choices = eq_choices.product(extra_choices)
-      indexes = choices.map! do |index, extra|
-        indexes = []
-
-        order_choices.each do |order|
-          # Append the primary key of the entities in the graph if needed
-          order += graph.entities.sort_by(&:name).map(&:id_field) -
-                   (index + order)
-
-          # Partition into the ordering portion
-          index.partitions.each do |index_prefix, order_prefix|
-            hash_fields = index_prefix.take_while do |field|
-              field.parent == index.first.parent
-            end
-            order_fields = index_prefix[hash_fields.length..-1] + \
-                           order_prefix + order
-            extra_fields = extra - hash_fields - order_fields
-            next if order_fields.empty? && extra_fields.empty?
-
-            all_fields = hash_fields.to_set + order_fields.to_set + extra.to_set
-
-            new_index = generate_index hash_fields, order_fields, extra_fields, graph, Set.new, Set.new, Set.new, Set.new, Set.new
-            indexes << new_index unless new_index.nil?
-
-            if [count, sum, max, avg, group_by].any?{|af| not af.empty?} && [count, sum, avg, group_by].all?{|af| all_fields >= af}
-              new_index = generate_index hash_fields, order_fields, extra_fields, graph,
-                                         count, sum, max, avg, group_by
-              indexes << new_index unless new_index.nil?
-            end
-          end
-        end
-
-        indexes
-      end.inject([], &:+)
-      indexes.flatten!
-
-      indexes
+      indexes_for_choices graph, count, sum, max, avg, group_by, choices, order_choices
     end
 
     # Generate a new index and ignore if invalid
