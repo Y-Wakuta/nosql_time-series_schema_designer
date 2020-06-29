@@ -7,10 +7,8 @@ module NoSE
           include Subtype
 
           def index_lookup_cost(_step)
-            aggregates = (_step.index.count_fields + _step.index.sum_fields + _step.index.avg_fields + _step.index.groupby_fields).count() * 0.01
-
-            return 1 + aggregates if _step.parent.is_a? Plans::RootPlanStep
-            10 + aggregates
+            return 1 if _step.parent.is_a? Plans::RootPlanStep
+            10
           end
 
           def insert_cost(_step)

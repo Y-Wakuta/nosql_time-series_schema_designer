@@ -316,8 +316,8 @@ module NoSE
             # WARNING: fix this invalid conditions.
             # Ignoring steps that have filtering steps just overwrites the cost value of step in another query plan.
             if not is_same_cost(current_cost, cost) \
-              and not steps.any?{|step| step.is_a? Plans::FilterPlanStep} \
-              and not query_costs[index_step.index].first.any?{|s| s.is_a? Plans::FilterPlanStep }
+              and not has_parent_filter_step(steps.last) \
+              and not has_parent_filter_step(query_costs[index_step.index].first.last)
               index = index_step.index
               p query.class
               p query
@@ -342,8 +342,8 @@ module NoSE
                 puts '======================================='
               end
 
-              puts
-              p tree
+              #puts
+              #p tree
 
               fail
             end
@@ -352,6 +352,16 @@ module NoSE
             query_costs[index_step.index] = [steps, cost]
           end
         end
+      end
+
+      def has_parent_filter_step(step)
+        current = step
+        while true
+          return false if current.is_a? Plans::RootPlanStep
+          return true if current.is_a? Plans::FilterPlanStep
+          current = current.parent
+        end
+        fail
       end
     end
   end

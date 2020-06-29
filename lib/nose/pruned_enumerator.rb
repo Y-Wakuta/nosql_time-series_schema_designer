@@ -50,7 +50,7 @@ module NoSE
 
       #indexes = Parallel.flat_map(query.graph.subgraphs, in_processes: 7) do |graph|
       indexes = query.graph.subgraphs.flat_map do |graph|
-        indexes_for_graph graph, query.select, query.counts, query.sums, query.maxes, query.avgs, eq, range, query.groupby, entity_fields, extra_fields
+        indexes_for_graph graph, query.select, eq, range, entity_fields, extra_fields
       end.uniq << query.materialize_view
 
       puts "pie == #{query.text} =============================== " + indexes.size.to_s
@@ -66,16 +66,16 @@ module NoSE
 
     # Get all possible indices which jump a given piece of a query graph
     # @return [Array<Index>]
-    def indexes_for_graph(graph, select, count, sum, max, avg, eq, range, group_by, entity_fields_patterns, extra_fields)
-      eq_choices, order_choices, extra_choices = get_choices graph, select, eq, range, group_by, entity_fields_patterns, extra_fields
+    def indexes_for_graph(graph, select, eq, range, entity_fields_patterns, extra_fields)
+      eq_choices, order_choices, extra_choices = get_choices graph, select, eq, range, entity_fields_patterns, extra_fields
 
       ## Generate all possible indices based on the field choices
       choices = eq_choices.product(extra_choices)
-      indexes_for_choices(graph, count, sum, max, avg, group_by, choices, order_choices).uniq
+      indexes_for_choices(graph, choices, order_choices).uniq
     end
 
-    def get_choices(graph, select, eq, range, group_by, entity_fields_patterns, extra_fields)
-      eq_choices = frequent_eq_choices graph, group_by, entity_fields_patterns
+    def get_choices(graph, select, eq, range, entity_fields_patterns, extra_fields)
+      eq_choices = frequent_eq_choices graph, entity_fields_patterns
       range_fields = graph.entities.map { |entity| range[entity] }.reduce(&:+).uniq
       order_choices = range_fields.prefixes.flat_map do |fields|
         fields.permutation.to_a
@@ -139,7 +139,7 @@ module NoSE
       FpGrowth.mine(extras).select{|ef| ef.support > 1}
     end
 
-    def frequent_eq_choices(graph, group_by, entity_fields_patterns)
+    def frequent_eq_choices(graph, entity_fields_patterns)
       # filter not used fields for this sub-graph
       shared_patterns = entity_fields_patterns[:shared].select{|efs| efs.all?{|ef| graph.entities.include? ef.parent}}
       unique_patterns = entity_fields_patterns[:unique].select{|efpu| efpu.all?{|efp| graph.entities.include? efp.parent}}
@@ -168,7 +168,6 @@ module NoSE
       unique_eq_choices = unique_eq_choices.flat_map{|uec| enumerate_by_primary_fields uec}
 
       eq_choices = 1.upto(graph_entities_size_for_shared).flat_map do |n|
-        #shareds = shared_patterns.combination(n).flat_map{|sp| enumerate_by_primary_fields sp.flatten(1)} << []
         shareds = shared_patterns.permutation(n).to_a << []
         (shareds.product(unique_eq_choices) + unique_eq_choices.product(shareds)).map{|f| f.flatten.uniq} + shareds.map(&:flatten)
       end + unique_eq_choices
@@ -177,10 +176,6 @@ module NoSE
         additional_eqs = (shared_patterns + unique_patterns).permutation(n).to_a.map(&:flatten).map(&:uniq).uniq
         additional_eqs.flat_map{|aeps| enumerate_by_non_primary_fields aeps}
       end.uniq
-
-      #unless group_by.empty?
-      #  eq_choices = prune_eq_choices_for_groupby eq_choices, group_by
-      #end
 
       eq_choices = eq_choices.uniq.reject{|ec| ec.empty?}
       valid_eq_choices = eq_choices.select{|eq_choice| graph.entities >= eq_choice.map{|ec| ec.parent}.to_set}
@@ -211,20 +206,6 @@ module NoSE
       return entity_choice if frequent_fields_set.nil?
       entity_choice = (entity_choice - frequent_fields_set) + [frequent_fields_set.flatten.uniq]
       entity_choice
-    end
-
-    def prune_eq_choices_for_groupby(eq_choices, group_by)
-      # remove eq_choices that does not have group by fields
-      eq_choices_with_groupby = eq_choices.select{|ec| ec.to_set >= group_by}
-      eq_choices_without_groupby = eq_choices - eq_choices_with_groupby
-      eq_choices_with_groupby = eq_choices_with_groupby.map do |eq_choice|
-        eq_choice.reject!{|ec| group_by.include? ec}
-
-        # force eq_choice to start from group by fields
-        group_by.sort_by { |gb| gb.name } + eq_choice
-      end
-
-      eq_choices_with_groupby + eq_choices_without_groupby
     end
 
     def get_median(a)

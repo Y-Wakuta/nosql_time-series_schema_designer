@@ -69,7 +69,7 @@ module NoSE
         index = Index.new [tweet['TweetId']], [tweet['Body']],
                           [tweet['Timestamp'], tweet['Retweets']],
                           QueryGraph::Graph.from_path(
-                              [tweet.id_field]), count_fields: Set.new([tweet['TweetId']])
+                              [tweet.id_field])
         planner = Plans::QueryPlanner.new workload.model, [index], cost_model
         plan = planner.min_plan query
 

@@ -69,7 +69,7 @@ module NoSE
         td_workload.include_migration_cost = false
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
         result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
-        expect(result.migrate_plans.size).to be(6)
+        expect(result.migrate_plans.size).to be(2)
       end
 
       it 'correct number of timesteps in output' do

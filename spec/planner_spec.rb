@@ -182,21 +182,21 @@ module NoSE
                           [tweet['Body']],
                           QueryGraph::Graph.from_path(
                               [tweet.id_field]
-                          ), count_fields: Set.new([tweet['Body']])
+                          )
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT count(Tweet.Body) FROM Tweet WHERE ' \
                                 'Tweet.TweetId = ?', workload.model
         tree = planner.find_plans_for_query(query)
         expect(tree).to have(1).plan
-        expect(tree.first).to have(1).steps
+        expect(tree.first).to have(2).steps
       end
 
-      it 'rejects join column families that use count() fields' do
+      it 'creates Aggregation step for the last step of query plan' do
         parent_index = Index.new [tweet['Body']], [tweet['TweetId']],
                                  [],
                                  QueryGraph::Graph.from_path(
                                      [tweet.id_field]
-                                 ), count_fields: Set.new([tweet['TweetId']])
+                                 )
         index = Index.new [tweet['TweetId']], [],
                           [tweet['Timestamp']],
                           QueryGraph::Graph.from_path(
@@ -204,33 +204,11 @@ module NoSE
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
         query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Timestamp FROM Tweet WHERE ' \
                                 'Tweet.Body = ?', workload.model
-        expect do
-          planner.find_plans_for_query(query)
-        end.to raise_error NoPlanException
-      end
-
-      it 'can apply aggregation function at any step in the query plan' do
-        parent_index = Index.new [tweet['Body']], [tweet['TweetId'], tweet['Retweets']],
-                                 [],
-                                 QueryGraph::Graph.from_path(
-                                     [tweet.id_field]
-                                 )
-        index = Index.new [tweet['TweetId']], [],
-                          [tweet['Timestamp'], tweet['Retweets']],
-                          QueryGraph::Graph.from_path(
-                              [tweet.id_field]), count_fields: Set.new([tweet['TweetId']]),
-                          sum_fields: Set.new([tweet['Retweets']]), avg_fields: Set.new([tweet['Timestamp']])
-        planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
-        query = Statement.parse 'SELECT count(Tweet.TweetId), sum(Tweet.Retweets), avg(Tweet.Timestamp) FROM Tweet WHERE ' \
-                                'Tweet.Body = ?', workload.model
-
-        tree = planner.find_plans_for_query(query)
-        expect(tree).to have(1).plan
-
-        last_index = tree.first.steps.last.index
-        expect(last_index.sum_fields).to include Set.new([tweet['Retweets']])
-        expect(last_index.count_fields).to include Set.new([tweet['TweetId']])
-        expect(last_index.avg_fields).to include Set.new([tweet['Timestamp']])
+        plan = planner.find_plans_for_query(query).first
+        plan.steps[0..-2].each do |s|
+          expect(s.class).not_to be AggregationPlanStep
+        end
+        expect(plan.steps.last.class).to be AggregationPlanStep
       end
 
       it 'can apply group by in the query' do
@@ -241,26 +219,14 @@ module NoSE
                                  QueryGraph::Graph.from_path(
                                      [tweet.id_field]
                                  )
-        index = Index.new  [tweet['Retweets']], [tweet['TweetId']],
+        index = Index.new  [tweet['TweetId']], [tweet['Retweets']],
                            [tweet['Timestamp']],
                            QueryGraph::Graph.from_path(
-                               [tweet.id_field]), count_fields: Set.new([tweet['TweetId']]),
-                           sum_fields: Set.new([tweet['Timestamp']]),
-                           avg_fields: Set.new, groupby_fields: Set.new([tweet['Retweets']])
+                               [tweet.id_field])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
         tree = planner.find_plans_for_query(query)
         expect(tree).to have(1).plan
-
-        # this index does not have enough aggregation fields
-        index = Index.new [tweet['Retweets']], [tweet['TweetId']],
-                          [tweet['Timestamp']],
-                          QueryGraph::Graph.from_path(
-                              [tweet.id_field]), count_fields: Set.new, sum_fields: Set.new,
-                          avg_fields: Set.new, groupby_fields: Set.new([tweet['Retweets']])
-        planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
-        expect do
-          planner.find_plans_for_query(query)
-        end.to raise_error NoPlanException
+        expect(tree.first.steps.last.class).to be AggregationPlanStep
       end
 
       context 'when updating cardinality' do
@@ -429,9 +395,11 @@ module NoSE
         indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model).indexes_for_workload
         planner = QueryPlanner.new tpch_workload.model, indexes, cost_model
         tpch_workload.statement_weights.keys.each do |q|
-          plan = planner.find_plans_for_query q
-          index_lookup_steps = plan.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}
-          expect(index_lookup_steps.size).to be > 1
+          join_plans = planner.find_plans_for_query(q).select do |plan|
+            index_lookup_steps = plan.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}
+            index_lookup_steps.size > 1
+          end
+          expect(join_plans.size).to be > 0
         end
       end
 

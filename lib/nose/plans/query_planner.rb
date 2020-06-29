@@ -55,10 +55,12 @@ module NoSE
 
       # Check if the query has been fully answered
       # @return [Boolean]
-      def answered?(check_limit: true)
+      def answered?(check_limit: true, check_aggregate: true)
         done = @fields.empty? && @eq.empty? && @range.nil? &&
-               @order_by.empty? && @joins.empty? && @graph.empty? &&
-               @counts.empty? && @sums.empty? && @maxes.empty? && @avgs.empty? && @groupby.empty?
+               @order_by.empty? && @joins.empty? && @graph.empty?
+
+        done &= @counts.empty? && @sums.empty? && @maxes.empty? \
+              && @avgs.empty? && @groupby.empty? if check_aggregate
 
         # Check if the limit has been applied
         done &&= @cardinality <= @query.limit unless @query.limit.nil? ||
@@ -255,8 +257,19 @@ module NoSE
         end
 
         @logger.debug { "Plans for #{query.inspect}: #{tree.inspect}" }
+        does_include_materialized_plan tree, query
 
         tree
+      end
+
+      # check the query plan tree include materialized plan
+      def does_include_materialized_plan(tree, query)
+        materialize_plans = tree.select do |plan|
+          plan.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}.size == 1
+        end
+        unless materialize_plans.any? {|mvp| mvp.indexes.include? query.materialize_view}
+          fail 'materialized plan is not enumerated'
+        end
       end
 
       # Get the minimum cost plan for executing this query
@@ -338,9 +351,8 @@ module NoSE
       def find_nonindexed_steps(parent, state)
         steps = []
         return steps if parent.is_a? RootPlanStep
-        return steps if parent.is_a?(IndexLookupPlanStep) and parent.index.has_aggregation_fields?
 
-        [SortPlanStep, FilterPlanStep, LimitPlanStep].each \
+        [SortPlanStep, FilterPlanStep, LimitPlanStep, AggregationPlanStep].each \
           { |step| steps.push step.apply(parent, state) }
         steps.flatten!
         steps.compact!

@@ -115,6 +115,64 @@ module NoSE
         result = Search.new(workload, cost_model).search_overlap indexes
         expect(result.plans).to have(1).plan
       end
+
+      let(:cost_model) do
+        class TmpDummyCost < NoSE::Cost::Cost
+          include Subtype
+          def index_lookup_cost(_step)
+            return nil if _step.state.nil?
+            rows = _step.state.cardinality
+            parts = _step.state.hash_cardinality
+            0.0078395645 + parts * 0.0013692786 +
+                rows * 1.17093638386496e-005
+          end
+        end
+        TmpDummyCost.new
+      end
+
+      it 'does not give the different cost for the same step' do
+        tpch_workload = Workload.new do |_|
+          Model 'tpch'
+          Group 'Group1', default: 1 do
+            Q 'SELECT to_nation.n_name, sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
+              'FROM lineitem.to_orders.to_customer.to_nation.to_region ' \
+              'WHERE to_region.r_name = ? AND to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? ' \
+              'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
+              'GROUP BY to_nation.n_name -- Q5'
+            Q 'SELECT to_nation.n_name, to_orders.o_orderdate, sum(from_lineitem.l_extendedprice), sum(from_lineitem.l_discount), '  \
+              'sum(from_partsupp.ps_supplycost), sum(from_lineitem.l_quantity) ' \
+              'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation ' \
+              'WHERE part.p_name = ? AND from_lineitem.l_orderkey = ? ' \
+              'ORDER BY to_nation.n_name, to_orders.o_orderdate ' \
+              'GROUP BY to_nation.n_name, to_orders.o_orderdate -- Q9'
+            Q 'SELECT to_customer.c_custkey, count(orders.o_orderkey) ' \
+              'FROM orders.to_customer ' \
+              'WHERE orders.o_comment = ? ' \
+              'GROUP BY to_customer.c_custkey, orders.o_orderkey -- Q13'
+          end
+        end
+        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model).indexes_for_workload.to_a
+        expect do
+          Search.new(tpch_workload, cost_model).search_overlap indexes
+        end.not_to raise_error
+      end
+
+      it 'choices materialized view plan for only one query' do
+        tpch_workload = Workload.new do |_|
+          Model 'tpch'
+          Group 'Group1', default: 1 do
+            Q 'SELECT to_nation.n_name, sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
+              'FROM lineitem.to_orders.to_customer.to_nation.to_region ' \
+              'WHERE to_region.r_name = ? AND to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? ' \
+              'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
+              'GROUP BY to_nation.n_name -- Q5'
+          end
+        end
+        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model).indexes_for_workload.to_a
+        result = Search.new(tpch_workload, cost_model).search_overlap indexes
+        result.plans
+
+      end
     end
   end
 end

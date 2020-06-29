@@ -18,6 +18,7 @@ module NoSE
       @avgs = params[:select][:avg] || Set.new
       @maxes = params[:select][:max] || Set.new
       @groupby = params[:groupby] || Set.new
+      @params = params
 
       fail InvalidStatementException, 'can\'t order by IDs' \
         if @order.any? { |f| f.is_a? Fields::IDField }
@@ -220,7 +221,7 @@ module NoSE
     # Migrate support queries must also have their statement and index checked
     def ==(other)
       other.is_a?(MigrateSupportQuery) && @statement == other.statement &&
-        @index == other.index && @comment == other.comment
+          @index == other.index && @comment == other.comment
     end
     alias eql? ==
 

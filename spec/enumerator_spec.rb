@@ -97,46 +97,5 @@ module NoSE
                                                user['Tweets']])
       expect(indexes.size).to be 28
     end
-
-    it 'produces indexes that include aggregation processes' do
-      query = Statement.parse 'SELECT count(Tweet.Body), count(Tweet.TweetId), sum(User.UserId), avg(Tweet.Retweets) FROM Tweet.User ' \
-                              'WHERE User.City = ?', workload.model
-      indexes = enum.indexes_for_query query
-      expect(indexes.map(&:count_fields)).to include [tweet['Body'], tweet['TweetId']]
-      expect(indexes.map(&:sum_fields)).to include [user['UserId']]
-      expect(indexes.map(&:avg_fields)).to include [tweet['Retweets']]
-      expect(indexes.size).to be 34
-    end
-
-    it 'makes sure that all aggregation fields are included in index fields' do
-      query = Statement.parse 'SELECT count(Tweet.Body), count(Tweet.TweetId), sum(User.UserId), avg(Tweet.Retweets) FROM Tweet.User ' \
-                              'WHERE User.City = ?', workload.model
-      indexes = enum.indexes_for_query query
-      indexes.each do |index|
-        expect(index.all_fields).to be >= (index.count_fields + index.sum_fields + index.avg_fields)
-      end
-      expect(indexes.size).to be 34
-    end
-
-    it 'only enumerates indexes with hash_fields that satisfy GROUP BY clause' do
-      query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, sum(Tweet.Timestamp) FROM Tweet WHERE ' \
-                                'Tweet.Body = ? GROUP BY Tweet.Retweets', workload.model
-      indexes = enum.indexes_for_query query
-      expect(indexes.any?{|i| i.hash_fields >= Set.new([tweet['Retweets']])}).to be(true)
-      expect(indexes.size).to be 51
-    end
-
-    it 'enumerates indexes that have partial GROUP BYs' do
-      query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, sum(Tweet.Timestamp) FROM Tweet WHERE ' \
-                                'Tweet.Body = ? GROUP BY Tweet.Retweets, Tweet.Timestamp', workload.model
-      indexes = enum.indexes_for_query query
-      indexes.flat_map{|idx| idx.groupby_fields}.uniq.each do |grpby_field|
-        expect(
-            indexes.select do |index|
-              index.groupby_fields.size == 1 and index.groupby_fields.first == grpby_field
-            end.size
-        ).to be > 0
-      end
-    end
   end
 end

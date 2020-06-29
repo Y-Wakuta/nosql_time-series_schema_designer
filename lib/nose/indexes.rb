@@ -4,11 +4,9 @@ module NoSE
   # A representation of materialized views over fields in an entity
   class Index
     attr_reader :hash_fields, :order_fields, :extra, :all_fields, :path,
-                :entries, :entry_size, :size, :hash_count, :per_hash_count,
-                :graph, :count_fields, :sum_fields, :max_fields, :avg_fields, :groupby_fields
+                :entries, :entry_size, :size, :hash_count, :per_hash_count, :graph
 
-    def initialize(hash_fields, order_fields, extra, graph, count_fields: Set.new, sum_fields: Set.new, max_fields: Set.new, avg_fields: Set.new, groupby_fields: Set.new,
-                   saved_key: nil)
+    def initialize(hash_fields, order_fields, extra, graph, saved_key: nil)
       order_set = order_fields.to_set
       @hash_fields = hash_fields.to_set
       @order_fields = order_fields.delete_if { |e| hash_fields.include? e }
@@ -16,14 +14,7 @@ module NoSE
         @hash_fields.include?(e) || order_set.include?(e)
       end
       @all_fields = Set.new(@hash_fields).merge(order_set).merge(@extra)
-      @count_fields = count_fields
-      @sum_fields = sum_fields
-      @avg_fields = avg_fields
-      @max_fields = max_fields
-      @groupby_fields = groupby_fields
-
       validate_hash_fields
-      validate_aggregation_fields
 
       # Store whether this index is an identity
       @identity = @hash_fields == [
@@ -79,11 +70,11 @@ module NoSE
 
     # :nocov:
     def to_color
-      fields = [@hash_fields, @order_fields, @extra, @count_fields, @sum_fields, @max_fields, @avg_fields, @groupby_fields].map do |field_group|
+      fields = [@hash_fields, @order_fields, @extra].map do |field_group|
         '[' + field_group.map(&:inspect).join(', ') + ']'
       end
 
-      "[magenta]#{key}[/] #{fields[0]} #{fields[1]} → #{fields[2]} aggregate: {c: #{fields[3]}, s: #{fields[4]}, m: #{fields[5]}, a: #{fields[6]}, g: #{fields[7]}}" \
+      "[magenta]#{key}[/] #{fields[0]} #{fields[1]} → #{fields[2]} " \
         " [yellow]$#{size}[/]" \
         " [magenta]#{@graph.inspect}[/]"
     end
@@ -104,13 +95,6 @@ module NoSE
         @order_fields.map(&:id),
         @extra.map(&:id).sort!,
         @graph.unique_edges.map(&:canonical_params).sort!,
-        [
-          @count_fields&.map(&:id)&.sort! || [],
-          @sum_fields&.map(&:id)&.sort! || [],
-          @max_fields&.map(&:id)&.sort! || [],
-          @avg_fields&.map(&:id)&.sort! || [],
-          @groupby_fields&.map(&:id)&.sort! || []
-        ]
       ].to_s.freeze
     end
 
@@ -126,10 +110,6 @@ module NoSE
 
     def creation_cost(creation_coeff)
       creation_coeff * @size
-    end
-
-    def has_aggregation_fields?
-      [@count_fields, @sum_fields, @max_fields, @avg_fields, @groupby_fields].any?{|af| not af.empty?}
     end
 
     private
@@ -257,7 +237,7 @@ module NoSE
       order_fields = materialized_view_order(join_order.first) - eq
 
       Index.new(eq, order_fields,
-                all_fields - (@eq_fields + @order).to_set, graph, count_fields: @counts, sum_fields: @sums, max_fields: @maxes, avg_fields: @avgs, groupby_fields: @groupby)
+                all_fields - (@eq_fields + @order).to_set, graph)
     end
 
     private
