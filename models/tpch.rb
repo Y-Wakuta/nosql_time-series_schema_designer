@@ -68,7 +68,9 @@ NoSE::Model.new do
     Date 'l_commitdate'
     Date 'l_receiptdate'
     String 'l_shipmode'
+    String 'l_shipinstruct'
     String 'l_comment'
+    Integer 'dummy', count: 1
   end) * 6001215
 
   (Entity 'nation' do
@@ -89,8 +91,8 @@ NoSE::Model.new do
   HasOne 'to_nation',       'from_customer',
          'customer'      => 'nation'
 
-  #HasOne 'to_supplier',       'from_customer',
-  #       'customer'      => 'supplier'
+  HasOne 'to_supplier',       'from_customer',
+         'customer'      => 'supplier'
 
   HasOne 'to_supplier', 'from_partsupp',
          'partsupp' => 'supplier'
