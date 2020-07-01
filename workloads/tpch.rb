@@ -392,8 +392,7 @@ NoSE::Workload.new do
        'FROM lineitem.to_orders.to_customer.to_nation '\
        'WHERE to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? AND lineitem.l_returnflag = ? '\
        'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
-       'GROUP BY to_customer.c_custkey, to_customer.c_name, to_customer.c_acctbal, '\
-          'to_customer.c_phone, to_nation.n_name, to_customer.c_address, to_customer.c_comment -- Q10'
+       'GROUP BY to_customer.c_custkey -- Q10'
 
     # === Q11 ===
     #   select
