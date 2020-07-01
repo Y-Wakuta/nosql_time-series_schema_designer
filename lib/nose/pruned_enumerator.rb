@@ -7,9 +7,10 @@ require 'fpgrowth'
 module NoSE
   # Produces potential indices to be used in schemas
   class PrunedIndexEnumerator < IndexEnumerator
-    def initialize(workload, cost_model)
+    def initialize(workload, cost_model, is_shared_threshold)
       @eq_threshold = 1
       @cost_model = cost_model
+      @is_shared_threshold = is_shared_threshold
       super(workload)
     end
 
@@ -20,7 +21,7 @@ module NoSE
       extra_fields = get_frequent_extra_choices queries
 
       indexes = Parallel.flat_map(queries, in_processes: 12) do |query|
-      #indexes = queries.flat_map do |query|
+        #indexes = queries.flat_map do |query|
         indexes_for_query(query, entity_fields[query], extra_fields).to_a
       end
       indexes += additional_indexes
@@ -31,12 +32,20 @@ module NoSE
     # remove CFs that are not used in query plans
     def get_used_indexes_in_query_plans(queries, indexes)
       puts "whole indexes : " + indexes.size.to_s
-      planner = Plans::QueryPlanner.new @workload.model, indexes, @cost_model
+      planner = Plans::PrunedQueryPlanner.new @workload.model, indexes, @cost_model, 2
       used_indexes = Parallel.flat_map(queries, in_processes: 4) do |query|
-        plan = planner.find_plans_for_query(query)
-        plan.flat_map{|p| p.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}.map(&:index)}.uniq
+        #used_indexes = queries.flat_map do |query|
+        plans = planner.find_plans_for_query(query)
+        join_plan_size = plans.select{|p| p.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}.size > 1}.size
+        puts "--- #{plans.size} plans : #{join_plan_size} join plans for #{query.text} ---"
+
+        plans.flat_map{|p| p.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}.map(&:index)}.uniq
       end
       puts "used indexes : " + used_indexes.size.to_s
+      puts "#{queries.size} : distinct used indexes : " + used_indexes.uniq.size.to_s
+      #used_indexes.select{|ui| used_indexes.count(ui) > 1}.uniq.each do |i|
+      #  puts i.hash_str
+      #end
       used_indexes
     end
 
@@ -57,10 +66,11 @@ module NoSE
       indexes
     end
 
-    # Since support queries are simple, use IndexEnumerator to make migration easier
-    def support_indexes(indexes, by_id_graph)
-      IndexEnumerator.new(@workload).support_indexes indexes, by_id_graph
-    end
+     # Since support queries are simple, use IndexEnumerator to make migration easier
+     def support_indexes(indexes, by_id_graph)
+       puts "start enumerating support indexes"
+       IndexEnumerator.new(@workload).support_indexes indexes, by_id_graph
+     end
 
     private
 
@@ -83,15 +93,30 @@ module NoSE
       extra_choices = frequent_extra_choices(graph, select, eq, range, extra_fields)
       puts("graph : #{graph.entities.map{|n| n.name}}")
       puts("eq_choices : #{eq_choices.size}")
-      puts("extra_choices : #{extra_choices.size}")
+      #puts("extra_choices : #{extra_choices.size}")
 
       [eq_choices, order_choices, extra_choices]
     end
 
     def get_frequent_entity_choices(queries)
-      entity_fields = queries.map do |query|
-        eq = get_query_eq query
+      entity_fields = get_entity_fields queries
+      unique_shared_fields = split_entity_fields_into_unique_shared entity_fields
+      frequent_shared_patterns = get_frequent_shared_patterns unique_shared_fields, queries
 
+      reduced_fields = unique_shared_fields.dup.map do |query, fields|
+        current_frequent_shared_patterns = frequent_shared_patterns.select{|fsp| fields[:shared].to_set >= fsp.content.to_set}
+        threshold = current_frequent_shared_patterns.size > 1 ? [current_frequent_shared_patterns.map{|cfs| cfs.support}.max, 1].max : 1
+        fields[:shared] = reduce_choices fields[:shared], current_frequent_shared_patterns, threshold
+        Hash[query, fields]
+      end.inject(:merge)
+
+      validate_unique_shared_fields reduced_fields
+      reduced_fields
+    end
+
+    def get_entity_fields(queries)
+      queries.map do |query|
+        eq = get_query_eq query
         Hash[query,
              query.graph.subgraphs.flat_map do |subgraph|
                subgraph.entities.flat_map do |entity|
@@ -105,27 +130,32 @@ module NoSE
              end.uniq # how many fields the one query has does not matter.
         ]
       end.inject(:merge)
+    end
 
-      unique_shared_fields = entity_fields.map do |q, efs_target|
-        tmp_efs = efs_target.dup
-        entity_fields.reject{|q_, _| q == q_}.each do |_, efs|
-          efs_target -= efs
-        end
-        Hash[q, {unique: efs_target, shared: tmp_efs - efs_target}]
+    def split_entity_fields_into_unique_shared(entity_fields)
+      fields_hash = {}
+      entity_fields.each do |_, efs|
+        efs.each {|ef| fields_hash.has_key?(ef) ? fields_hash[ef] += 1 : fields_hash[ef] = 0}
+      end
+      entity_fields.map do |q, efs|
+        shared = []
+        unique = []
+        efs.each {|ef| fields_hash[ef] > @is_shared_threshold ? shared << ef : unique << ef}
+        Hash[q, {unique: unique, shared: shared}]
       end.inject(:merge)
+    end
 
+    def get_frequent_shared_patterns(unique_shared_fields, queries)
       shared_fields = unique_shared_fields.map{|_, usf| usf[:shared]}
-      support_threshold = [2, queries.size].min() # allow support == 1 if there is only one query
-      frequent_shared_patterns = FpGrowth.mine(shared_fields)
+      support_threshold = [2, queries.size].min()
+      FpGrowth.mine(shared_fields.map(&:dup), 30)
                                    .select{|ef| ef.support >= support_threshold and ef.content.size > 1}
+    end
 
-      unique_shared_fields = unique_shared_fields.map do |query, fields|
-        current_frequent_shared_patterns = frequent_shared_patterns.select{|fsp| fields[:shared].to_set >= fsp.content.to_set}
-        threshold = current_frequent_shared_patterns.size > 1 ? [current_frequent_shared_patterns.map{|cfs| cfs.support}.max - 1, 1].max : 1
-        fields[:shared] = reduce_choices fields[:shared], current_frequent_shared_patterns, threshold
-        Hash[query, fields]
-      end.inject(:merge)
-      unique_shared_fields
+    # every fields should be split into unique or shared.
+    def validate_unique_shared_fields(unique_shared_fields)
+      return unless unique_shared_fields.select{|_, usf| usf[:unique].empty? and usf[:shared].empty?}.size > 0
+      fail 'some unique_shared_fields does not have any item'
     end
 
     def get_frequent_extra_choices(queries)
@@ -142,44 +172,50 @@ module NoSE
     def frequent_eq_choices(graph, entity_fields_patterns)
       # filter not used fields for this sub-graph
       shared_patterns = entity_fields_patterns[:shared].select{|efs| efs.all?{|ef| graph.entities.include? ef.parent}}
-      unique_patterns = entity_fields_patterns[:unique].select{|efpu| efpu.all?{|efp| graph.entities.include? efp.parent}}
-
-      # frequent entity_choices are combined. However, this result in no eq_choices for small sub-graphs
-      # Only the reduced, in other words combined, field set have fields from more than two entities
-      if shared_patterns.empty?
-        shared_patterns = entity_fields_patterns[:shared]
-                              .select{|efs| efs.map(&:parent).uniq.size > 1}
-                              .map{|efs| efs.select{|f| graph.entities.include? f.parent}}
-      end
+      shared_patterns += get_additional_shared_patterns_for_small_graph graph, shared_patterns, entity_fields_patterns
 
       # get each enumeration combination size for shared fields and unique fields
       graph_entities_size_for_shared = shared_patterns.flatten.map(&:parent).uniq.size
       graph_entities_size_for_unique = graph.entities.length - graph_entities_size_for_shared
+      unique_patterns = entity_fields_patterns[:unique].select{|efpu| efpu.all?{|efp| graph.entities.include? efp.parent}}
+      unique_eq_choices = enumerate_unique_patterns unique_patterns, graph_entities_size_for_unique
 
+      eq_choices = 1.upto(graph_entities_size_for_shared).flat_map do |n|
+        shared_eq_choices = shared_patterns.permutation(n).to_a << []
+        (shared_eq_choices.product(unique_eq_choices) + unique_eq_choices.product(shared_eq_choices)).map{|f| f.flatten.uniq} + shared_eq_choices.map(&:flatten)
+      end + unique_eq_choices
+
+      eq_choices += enumerate_small_eq_choices shared_patterns, unique_patterns
+      eq_choices = eq_choices.uniq.reject{|ec| ec.empty?}
+      valid_eq_choices = eq_choices.select{|eq_choice| graph.entities >= eq_choice.map{|ec| ec.parent}.to_set}
+      valid_eq_choices
+    end
+
+    # frequent entity_choices are combined. However, this result in no eq_choices for small sub-graphs
+    # Only the reduced, in other words combined, field set have fields from more than two entities
+    # TODO: This code ignoring combined choices for small query graphs. Replace this logic to more reasonable one
+    def get_additional_shared_patterns_for_small_graph(graph, shared_patterns, entity_fields_patterns)
+      return [] unless shared_patterns.size > 0 and graph.entities.size > 3
+      entity_fields_patterns[:shared]
+          .select{|efs| efs.map(&:parent).uniq.size > 1}
+          .map{|efs| efs.select{|f| graph.entities.include? f.parent}}
+    end
+
+    def enumerate_small_eq_choices(shared_patterns, unique_patterns)
+      1.upto(2).flat_map do |n|
+        additional_eqs = (shared_patterns + unique_patterns).permutation(n).to_a.map(&:flatten).map(&:uniq).uniq
+        additional_eqs.flat_map{|aeps| enumerate_by_non_primary_fields aeps}
+      end.uniq
+    end
+
+    def enumerate_unique_patterns(unique_patterns, graph_entity_size_for_unique)
       # unique fields is not shared with other queries and no need to enumerate subset of unique fields
-      unique_eq_choices = 1.upto([graph_entities_size_for_unique, 1].max()).flat_map do |n|
+      1.upto([graph_entity_size_for_unique, 1].max()).flat_map do |n|
         unique_patterns.combination(n)
                             .map(&:flatten)
                             .map(&:uniq)
                             .map{|e| e.sort_by { |b | [-b.cardinality, b.name] }}.uniq
       end << []
-
-      # TODO: tmp
-      unique_eq_choices = unique_eq_choices.flat_map{|uec| enumerate_by_primary_fields uec}
-
-      eq_choices = 1.upto(graph_entities_size_for_shared).flat_map do |n|
-        shareds = shared_patterns.permutation(n).to_a << []
-        (shareds.product(unique_eq_choices) + unique_eq_choices.product(shareds)).map{|f| f.flatten.uniq} + shareds.map(&:flatten)
-      end + unique_eq_choices
-
-      eq_choices += 1.upto(2).flat_map do |n|
-        additional_eqs = (shared_patterns + unique_patterns).permutation(n).to_a.map(&:flatten).map(&:uniq).uniq
-        additional_eqs.flat_map{|aeps| enumerate_by_non_primary_fields aeps}
-      end.uniq
-
-      eq_choices = eq_choices.uniq.reject{|ec| ec.empty?}
-      valid_eq_choices = eq_choices.select{|eq_choice| graph.entities >= eq_choice.map{|ec| ec.parent}.to_set}
-      valid_eq_choices
     end
 
     def frequent_extra_choices(graph, select, eq, range, extra_fields)

@@ -2,7 +2,7 @@ module NoSE
   describe PrunedIndexEnumerator do
     include_context 'entities'
     include_context 'dummy cost model'
-    subject(:pruned_enum) { PrunedIndexEnumerator.new workload, cost_model }
+    subject(:pruned_enum) { PrunedIndexEnumerator.new workload, cost_model, 1 }
 
     it 'produces a simple index for a filter' do
       query = Statement.parse 'SELECT User.Username FROM User ' \
@@ -56,14 +56,14 @@ module NoSE
       expect(indexes).to all(satisfy do |index|
         !index.order_fields.empty? || !index.extra.empty?
       end)
-      expect(indexes.size).to be 14
+      expect(indexes.size).to be 12
     end
 
     it 'includes no indexes for updates if nothing is updated' do
       # Use a fresh workload for this test
       model = workload.model
       workload = Workload.new model
-      pruned_enum = PrunedIndexEnumerator.new workload, cost_model
+      pruned_enum = PrunedIndexEnumerator.new workload, cost_model, 1
       update = Statement.parse 'UPDATE User SET Username = ? ' \
                                'WHERE User.City = ?', model
       workload.add_statement update
@@ -75,7 +75,7 @@ module NoSE
       # Use a fresh workload for this test
       model = workload.model
       workload = Workload.new model
-      pruned_enum = PrunedIndexEnumerator.new workload, cost_model
+      pruned_enum = PrunedIndexEnumerator.new workload, cost_model, 1
 
       update = Statement.parse 'UPDATE User SET Username = ? ' \
                                'WHERE User.City = ?', model

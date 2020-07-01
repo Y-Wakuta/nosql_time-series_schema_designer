@@ -428,7 +428,7 @@ module NoSE
               'ORDER BY to_nation.n_name, to_orders.o_orderdate -- Q9'
           end
         end
-        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model).indexes_for_workload.to_a
+        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model, 1).indexes_for_workload.to_a
         pruned_planner = QueryPlanner.new tpch_workload.model, indexes, cost_model
         query_indexes_hash = tpch_workload.statement_weights.keys.flat_map do |q|
           pruned_plan = pruned_planner.find_plans_for_query q

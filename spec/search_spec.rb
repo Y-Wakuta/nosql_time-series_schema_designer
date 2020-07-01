@@ -151,7 +151,7 @@ module NoSE
               'GROUP BY to_customer.c_custkey, orders.o_orderkey -- Q13'
           end
         end
-        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model).indexes_for_workload.to_a
+        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model, 1).indexes_for_workload.to_a
         expect do
           Search.new(tpch_workload, cost_model).search_overlap indexes
         end.not_to raise_error
@@ -168,7 +168,7 @@ module NoSE
               'GROUP BY to_nation.n_name -- Q5'
           end
         end
-        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model).indexes_for_workload.to_a
+        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model, 1).indexes_for_workload.to_a
         result = Search.new(tpch_workload, cost_model).search_overlap indexes
         result.plans
 

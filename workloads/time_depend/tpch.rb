@@ -51,11 +51,7 @@ NoSE::Workload.new do
          Q 'SELECT lineitem.l_returnflag, lineitem.l_linestatus, sum(lineitem.l_quantity), sum(lineitem.l_extendedprice), '\
              'sum(lineitem.l_extendedprice), sum(lineitem.l_discount), sum(lineitem.l_extendedprice), '\
              'sum(lineitem.l_discount), sum(lineitem.l_tax), avg(lineitem.l_quantity), '\
-             'avg(lineitem.l_extendedprice), avg(lineitem.l_discount), '\
-             'count(lineitem.l_orderkey), count(lineitem.l_linenumber), count(lineitem.l_quantity), '\
-             'count(lineitem.l_extendedprice), count(lineitem.l_discount), count(lineitem.l_tax), ' \
-             'count(lineitem.l_returnflag), count(lineitem.l_linestatus), count(lineitem.l_shipdate), ' \
-             'count(lineitem.l_commitdate), count(lineitem.l_shipmode), count(lineitem.l_comment) ' \
+             'avg(lineitem.l_extendedprice), avg(lineitem.l_discount), count(lineitem.l_orderkey) '\
            'FROM lineitem '\
            'WHERE lineitem.l_orderkey = ? AND lineitem.l_linenumber = ? AND lineitem.l_shipdate <= ? ' \
            'GROUP BY lineitem.l_returnflag, lineitem.l_linestatus -- Q1'
@@ -105,101 +101,99 @@ NoSE::Workload.new do
          Q 'SELECT to_supplier.s_acctbal, to_supplier.s_name, to_nation.n_name, part.p_partkey, part.p_mfgr, '\
          'to_supplier.s_address, to_supplier.s_phone, to_supplier.s_comment ' \
        'FROM part.from_partsupp.to_supplier.to_nation.to_region ' \
-       'WHERE part.p_size = ? AND part.p_type = ? AND to_region.r_name = ? AND from_partsupp.ps_supplycost = ? -- Q2_outer'
-
-    #     Q 'SELECT to_supplier.s_acctbal, to_supplier.s_name, to_nation.n_name, part.p_partkey, part.p_mfgr, '\
-    #     'to_supplier.s_address, to_supplier.s_phone, to_supplier.s_comment ' \
-    #   'FROM part.from_partsupp.to_supplier.to_nation.to_region ' \
-    #   'WHERE part.p_size = ? AND part.p_type = ? AND to_region.r_name = ? AND from_partsupp.ps_supplycost = ? -- Q2_outer_simple'
+       'WHERE part.p_size = ? AND part.p_type = ? AND to_region.r_name = ? AND from_partsupp.ps_supplycost = ? '\
+       'ORDER BY to_supplier.s_acctbal, to_nation.n_name, to_supplier.s_name -- Q2_outer'
 
     ##  # TODO: this query originaly SELECTs min(partsupp.ps_supplycost). I need to add 'min' feature like 'max'.
     Q 'SELECT max(partsupp.ps_supplycost) FROM partsupp.to_supplier.to_nation.to_region '\
       'WHERE to_region.r_name = ? -- Q2_inner'
-#
-#    # === Q3 ===
-#    #   select
-#    #     l_orderkey,
-#    #     sum(l_extendedprice*(1-l_discount)) as revenue,
-#    #     o_orderdate,
-#    #     o_shippriority
-#    #   from
-#    #     customer,
-#    #     orders,
-#    #     lineitem
-#    #   where
-#    #     c_mktsegment = '[SEGMENT]'
-#    #     and c_custkey = o_custkey
-#    #     and l_orderkey = o_orderkey
-#    #     and o_orderdate < date '[DATE]'
-#    #     and l_shipdate > date '[DATE]'
-#    #   group by
-#    #     l_orderkey,
-#    #     o_orderdate,
-#    #     o_shippriority
-#    #   order by
-#    #    revenue desc,
-#    #    o_orderdate;
+
+    # === Q3 ===
+    #   select
+    #     l_orderkey,
+    #     sum(l_extendedprice*(1-l_discount)) as revenue,
+    #     o_orderdate,
+    #     o_shippriority
+    #   from
+    #     customer,
+    #     orders,
+    #     lineitem
+    #   where
+    #     c_mktsegment = '[SEGMENT]'
+    #     and c_custkey = o_custkey
+    #     and l_orderkey = o_orderkey
+    #     and o_orderdate < date '[DATE]'
+    #     and l_shipdate > date '[DATE]'
+    #   group by
+    #     l_orderkey,
+    #     o_orderdate,
+    #     o_shippriority
+    #   order by
+    #    revenue desc,
+    #    o_orderdate;
 
             Q 'SELECT lineitem.l_orderkey, sum(lineitem.l_extendedprice), sum(lineitem.l_discount), to_orders.o_orderdate, to_orders.o_shippriority '\
        'FROM lineitem.to_orders.to_customer '\
-       'WHERE to_customer.c_mktsegment = ? AND to_orders.o_orderdate < ? AND lineitem.l_shipdate > ? -- Q3'
+       'WHERE to_customer.c_mktsegment = ? AND to_orders.o_orderdate < ? AND lineitem.l_shipdate > ? '\
+       'ORDER BY lineitem.l_extendedprice, lineitem.l_discount, to_orders.o_orderdate ' \
+       'GROUP BY lineitem.l_orderkey, to_orders.o_orderdate, to_orders.o_shippriority -- Q3'
 
-#
-#    # === Q4 ===
-#    #   select
-#    #     o_orderpriority,
-#    #     count(*) as order_count
-#    #   from
-#    #     orders
-#    #   where
-#    #     o_orderdate >= date '[DATE]'
-#    #     and o_orderdate < date '[DATE]' + interval '3' month
-#    #     and exists (
-#    #        select
-#    #        *
-#    #        from
-#    #        lineitem
-#    #        where
-#    #        l_orderkey = o_orderkey
-#    #        and l_commitdate < l_receiptdate
-#    #     )
-#    #   group by
-#    #     o_orderpriority
-#    #   order by
-#    #     o_orderpriority;
+
+    # === Q4 ===
+    #   select
+    #     o_orderpriority,
+    #     count(*) as order_count
+    #   from
+    #     orders
+    #   where
+    #     o_orderdate >= date '[DATE]'
+    #     and o_orderdate < date '[DATE]' + interval '3' month
+    #     and exists (
+    #        select
+    #        *
+    #        from
+    #        lineitem
+    #        where
+    #        l_orderkey = o_orderkey
+    #        and l_commitdate < l_receiptdate
+    #     )
+    #   group by
+    #     o_orderpriority
+    #   order by
+    #     o_orderpriority;
 
          # this query only has one eq predicate and the predicates uses primary key field. Therefore, this query possibly does not use join plans
-     Q 'SELECT to_orders.o_orderpriority, count(to_orders.o_orderkey), count(to_orders.o_orderstatus), count(to_orders.o_totalprice), ' \
-      'count(to_orders.o_orderdate), count(to_orders.o_orderpriority), count(to_orders.o_clerk), count(to_orders.o_shippriority), count(to_orders.o_comment) ' \
+     Q 'SELECT to_orders.o_orderpriority, count(to_orders.o_orderkey) ' \
       'FROM lineitem.to_orders '\
       'WHERE to_orders.o_orderkey = ? AND to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? AND lineitem.l_commitdate < ? AND lineitem.l_receiptdate > ? ' \
+      'ORDER BY to_orders.o_orderpriority ' \
       'GROUP BY to_orders.o_orderpriority -- Q4'
 
-#    # === Q5 ===
-#    #   select
-#    #     n_name,
-#    #     sum(l_extendedprice * (1 - l_discount)) as revenue
-#    #   from
-#    #     customer,
-#    #     orders,
-#    #     lineitem,
-#    #     supplier,
-#    #     nation,
-#    #     region
-#    #   where
-#    #     c_custkey = o_custkey
-#    #     and l_orderkey = o_orderkey
-#    #     and l_suppkey = s_suppkey
-#    #     and c_nationkey = s_nationkey
-#    #     and s_nationkey = n_nationkey
-#    #     and n_regionkey = r_regionkey
-#    #     and r_name = '[REGION]'
-#    #     and o_orderdate >= date '[DATE]'
-#    #     and o_orderdate < date '[DATE]' + interval '1' year
-#    #   group by
-#    #     n_name
-#    #   order by
-#    #     revenue desc;
+    # === Q5 ===
+    #   select
+    #     n_name,
+    #     sum(l_extendedprice * (1 - l_discount)) as revenue
+    #   from
+    #     customer,
+    #     orders,
+    #     lineitem,
+    #     supplier,
+    #     nation,
+    #     region
+    #   where
+    #     c_custkey = o_custkey
+    #     and l_orderkey = o_orderkey
+    #     and l_suppkey = s_suppkey
+    #     and c_nationkey = s_nationkey
+    #     and s_nationkey = n_nationkey
+    #     and n_regionkey = r_regionkey
+    #     and r_name = '[REGION]'
+    #     and o_orderdate >= date '[DATE]'
+    #     and o_orderdate < date '[DATE]' + interval '1' year
+    #   group by
+    #     n_name
+    #   order by
+    #     revenue desc;
     #   'WHERE to_region.r_name = ? AND to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? ' \
 
 
@@ -207,6 +201,7 @@ NoSE::Workload.new do
     Q 'SELECT to_nation.n_name, sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
   'FROM lineitem.to_orders.to_customer.to_nation.to_region ' \
   'WHERE to_region.r_name = ? AND to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? ' \
+  'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
   'GROUP BY to_nation.n_name -- Q5'
 
 
@@ -270,6 +265,7 @@ NoSE::Workload.new do
               'sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
       'FROM lineitem.to_orders.to_customer.to_nation '\
       'WHERE lineitem.l_orderkey = ? AND lineitem.l_shipdate < ? AND lineitem.l_shipdate > ? ' \
+      'ORDER BY to_nation.n_name, lineitem.l_shipdate ' \
       'GROUP BY to_nation.n_name, lineitem.l_shipdate -- Q7'
 
     # === Q8 ===
@@ -314,6 +310,7 @@ NoSE::Workload.new do
     Q 'SELECT to_orders.o_orderdate, from_lineitem.l_extendedprice, from_lineitem.l_discount, to_nation.n_name '\
       'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation.to_region ' \
       'WHERE to_region.r_name = ? AND to_orders.o_orderdate < ? AND to_orders.o_orderdate > ? AND part.p_type = ? ' \
+      'ORDER BY to_orders.o_orderdate ' \
       'GROUP BY to_orders.o_orderdate -- Q8'
 
     # === Q9 ===
@@ -353,6 +350,7 @@ NoSE::Workload.new do
           'sum(from_partsupp.ps_supplycost), sum(from_lineitem.l_quantity) ' \
       'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation ' \
       'WHERE part.p_name = ? AND from_lineitem.l_orderkey = ? ' \
+      'ORDER BY to_nation.n_name, to_orders.o_orderdate ' \
       'GROUP BY to_nation.n_name, to_orders.o_orderdate -- Q9'
 
     # === Q10 ===
@@ -388,15 +386,14 @@ NoSE::Workload.new do
     #   order by
     #      revenue desc;
 
-#    Q 'SELECT to_customer.c_custkey, to_customer.c_name, '\
-#          'sum(lineitem.l_extendedprice), sum(lineitem.l_discount), '\
-#          'to_customer.c_acctbal, to_nation.n_name, '\
-#          'to_customer.c_address, to_customer.c_phone, to_customer.c_comment '\
-#       'FROM lineitem.to_orders.to_customer.to_nation '\
-#       'WHERE to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? AND lineitem.l_returnflag = ? '\
-#       'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
-#       'GROUP BY to_customer.c_custkey, to_customer.c_name, to_customer.c_acctbal, '\
-#          'to_customer.c_phone, to_nation.n_name, to_customer.c_address, to_customer.c_comment -- Q10'
+    Q 'SELECT to_customer.c_custkey, to_customer.c_name, '\
+          'sum(lineitem.l_extendedprice), sum(lineitem.l_discount), '\
+          'to_customer.c_acctbal, to_nation.n_name, '\
+          'to_customer.c_address, to_customer.c_phone, to_customer.c_comment '\
+       'FROM lineitem.to_orders.to_customer.to_nation '\
+       'WHERE to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? AND lineitem.l_returnflag = ? '\
+       'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
+       'GROUP BY to_customer.c_custkey -- Q10'
 
     # === Q11 ===
     #   select
@@ -430,6 +427,7 @@ NoSE::Workload.new do
     Q 'SELECT partsupp.ps_partkey, sum(partsupp.ps_supplycost), sum(partsupp.ps_availqty) ' \
       'FROM partsupp.to_supplier.to_nation '\
       'WHERE to_nation.n_name = ? AND partsupp.ps_supplycost = ? AND partsupp.ps_availqty = ? '\
+      'ORDER BY partsupp.ps_supplycost, partsupp.ps_availqty ' \
       'GROUP BY partsupp.ps_partkey -- Q11_outer'
     Q 'SELECT sum(partsupp.ps_supplycost), sum(partsupp.ps_availqty) '\
       'FROM partsupp.to_supplier.to_nation '\
@@ -469,6 +467,7 @@ NoSE::Workload.new do
       'WHERE lineitem.l_shipmode = ? AND lineitem.l_commitdate < ? ' \
           'AND lineitem.l_commitdate > ? AND lineitem.l_shipdate < ? ' \
           'AND lineitem.l_receiptdate > ? AND lineitem.l_receiptdate >= ? AND lineitem.l_receiptdate < ? ' \
+      'ORDER BY lineitem.l_shipmode ' \
       'GROUP BY lineitem.l_shipmode -- Q12'
 
     # === Q13 ===
@@ -550,12 +549,294 @@ NoSE::Workload.new do
       'WHERE lineitem.l_orderkey = ? AND lineitem.l_shipdate >= ? AND lineitem.l_shipdate < ? ' \
       'GROUP BY to_partsupp.ps_suppkey -- Q15_inner'
 
-      #Q 'select
-    ##      s_suppkey,
-    ##      s_name,
-    ##      s_address,
-    ##      s_phone,
-    ##      total_revenue
-    ##   from'
+    # === Q16 ===
+    # select
+    #     p_brand,
+    #     p_type,
+    #     p_size,
+    #     count(distinct ps_suppkey) as supplier_cnt
+    # from
+    #     partsupp,
+    #     part
+    # where
+    #     p_partkey = ps_partkey
+    #     and p_brand <> '[BRAND]'
+    #     and p_type not like '[TYPE]%'
+    #     and p_size in ([SIZE1], [SIZE2], [SIZE3], [SIZE4], [SIZE5], [SIZE6], [SIZE7], [SIZE8])
+    #     and ps_suppkey not in (
+    #         select
+    #         s_suppkey
+    #         from
+    #         supplier
+    #         where
+    #         s_comment like '%Customer%Complaints%'
+    #     )
+    # group by
+    #     p_brand,
+    #     p_type,
+    #     p_size
+    # order by
+    #     supplier_cnt desc,
+    #     p_brand,
+    #     p_type,
+    #     p_size;
+    #    Q 'SELECT supplier.s_suppkey FROM supplier WHERE supplier.comment = ? -- Q16_inner'
+    #    Q 'SELECT to_part.p_brand, to_part.p_type, to_part.p_size, count(partsupp.ps_suppkey) ' \
+#      'FROM partsupp.to_part ' \
+#      'WHERE to_part.p_brand = ? AND to_part.p_type = ? AND to_part.p_size = ? AND partsupp.ps_suppkey = ? ' \
+#      'ORDER BY to_part.p_brand, to_part.p_type, to_part.p_size ' \
+#      'GROUP BY to_part.p_brand, to_part.p_type, to_part.p_size -- Q16_outer'
+#
+#    # with ID field orderby
+#    #Q 'SELECT to_part.p_brand, to_part.p_type, to_part.p_size, count(partsupp.ps_suppkey) ' \
+#    #  'FROM partsupp.to_part ' \
+#    #  'WHERE to_part.p_brand = ? AND to_part.p_type = ? AND to_part.p_size = ? AND partsupp.ps_suppkey = ? ' \
+#    #  'ORDER BY partsupp.ps_suppkey, to_part.p_brand, to_part.p_type, to_part.p_size ' \
+#    #  'GROUP BY to_part.p_brand, to_part.p_type, to_part.p_size -- Q16_outer'
+#
+#    # == Q17 ==
+#    # select
+#    #   sum(l_extendedprice) / 7.0 as avg_yearly
+#    # from
+#    #   lineitem,
+#    #   part
+#    # where
+#    #   p_partkey = l_partkey
+#    #   and p_brand = '[BRAND]'
+#    #   and p_container = '[CONTAINER]'
+#    #   and l_quantity < (
+#    #     select
+#    #     0.2 * avg(l_quantity)
+#    #     from
+#    #     lineitem
+#    #     where
+#    #     l_partkey = p_partkey
+#    #   );
+#    Q 'SELECT sum(lineitem.l_extendedprice) ' \
+#      'FROM lineitem.to_partsupp.to_part ' \
+#      'WHERE to_part.p_brand = ? AND to_part.p_container = ? AND lineitem.l_quantity < ? -- Q17'
+#
+#    # == Q18 ==
+#    #select
+#    #   c_name,
+#    #   c_custkey,
+#    #   o_orderkey,
+#    #   o_orderdate,
+#    #   o_totalprice,
+#    #   sum(l_quantity)
+#    #from
+#    #   customer,
+#    #   orders,
+#    #   lineitem
+#    #where
+#    #   o_orderkey in (
+#    #       select
+#    #       l_orderkey
+#    #       from
+#    #       lineitem
+#    #       group by
+#    #       l_orderkey having
+#    #       sum(l_quantity) > [QUANTITY]
+#    #    )
+#    #   and c_custkey = o_custkey
+#    #   and o_orderkey = l_orderkey
+#    # group by
+#    #   c_name,
+#    #   c_custkey,
+#    #   o_orderkey,
+#    #   o_orderdate,
+#    #   o_totalprice
+#    # order by
+#    #   o_totalprice desc,
+#    #   o_orderdate;
+#         Q 'SELECT lineitem.l_orderkey FROM lineitem ' \
+#           'WHERE lineitem.dummy = ? AND lineitem.l_quantity > ? ' \
+#           'GROUP BY lineitem.l_orderkey -- Q18_inner'
+#         Q 'SELECT to_customer.c_name, to_customer.c_custkey, to_orders.o_orderkey, ' \
+#           'to_orders.o_orderdate, to_orders.o_totalprice, sum(lineitem.l_quantity) ' \
+#           'FROM lineitem.to_orders.to_customer ' \
+#           'WHERE to_orders.o_orderkey = ? ' \
+#           'ORDER BY to_orders.o_totalprice, to_orders.o_orderdate ' \
+#           'GROUP BY to_customer.c_custkey, to_orders.o_orderkey -- Q18_outer'
+#
+#    # == Q19 ==
+#    #select
+#    #   sum(l_extendedprice * (1 - l_discount) ) as revenue
+#    #from
+#    #   lineitem,
+#    #   part
+#    #where
+#    #   (
+#    #     p_partkey = l_partkey
+#    #     and p_brand = ‘[BRAND1]’
+#    #     and p_container in ( ‘SM CASE’, ‘SM BOX’, ‘SM PACK’, ‘SM PKG’)
+#    #     and l_quantity >= [QUANTITY1] and l_quantity <= [QUANTITY1] + 10
+#    #     and p_size between 1 and 5
+#    #     and l_shipmode in (‘AIR’, ‘AIR REG’)
+#    #     and l_shipinstruct = ‘DELIVER IN PERSON’
+#    #   )
+#    #   or
+#    #   (
+#    #     p_partkey = l_partkey
+#    #     and p_brand = ‘[BRAND2]’
+#    #     and p_container in (‘MED BAG’, ‘MED BOX’, ‘MED PKG’, ‘MED PACK’)
+#    #     and l_quantity >= [QUANTITY2] and l_quantity <= [QUANTITY2] + 10
+#    #     and p_size between 1 and 10
+#    #     and l_shipmode in (‘AIR’, ‘AIR REG’)
+#    #     and l_shipinstruct = ‘DELIVER IN PERSON’
+#    #   )
+#    #   or
+#    #   (
+#    #     p_partkey = l_partkey
+#    #     and p_brand = ‘[BRAND3]’
+#    #     and p_container in ( ‘LG CASE’, ‘LG BOX’, ‘LG PACK’, ‘LG PKG’)
+#    #     and l_quantity >= [QUANTITY3] and l_quantity <= [QUANTITY3] + 10
+#    #     and p_size between 1 and 15
+#    #     and l_shipmode in (‘AIR’, ‘AIR REG’)
+#    #     and l_shipinstruct = ‘DELIVER IN PERSON’
+#    #   );
+#         Q 'SELECT sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
+#           'FROM lineitem.to_partsupp.to_part ' \
+#           'WHERE to_part.p_brand = ? AND to_part.p_container = ? AND lineitem.l_quantity > ? ' \
+#           'AND to_part.p_size > ? AND lineitem.l_shipdate = ? AND lineitem.l_shipinstruct = ? -- Q19'
+#
+#    # == Q20 ==
+#    # select
+#    #   s_name,
+#    #   s_address
+#    # from
+#    #   supplier, nation
+#    # where
+#    #   s_suppkey in (
+#    #     select
+#    #       ps_suppkey
+#    #     from
+#    #       partsupp
+#    #     where
+#    #       ps_partkey in (
+#    #         select
+#    #           p_partkey
+#    #         from
+#    #           part
+#    #         where
+#    #           p_name like '[COLOR]%'
+#    #       )
+#    #       and ps_availqty > (
+#    #         select
+#    #           0.5 * sum(l_quantity)
+#    #         from
+#      #         lineitem
+#    #         where
+#    #           l_partkey = ps_partkey
+#    #           and l_suppkey = ps_suppkey
+#    #           and l_shipdate >= date('[DATE]’)
+#    #           and l_shipdate < date('[DATE]’) + interval ‘1’ year
+#    #       )
+#    #   )
+#    #   and s_nationkey = n_nationkey
+#    #   and n_name = '[NATION]'
+#    # order by
+#    #   s_name;
+#         Q 'SELECT part.p_partkey FROM part WHERE part.p_name = ? -- Q20_inner_inner_1'
+#         Q 'SELECT sum(lineitem.l_quantity) FROM lineitem WHERE lineitem.dummy = ? AND lineitem.l_shipdate > ? -- Q20_inner_inner_2'
+#         Q 'SELECT partsupp.ps_suppkey FROM partsupp WHERE partsupp.ps_partkey = ? AND partsupp.ps_availqty > ? -- Q20_inner'
+#         Q 'SELECT supplier.s_name, supplier.s_address ' \
+#           'FROM supplier.to_nation ' \
+#           'WHERE supplier.s_suppkey = ? AND to_nation.n_name = ? ' \
+#           'ORDER BY supplier.s_name -- Q20'
+#
+#    # == Q21 ==
+#    # select
+#    #   s_name,
+#    #   count(*) as numwait
+#    # from
+#    #   supplier,
+#    #   lineitem l1,
+#    #   orders,
+#    #   nation
+#    # where
+#    #   s_suppkey = l1.l_suppkey
+#    #   and o_orderkey = l1.l_orderkey
+#    #   and o_orderstatus = 'F'
+#    #   and l1.l_receiptdate > l1.l_commitdate
+#    #   and exists (
+#    #     select # ignore this subquery
+#    #       *
+#    #     from
+#    #       lineitem l2
+#    #     where
+#    #       l2.l_orderkey = l1.l_orderkey
+#    #       and l2.l_suppkey <> l1.l_suppkey
+#    #   )
+#    #   and not exists (
+#    #     select
+#    #       *
+#    #     from
+#    #       lineitem l3
+#    #     where
+#    #       l3.l_orderkey = l1.l_orderkey
+#    #       and l3.l_suppkey <> l1.l_suppkey
+#    #       and l3.l_receiptdate > l3.l_commitdate
+#    #   )
+#    #   and s_nationkey = n_nationkey
+#    #   and n_name = '[NATION]'
+#    # group by
+#    #   s_name
+#    # order by
+#    #   numwait desc,
+#    #   s_name;
+#         Q 'SELECT lineitem.* FROM lineitem ' \
+#           'WHERE lineitem.dummy = ? AND lineitem.l_receiptdate > ? AND lineitem.l_commitdate < ? -- Q21_inner'
+#         Q 'SELECT to_supplier.s_name, count(lineitem.l_orderkey) ' \
+#           'FROM lineitem.to_orders.to_customer.to_supplier.to_nation ' \
+#           'WHERE to_orders.o_orderstatus = ? AND lineitem.l_receiptdate > ? AND lineitem.l_commitdate < ? ' \
+#             'AND lineitem.l_orderkey = ? AND to_nation.n_name = ? ' \
+#           'ORDER BY to_supplier.s_name ' \
+#           'GROUP BY to_supplier.s_name -- Q21_outer'
+#
+#    # == Q22 ==
+#    # select
+#    #     cntrycode,
+#    #     count(*) as numcust,
+#    #     sum(c_acctbal) as totacctbal
+#    # from (
+#    #     select # -- Q22
+#    #         substring(c_phone from 1 for 2) as cntrycode,
+#    #         c_acctbal
+#    #     from
+#    #         customer
+#    #     where
+#    #         substring(c_phone from 1 for 2) in
+#    #         ('[I1]','[I2]’,'[I3]','[I4]','[I5]','[I6]','[I7]')
+#    #         and c_acctbal > (
+#    #             select  # -- Q22_inner_inner1
+#    #               avg(c_acctbal)
+#    #             from
+#    #               customer
+#    #             where
+#    #               c_acctbal > 0.00
+#    #               and substring (c_phone from 1 for 2) in
+#    #               ('[I1]','[I2]','[I3]','[I4]','[I5]','[I6]','[I7]')
+#    #         )
+#    #         and not exists (
+#    #             select # this query was converted to customer.c_custkey = ?
+#    #               *
+#    #             from
+#    #               orders
+#    #             where
+#    #               o_custkey = c_custkey
+#    #         )
+#    #     ) as custsale
+#    # group by
+#    # cntrycode
+#    # order by
+#    # cntrycode;
+#         Q 'SELECT avg(customer.c_acctbal) FROM customer ' \
+#           'WHERE customer.c_acctbal > ? AND customer.c_phone = ? -- Q22_inner_inner'
+#         Q 'SELECT customer.c_phone, sum(customer.c_acctbal), count(customer.c_custkey) ' \
+#           'FROM customer ' \
+#           'WHERE customer.c_phone = ? AND customer.c_acctbal > ? AND customer.c_custkey = ? ' \
+#           'ORDER BY customer.c_phone ' \
+#           'GROUP BY customer.c_phone -- Q22'
   end
 end

@@ -69,11 +69,6 @@ module NoSE
 
       puts "# of basic indexes is #{indexes.size}"
 
-      #pattern_miner = PatternMiner.new
-      #pattern_miner.pattern_for_workload @workload
-      #indexes = pattern_miner.validate_indexes indexes
-      #puts "# of pattern pruned indexes is #{indexes.size}"
-
       @logger.debug do
         "Indexes for workload:\n" + indexes.map.with_index do |index, i|
           "#{i} #{index.inspect}"
