@@ -6,22 +6,21 @@ NoSE::Workload.new do
   # Define queries and their relative weights, weights taken from below
   DefaultMix :default
 
-  # 1対多の多の側を更新する時は1の entity に CONNECT する
-#  Group 'Upseart', default: 1000 do
-#    Q 'INSERT INTO lineitem SET l_orderkey=?, l_linenumber=?, l_quantity=?, l_extendedprice=?, l_discount=?, ' \
-#                  'l_tax = ?, l_returnflag=?, l_linestatus=?, l_shipdate=?, l_commitdate=?, l_receiptdate=?, ' \
-#                  'l_shipmode=?, l_comment=? AND CONNECT TO to_partsupp(?), to_orders(?) -- 1'
-#    Q 'INSERT INTO part SET p_partkey=?, p_name=?, p_mfgr=?, p_brand=?, p_type=?, p_size=?, p_container=?, ' \
-#                  'p_retailprice=?, p_comment=? -- 2'
-#    Q 'INSERT INTO partsupp SET ps_partkey=?, ps_suppkey=?, ps_availqty=?, ps_supplycost=?, ps_comment=? ' \
-#                  'AND CONNECT TO to_part(?), to_supplier(?) -- 3'
-#    Q 'INSERT INTO orders SET o_orderkey=?, o_orderstatus=?, o_totalprice=?, o_orderdate=?, o_orderpriority=?, '\
-#                  'o_clerk=?, o_shippriority=?, o_comment=? AND CONNECT TO to_customer(?) -- 4'
-#    Q 'INSERT INTO nation SET n_nationkey=?, n_name=?, n_comment=? AND CONNECT TO to_region(?) -- 5'
-#    Q 'INSERT INTO region SET r_regionkey=?, r_name=?, r_comment=? -- 6'
-#    Q 'INSERT INTO supplier SET s_suppkey=?, s_name=?, s_address=?, s_phone=?, s_acctbal=?, s_comment=? '\
-#                  'AND CONNECT TO from_customer(?), to_nation(?) -- 7'
-#  end
+  Group 'Upseart', default: 1000 do
+    Q 'INSERT INTO lineitem SET l_orderkey=?, l_linenumber=?, l_quantity=?, l_extendedprice=?, l_discount=?, ' \
+                  'l_tax = ?, l_returnflag=?, l_linestatus=?, l_shipdate=?, l_commitdate=?, l_receiptdate=?, ' \
+                  'l_shipmode=?, l_comment=? AND CONNECT TO to_partsupp(?), to_orders(?) -- 1'
+    Q 'INSERT INTO orders SET o_orderkey=?, o_orderstatus=?, o_totalprice=?, o_orderdate=?, o_orderpriority=?, '\
+                  'o_clerk=?, o_shippriority=?, o_comment=? AND CONNECT TO to_customer(?) -- 4'
+    #Q 'INSERT INTO part SET p_partkey=?, p_name=?, p_mfgr=?, p_brand=?, p_type=?, p_size=?, p_container=?, ' \
+    #              'p_retailprice=?, p_comment=? -- 2'
+    #Q 'INSERT INTO partsupp SET ps_partkey=?, ps_suppkey=?, ps_availqty=?, ps_supplycost=?, ps_comment=? ' \
+    #              'AND CONNECT TO to_part(?), to_supplier(?) -- 3'
+    #Q 'INSERT INTO nation SET n_nationkey=?, n_name=?, n_comment=? AND CONNECT TO to_region(?) -- 5'
+    #Q 'INSERT INTO region SET r_regionkey=?, r_name=?, r_comment=? -- 6'
+    #Q 'INSERT INTO supplier SET s_suppkey=?, s_name=?, s_address=?, s_phone=?, s_acctbal=?, s_comment=? '\
+    #              'AND CONNECT TO from_customer(?), to_nation(?) -- 7'
+  end
 
   Group 'Group1', default: 1 do
     # === Q1 ===
@@ -51,11 +50,7 @@ NoSE::Workload.new do
          Q 'SELECT lineitem.l_returnflag, lineitem.l_linestatus, sum(lineitem.l_quantity), sum(lineitem.l_extendedprice), '\
              'sum(lineitem.l_extendedprice), sum(lineitem.l_discount), sum(lineitem.l_extendedprice), '\
              'sum(lineitem.l_discount), sum(lineitem.l_tax), avg(lineitem.l_quantity), '\
-             'avg(lineitem.l_extendedprice), avg(lineitem.l_discount), '\
-             'count(lineitem.l_orderkey), count(lineitem.l_linenumber), count(lineitem.l_quantity), '\
-             'count(lineitem.l_extendedprice), count(lineitem.l_discount), count(lineitem.l_tax), ' \
-             'count(lineitem.l_returnflag), count(lineitem.l_linestatus), count(lineitem.l_shipdate), ' \
-             'count(lineitem.l_commitdate), count(lineitem.l_shipmode), count(lineitem.l_comment) ' \
+             'avg(lineitem.l_extendedprice), avg(lineitem.l_discount), count(lineitem.l_orderkey) '\
            'FROM lineitem '\
            'WHERE lineitem.l_orderkey = ? AND lineitem.l_linenumber = ? AND lineitem.l_shipdate <= ? ' \
            'GROUP BY lineitem.l_returnflag, lineitem.l_linestatus -- Q1'
@@ -167,8 +162,7 @@ NoSE::Workload.new do
     #     o_orderpriority;
 
          # this query only has one eq predicate and the predicates uses primary key field. Therefore, this query possibly does not use join plans
-     Q 'SELECT to_orders.o_orderpriority, count(to_orders.o_orderkey), count(to_orders.o_orderstatus), count(to_orders.o_totalprice), ' \
-      'count(to_orders.o_orderdate), count(to_orders.o_orderpriority), count(to_orders.o_clerk), count(to_orders.o_shippriority), count(to_orders.o_comment) ' \
+     Q 'SELECT to_orders.o_orderpriority, count(to_orders.o_orderkey) ' \
       'FROM lineitem.to_orders '\
       'WHERE to_orders.o_orderkey = ? AND to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? AND lineitem.l_commitdate < ? AND lineitem.l_receiptdate > ? ' \
       'ORDER BY to_orders.o_orderpriority ' \
