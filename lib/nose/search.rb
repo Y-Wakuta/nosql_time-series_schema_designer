@@ -20,12 +20,13 @@ module NoSE
     # Searches for the optimal indices for a given workload
     class Search
       def initialize(workload, cost_model, objective = Objective::COST,
-                     by_id_graph = false)
+                     by_id_graph = false, is_pruned = false)
         @logger = Logging.logger['nose::search']
         @workload = workload
         @cost_model = cost_model
         @objective = objective
         @by_id_graph = by_id_graph
+        @is_pruned = is_pruned
 
         # For now we only support optimization based on cost when grouping by
         # ID graphs, but support for other objectives is still feasible
@@ -214,7 +215,9 @@ module NoSE
 
       # Get the cost of using each index for each query in a workload
       def query_costs(query_weights, indexes)
-        planner = Plans::QueryPlanner.new @workload, indexes, @cost_model
+        planner = @is_pruned ?
+                      Plans::PrunedQueryPlanner.new(@workload, indexes, @cost_model, 1) :
+                      Plans::QueryPlanner.new(@workload, indexes, @cost_model)
 
         results = Parallel.map(query_weights) do |query, weight|
           query_cost planner, query, weight

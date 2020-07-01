@@ -332,7 +332,7 @@ module NoSE
 
       # Find possible query plans for a query starting at the given step
       # @return [void]
-      def find_plans_for_step(step, indexes_by_joins, prune: true)
+      def find_plans_for_step(step, indexes_by_joins, prune: true, prune_slow: true)
         return if step.state.answered?
 
         steps = find_steps_for_state step, step.state, indexes_by_joins
@@ -424,6 +424,47 @@ module NoSE
       # @return [Array<PlanStep>]
       def find_steps_for_state(parent, state, indexes_by_joins)
         find_indexed_steps parent, state, indexes_by_joins
+      end
+    end
+
+    class PrunedQueryPlanner < QueryPlanner
+      def initialize(model, indexes, cost_model, index_step_size_threshold)
+        super(model, indexes, cost_model)
+        @index_step_size_threshold = index_step_size_threshold
+      end
+
+            # Find possible query plans for a query starting at the given step
+      # @return [void]
+      def find_plans_for_step(step, indexes_by_joins, prune: true, prune_slow: true)
+        return if step.state.answered?
+
+        if prune_slow and is_apparently_slow_plan? step
+          prune_plan step
+          return
+        end
+
+        steps = find_steps_for_state step, step.state, indexes_by_joins
+
+        if !steps.empty?
+          prepare_next_step step, steps, indexes_by_joins
+        elsif prune
+          return if step.is_a?(RootPlanStep) || prune_plan(step.parent)
+        else
+          step.children = [PrunedPlanStep.new]
+        end
+      end
+
+      # if the query plan joins many CFs, the query plan would be too slow
+      def is_apparently_slow_plan?(step)
+        current = step
+        indexPlanStepCount = 0
+        while !current.is_a? RootPlanStep
+          if current.is_a? IndexLookupPlanStep
+            indexPlanStepCount += 1
+          end
+          current = current.parent
+        end
+        indexPlanStepCount > 2 # threshold
       end
     end
   end
