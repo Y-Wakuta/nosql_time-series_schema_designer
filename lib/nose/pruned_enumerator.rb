@@ -7,10 +7,11 @@ require 'fpgrowth'
 module NoSE
   # Produces potential indices to be used in schemas
   class PrunedIndexEnumerator < IndexEnumerator
-    def initialize(workload, cost_model, is_shared_threshold)
+    def initialize(workload, cost_model, is_shared_threshold, index_steps_threshold)
       @eq_threshold = 1
       @cost_model = cost_model
       @is_shared_threshold = is_shared_threshold
+      @index_steps_threshold = index_steps_threshold
       super(workload)
     end
 
@@ -193,9 +194,9 @@ module NoSE
 
     # frequent entity_choices are combined. However, this result in no eq_choices for small sub-graphs
     # Only the reduced, in other words combined, field set have fields from more than two entities
-    # TODO: This code ignoring combined choices for small query graphs. Replace this logic to more reasonable one
+    # TODO: This code ignoring combined choices for small query graphs. Replace this logic to more sophisticated one
     def get_additional_shared_patterns_for_small_graph(graph, shared_patterns, entity_fields_patterns)
-      return [] unless shared_patterns.size > 0 and graph.entities.size > 3
+      return [] if shared_patterns.size > 0 or graph.entities.size > 3
       entity_fields_patterns[:shared]
           .select{|efs| efs.map(&:parent).uniq.size > 1}
           .map{|efs| efs.select{|f| graph.entities.include? f.parent}}
@@ -210,12 +211,12 @@ module NoSE
 
     def enumerate_unique_patterns(unique_patterns, graph_entity_size_for_unique)
       # unique fields is not shared with other queries and no need to enumerate subset of unique fields
-      1.upto([graph_entity_size_for_unique, 1].max()).flat_map do |n|
+      0.upto([graph_entity_size_for_unique, 1].max()).flat_map do |n|
         unique_patterns.combination(n)
                             .map(&:flatten)
                             .map(&:uniq)
                             .map{|e| e.sort_by { |b | [-b.cardinality, b.name] }}.uniq
-      end << []
+      end
     end
 
     def frequent_extra_choices(graph, select, eq, range, extra_fields)

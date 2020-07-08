@@ -438,12 +438,16 @@ module NoSE
       def find_plans_for_step(step, indexes_by_joins, prune: true, prune_slow: true)
         return if step.state.answered?
 
-        if prune_slow and is_apparently_slow_plan? step
-          prune_plan step
-          return
-        end
-
         steps = find_steps_for_state step, step.state, indexes_by_joins
+
+        if prune_slow
+          steps.each do |child_step|
+            if is_apparently_slow_plan? step, child_step
+              prune_plan step
+              return
+            end
+          end
+        end
 
         if !steps.empty?
           prepare_next_step step, steps, indexes_by_joins
@@ -455,7 +459,7 @@ module NoSE
       end
 
       # if the query plan joins many CFs, the query plan would be too slow
-      def is_apparently_slow_plan?(step)
+      def is_apparently_slow_plan?(step, child_step)
         current = step
         indexPlanStepCount = 0
         while !current.is_a? RootPlanStep
@@ -464,7 +468,7 @@ module NoSE
           end
           current = current.parent
         end
-        indexPlanStepCount > 2 # threshold
+        indexPlanStepCount >= @index_step_size_threshold and child_step.is_a? IndexLookupPlanStep # threshold
       end
     end
   end

@@ -2,7 +2,7 @@ module NoSE
   describe PrunedIndexEnumerator do
     include_context 'entities'
     include_context 'dummy cost model'
-    subject(:pruned_enum) { PrunedIndexEnumerator.new workload, cost_model, 1 }
+    subject(:pruned_enum) { PrunedIndexEnumerator.new workload, cost_model, 1, 100 }
 
     it 'produces a simple index for a filter' do
       query = Statement.parse 'SELECT User.Username FROM User ' \
@@ -63,7 +63,7 @@ module NoSE
       # Use a fresh workload for this test
       model = workload.model
       workload = Workload.new model
-      pruned_enum = PrunedIndexEnumerator.new workload, cost_model, 1
+      pruned_enum = PrunedIndexEnumerator.new workload, cost_model, 1, 100
       update = Statement.parse 'UPDATE User SET Username = ? ' \
                                'WHERE User.City = ?', model
       workload.add_statement update
@@ -75,7 +75,7 @@ module NoSE
       # Use a fresh workload for this test
       model = workload.model
       workload = Workload.new model
-      pruned_enum = PrunedIndexEnumerator.new workload, cost_model, 1
+      pruned_enum = PrunedIndexEnumerator.new workload, cost_model, 1, 100
 
       update = Statement.parse 'UPDATE User SET Username = ? ' \
                                'WHERE User.City = ?', model
@@ -112,8 +112,8 @@ module NoSE
             'WHERE to_customer.c_mktsegment = ?'\
         end
       end
-      indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model).indexes_for_workload.to_a
-      expect(indexes.size).to be 49
+      indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model, 1, 100).indexes_for_workload.to_a
+      expect(indexes.size).to be 41
     end
 
     it 'enumerates indexes for complicated queries and insert' do
@@ -138,8 +138,8 @@ module NoSE
           Q 'INSERT INTO nation SET n_nationkey=?, n_name=?, n_comment=? AND CONNECT TO to_region(?) -- 5'
         end
       end
-      indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model).indexes_for_workload.to_a
-      expect(indexes.size).to be 6632
+      indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model, 1, 100).indexes_for_workload.to_a
+      expect(indexes.size).to be 3859
     end
   end
 end
