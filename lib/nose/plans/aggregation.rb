@@ -60,6 +60,10 @@ module NoSE
       end
       private_class_method :required_fields?
 
+      def aggregation_fields
+        @counts + @sums + @avgs + @maxes + @groupby
+      end
+
       private
 
       # Apply the filters and perform a uniform estimate on the cardinality
