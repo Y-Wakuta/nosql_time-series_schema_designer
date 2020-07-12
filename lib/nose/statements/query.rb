@@ -18,6 +18,7 @@ module NoSE
       @avgs = params[:select][:avg] || Set.new
       @maxes = params[:select][:max] || Set.new
       @groupby = params[:groupby] || Set.new
+      @params = params
 
       fail InvalidStatementException, 'can\'t order by IDs' \
         if @order.any? { |f| f.is_a? Fields::IDField }
@@ -54,14 +55,22 @@ module NoSE
     def unparse
       field_namer = -> (f) { field_path f }
 
-      query = 'SELECT ' + @select.map(&field_namer).join(', ')
+      select = @select.map(&field_namer).map do |f_name|
+        next 'count(' + f_name + ')' if @counts.map(&:to_s).include? f_name
+        next 'sum(' + f_name + ')' if @sums.map(&:to_s).include? f_name
+        next 'avg(' + f_name + ')' if @avgs.map(&:to_s).include? f_name
+        next 'max(' + f_name + ')' if @maxes.map(&:to_s).include? f_name
+        f_name
+      end.join(', ')
+
+      query = 'SELECT ' + select
       query << " FROM #{from_path @graph.longest_path}"
       query << where_clause(field_namer)
-
       query << ' ORDER BY ' << @order.map(&field_namer).join(', ') \
         unless @order.empty?
       query << " LIMIT #{@limit}" unless @limit.nil?
-      query << " -- #{@comment}" unless @comment.nil?
+      query << " GROUP BY #{@groupby.map(&field_namer).join(', ')}" unless @groupby.empty?
+      query << " -- #{@comment}" unless @comment.nil? or @comment.empty?
 
       query
     end
@@ -74,16 +83,16 @@ module NoSE
 
     def ==(other)
       other.is_a?(Query) &&
-        @graph == other.graph &&
-        @select == other.select &&
-        @conditions == other.conditions &&
-        @order == other.order &&
-        @sums == other.sums &&
-        @counts == other.counts &&
-        @avgs == other.avgs &&
-        @groupby == other.groupby &&
-        @limit == other.limit &&
-        @comment == other.comment
+          @graph == other.graph &&
+          @select == other.select &&
+          @conditions == other.conditions &&
+          @order == other.order &&
+          @sums == other.sums &&
+          @counts == other.counts &&
+          @avgs == other.avgs &&
+          @groupby == other.groupby &&
+          @limit == other.limit &&
+          @comment == other.comment
     end
     alias eql? ==
 
@@ -106,6 +115,24 @@ module NoSE
     # @return [Set<Fields::Field>]
     def all_fields
       (@select + @conditions.each_value.map(&:field) + @order + @groupby).to_set
+    end
+
+    # this method is for debugging
+    def simplified_queries
+      simplified_queries = @select.to_a.combination(@select.size - 1).map(&:to_set).flat_map do |s|
+        next if s.empty?
+        @conditions.to_a.combination(@conditions.size - 1).flat_map do |cs|
+          next unless cs.any? {|c| c.last.operator == "=".to_sym}
+          (@groupby.to_a.combination(@groupby.size - 1) || Set.new).map(&:to_set).flat_map do |g|
+            params = @params.dup
+            params[:select][:fields] = s
+            params[:groupby] = g
+            params[:conditions] = cs.map{|c| Hash[c[0], c[1]]}.inject(&:merge)
+            Query.new params, ""
+          end
+        end
+      end.compact
+      simplified_queries
     end
 
     def self.get_fields(tree, params, field)
@@ -193,7 +220,7 @@ module NoSE
     # Support queries must also have their statement and index checked
     def ==(other)
       other.is_a?(SupportQuery) && @statement == other.statement &&
-        @index == other.index && @comment == other.comment
+          @index == other.index && @comment == other.comment
     end
     alias eql? ==
 
@@ -220,7 +247,7 @@ module NoSE
     # Migrate support queries must also have their statement and index checked
     def ==(other)
       other.is_a?(MigrateSupportQuery) && @statement == other.statement &&
-        @index == other.index && @comment == other.comment
+          @index == other.index && @comment == other.comment
     end
     alias eql? ==
 

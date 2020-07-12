@@ -20,6 +20,14 @@ module NoSE
         0
       end
 
+      # The cost of aggregating the intermediate results at the last step
+      # @return [Fixnum]
+      def aggregation_cost(_step)
+        # aggregation is done by sorting and grouping
+        #sort_cost(_step) + 0.00001
+        0.0001
+      end
+
       # The cost of limiting a result set
       # @return [Fixnum]
       def limit_cost(_step)

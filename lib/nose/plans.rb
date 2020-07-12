@@ -125,6 +125,7 @@ module NoSE
 end
 
 require_relative 'plans/filter'
+require_relative 'plans/aggregation'
 require_relative 'plans/index_lookup'
 require_relative 'plans/limit'
 require_relative 'plans/sort'

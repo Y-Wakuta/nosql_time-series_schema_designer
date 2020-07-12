@@ -280,6 +280,41 @@ module NoSE
         end
       end
 
+      class AggregateStatementStep < StatementStep
+        def initialize(_client, _fields, _conditions,
+                       step, _next_step, _prev_step)
+          @step = step
+        end
+
+        def process(_conditions, results, _ = nil)
+          # execute GROUP BY field first
+          grouped_results = results.group_by{|rr| @step.groupby.map(&:id).map{|r| rr[r]} }
+
+          grouped_results.map do |k, group|
+            row = {}
+            @step.sums.each do |sum_field|
+              row[sum_field] = group.map{|r| r[sum_field.id].to_f}.sum
+            end
+            @step.counts.each do |count_field|
+              row[count_field] = group.map{|r| r[count_field.id]}.count
+            end
+            @step.maxes.each do |max_field|
+              row[max_field] = group.map{|r| r[max_field.id].to_f}.max
+            end
+            @step.avgs.each do |avg_field|
+              summation = group.map{|r| r[avg_field.id].to_f}.sum.to_f
+              row[avg_field] = summation / group.map{|r| r[avg_field.id].to_f}.count
+            end
+            @step.groupby.each do |groupby_field|
+              row[groupby_field] = group.map{|r| r[groupby_field.id]}.first
+            end
+            fail if (group.first.keys - row.keys.map(&:id)).size > 0
+
+            Hash[k, row]
+          end
+        end
+      end
+
       # Perform a client-side limit of the result set size
       class LimitStatementStep < StatementStep
         def initialize(_client, _fields, _conditions,

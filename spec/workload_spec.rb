@@ -97,9 +97,9 @@ module NoSE
       end
 
       expect(workload.statement_weights).to eq(
-        Statement.parse(query1, workload.model) => 0.5,
-        Statement.parse(query2, workload.model) => 0.5
-      )
+                                              Statement.parse(query1, workload.model) => 0.5,
+                                              Statement.parse(query2, workload.model) => 0.5
+                                            )
     end
   end
 

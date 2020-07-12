@@ -20,12 +20,13 @@ module NoSE
     # Searches for the optimal indices for a given workload
     class Search
       def initialize(workload, cost_model, objective = Objective::COST,
-                     by_id_graph = false)
+                     by_id_graph = false, is_pruned = false)
         @logger = Logging.logger['nose::search']
         @workload = workload
         @cost_model = cost_model
         @objective = objective
         @by_id_graph = by_id_graph
+        @is_pruned = is_pruned
 
         # For now we only support optimization based on cost when grouping by
         # ID graphs, but support for other objectives is still feasible
@@ -214,7 +215,9 @@ module NoSE
 
       # Get the cost of using each index for each query in a workload
       def query_costs(query_weights, indexes)
-        planner = Plans::QueryPlanner.new @workload, indexes, @cost_model
+        planner = @is_pruned ?
+                      Plans::PrunedQueryPlanner.new(@workload, indexes, @cost_model, 1) :
+                      Plans::QueryPlanner.new(@workload, indexes, @cost_model)
 
         results = Parallel.map(query_weights) do |query, weight|
           query_cost planner, query, weight
@@ -316,8 +319,8 @@ module NoSE
             # WARNING: fix this invalid conditions.
             # Ignoring steps that have filtering steps just overwrites the cost value of step in another query plan.
             if not is_same_cost(current_cost, cost) \
-              and not steps.any?{|step| step.is_a? Plans::FilterPlanStep} \
-              and not query_costs[index_step.index].first.any?{|s| s.is_a? Plans::FilterPlanStep }
+              and not has_parent_filter_step(steps.last) \
+              and not has_parent_filter_step(query_costs[index_step.index].first.last)
               index = index_step.index
               p query.class
               p query
@@ -342,8 +345,8 @@ module NoSE
                 puts '======================================='
               end
 
-              puts
-              p tree
+              #puts
+              #p tree
 
               fail
             end
@@ -352,6 +355,16 @@ module NoSE
             query_costs[index_step.index] = [steps, cost]
           end
         end
+      end
+
+      def has_parent_filter_step(step)
+        current = step
+        while true
+          return false if current.is_a? Plans::RootPlanStep
+          return true if current.is_a? Plans::FilterPlanStep
+          current = current.parent
+        end
+        fail
       end
     end
   end

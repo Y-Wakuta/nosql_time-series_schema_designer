@@ -56,8 +56,7 @@ module NoSE
           check_all_hash_fields parent, index, state
           check_graph_fields parent, index, state
           check_last_fields index, state
-          check_aggregate_fields parent, index
-          check_parent_groupby parent
+          check_parent_aggregation parent
         rescue InvalidIndex
           return nil
         end
@@ -65,23 +64,10 @@ module NoSE
         IndexLookupPlanStep.new(index, state, parent)
       end
 
-      def self.check_parent_groupby(parent)
-        return unless parent.is_a? Plans::IndexLookupPlanStep
-        # no column family with GROUP BY can become parent of any index
-        fail InvalidIndex if parent.index.has_aggregation_fields?
+      def self.check_parent_aggregation(parent)
+        fail InvalidIndex if parent.is_a? Plans::AggregationPlanStep
       end
-
-      # remove invalid query plans because of aggregation fields
-      def self.check_aggregate_fields(parent, index)
-        return unless parent.is_a? IndexLookupPlanStep
-
-        # fields used for join parent_index and current index
-        join_fields = parent.index.all_fields & (index.hash_fields + index.order_fields)
-        aggregation_fields = parent.index.count_fields + parent.index.sum_fields + parent.index.max_fields + parent.index.avg_fields
-
-        # if all primary fields used for joining column families are aggregate fields, raise InvalidIndex
-        fail InvalidIndex if join_fields.select(&:primary_key).all?{|f| aggregation_fields.include? f}
-      end
+      private_class_method :check_parent_aggregation
 
       # Check that this index is a valid continuation of the set of joins
       # @raise [InvalidIndex]
@@ -122,20 +108,14 @@ module NoSE
         parent_ids = Set.new [last_parent_entity.id_field]
         has_ids = parent_ids.subset? parent_index.all_fields
 
-        # GROUP BY clause affect the hash_fields.
-        if index.groupby_fields.empty? # if this index is not for GROUP BY,
-          # If the last step gave an ID, we must use it
-          # XXX This doesn't cover all cases
-          return true if has_ids && index.hash_fields.to_set != parent_ids
+        # If the last step gave an ID, we must use it
+        # XXX This doesn't cover all cases
+        return true if has_ids && index.hash_fields.to_set != parent_ids
 
-          # If we're looking up from a previous step, only allow lookup by ID
-          return true unless (index.graph.size == 1 &&
-            parent_index.graph != index.graph) ||
-            index.hash_fields == parent_ids
-        else
-          # if this index is for GROUP BY, the hash_fields does not necessary to have ID.
-          return true unless has_ids && (index.hash_fields + index.order_fields) >= parent_ids
-        end
+        # If we're looking up from a previous step, only allow lookup by ID
+        return true unless (index.graph.size == 1 &&
+          parent_index.graph != index.graph) ||
+          index.hash_fields == parent_ids
 
         return true if is_useless_parent?(state, index, parent_index)
 
@@ -356,11 +336,6 @@ module NoSE
         # Remove fields resolved by this index
         @state.fields -= @index.all_fields
         @state.eq -= @eq_filter
-        @state.counts -= @index.count_fields.to_set
-        @state.sums -= @index.sum_fields
-        @state.maxes -= @index.max_fields
-        @state.avgs -= @index.avg_fields
-        @state.groupby -= @index.groupby_fields
 
         indexed_by_id = resolve_order
         strip_graph

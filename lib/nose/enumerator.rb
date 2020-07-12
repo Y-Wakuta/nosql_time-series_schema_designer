@@ -69,11 +69,6 @@ module NoSE
 
       puts "# of basic indexes is #{indexes.size}"
 
-      #pattern_miner = PatternMiner.new
-      #pattern_miner.pattern_for_workload @workload
-      #indexes = pattern_miner.validate_indexes indexes
-      #puts "# of pattern pruned indexes is #{indexes.size}"
-
       @logger.debug do
         "Indexes for workload:\n" + indexes.map.with_index do |index, i|
           "#{i} #{index.inspect}"
@@ -158,7 +153,7 @@ module NoSE
       choices.reject(&:empty?) << []
     end
 
-    def indexes_for_choices(graph, count, sum, max, avg, group_by, choices, order_choices)
+    def indexes_for_choices(graph, choices, order_choices)
       return [] if choices.size == 0
       Parallel.flat_map(choices, in_processes: 6) do |index, extra|
         indexes = []
@@ -179,14 +174,7 @@ module NoSE
             extra_fields = extra - hash_fields - order_fields
             next if order_fields.empty? && extra_fields.empty?
 
-            all_fields = hash_fields.to_set + order_fields.to_set + extra.to_set
-            non_aggregate_index = generate_index hash_fields, order_fields, extra_fields, graph, Set.new, Set.new, Set.new, Set.new, Set.new
-
-            if [count, sum, max, avg, group_by].any?{|af| not af.empty?} && [count, sum, avg, group_by].all?{|af| all_fields >= af}
-              aggregate_index = generate_index hash_fields, order_fields, extra_fields, graph,
-                                         count, sum, max, avg, group_by
-            end
-            [non_aggregate_index, aggregate_index].compact
+            generate_index hash_fields, order_fields, extra_fields, graph
           end
         end
 
@@ -210,14 +198,14 @@ module NoSE
 
       # Generate all possible indices based on the field choices
       choices = eq_choices.product(extra_choices)
-      indexes_for_choices graph, count, sum, max, avg, group_by, choices, order_choices
+      indexes_for_choices graph, choices, order_choices
     end
 
     # Generate a new index and ignore if invalid
     # @return [Index]
-    def generate_index(hash, order, extra, graph, count, sum, max, avg, grpby)
+    def generate_index(hash, order, extra, graph)
       begin
-        index = Index.new hash, order.uniq, extra, graph, count_fields: count, sum_fields: sum, max_fields: max, avg_fields: avg, groupby_fields: grpby
+        index = Index.new hash, order.uniq, extra, graph
         @logger.debug { "Enumerated #{index.inspect}" }
       rescue InvalidIndexException
         # This combination of fields is not valid, that's ok

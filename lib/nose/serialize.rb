@@ -116,11 +116,6 @@ module NoSE
                   f.call(fragment['order_fields']),
                   f.call(fragment['extra']),
                   graph,
-                  count_fields: f.call(fragment['count_fields']).to_set,
-                  sum_fields: f.call(fragment['sum_fields']).to_set,
-                  max_fields: f.call(fragment['max_fields']).to_set,
-                  avg_fields: f.call(fragment['avg_fields']).to_set,
-                  groupby_fields: f.call(fragment['groupby_fields']).to_set,
                   saved_key: fragment['key']
       end
     end
@@ -158,11 +153,6 @@ module NoSE
       property :size
       property :hash_count
       property :per_hash_count
-      collection :count_fields, decorator: FieldRepresenter
-      collection :sum_fields, decorator: FieldRepresenter
-      collection :max_fields, decorator: FieldRepresenter
-      collection :avg_fields, decorator: FieldRepresenter
-      collection :groupby_fields, decorator: FieldRepresenter
     end
 
     class TimeDependIndexesBuilder
@@ -320,6 +310,14 @@ module NoSE
       property :limit
     end
 
+    class AggregationStepRepresenter < PlanStepRepresenter
+      property :counts, decrator: FieldRepresenter
+      property :sums, decrator: FieldRepresenter
+      property :avgs, decrator: FieldRepresenter
+      property :maxes, decrator: FieldRepresenter
+      property :groupby, decrator: FieldRepresenter
+    end
+
     # Represent the filtered fields in filter plan steps
     class FilterStepRepresenter < PlanStepRepresenter
       collection :eq, decorator: FieldRepresenter
@@ -353,7 +351,8 @@ module NoSE
           index_lookup: IndexLookupStepRepresenter,
           filter: FilterStepRepresenter,
           sort: SortStepRepresenter,
-          limit: LimitStepRepresenter
+          limit: LimitStepRepresenter,
+          aggregation: AggregationStepRepresenter
         }[options[:input].class.subtype_name.to_sym] || PlanStepRepresenter
       end)
     end
