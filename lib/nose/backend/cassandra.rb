@@ -354,11 +354,9 @@ module NoSE
         # @return [String]
         def select_cql(select, conditions)
           select = expand_selected_fields select
-          select_fields = select_with_aggregations select
-          cql = "SELECT #{select_fields} FROM " \
+          cql = "SELECT #{select} FROM " \
                 "\"#{@step.index.key}\" WHERE #{cql_where_clause conditions}"
           cql += cql_order_by
-          cql += cql_group_by
 
           # Add an optional limit
           cql << " LIMIT #{@step.limit}" unless @step.limit.nil?
@@ -366,22 +364,6 @@ module NoSE
           puts cql
 
           cql
-        end
-
-        def select_with_aggregations(select)
-          count_fields = select.select{|f| @step.index.count_fields.include? f}
-          sum_fields = select.select{|f| @step.index.sum_fields.include? f}
-          avg_fields = select.select{|f| @step.index.avg_fields.include? f}
-          max_fields = select.select{|f| @step.index.max_fields.include? f}
-          non_aggregate_fields = select - count_fields - sum_fields - avg_fields - max_fields
-
-          select_fields = []
-          select_fields.append non_aggregate_fields.map { |f| "\"#{f.id}\"" }.join(', ') unless non_aggregate_fields.empty?
-          select_fields.append count_fields.map{|f| "count(\"#{f.id}\")"} unless count_fields.empty?
-          select_fields.append sum_fields.map{|f| "sum(\"#{f.id}\")"} unless sum_fields.empty?
-          select_fields.append avg_fields.map{|f| "avg(\"#{f.id}\")"} unless avg_fields.empty?
-          select_fields.append max_fields.map{|f| "max(\"#{f.id}\")"} unless max_fields.empty?
-          select_fields.join ', '
         end
 
         # Produce a CQL where clause using the given conditions

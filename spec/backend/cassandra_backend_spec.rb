@@ -146,5 +146,41 @@ module NoSE
         prepared.process [links.first['Link_LinkId']]
       end
     end
+
+    describe CassandraBackend::AggregateStatementStep do
+      include_context 'dummy Cassandra backend'
+
+      it 'aggregates result rows' do
+        # Materialize a view for the given query
+        query = Statement.parse 'SELECT sum(Tweet.Body), max(Tweet.Retweets), User.Username FROM Tweet.User ' \
+                                'WHERE User.Username = "Bob" ' \
+                                'GROUP BY User.Username',
+                                workload.model
+        index = query.materialize_view
+        planner = Plans::QueryPlanner.new workload.model, [index], cost_model
+        step = planner.min_plan(query).last
+
+        client = double('client')
+
+        results = [
+            {'Tweet_Body' => '1', 'Tweet_Retweets' => '11', 'User_Username' => 'Bob'},
+            {'Tweet_Body' => '2', 'Tweet_Retweets' => '12', 'User_Username' => 'Bob'},
+            {'Tweet_Body' => '3', 'Tweet_Retweets' => '13', 'User_Username' => 'Alice'},
+            {'Tweet_Body' => '4', 'Tweet_Retweets' => '14', 'User_Username' => 'Alice'},
+        ]
+        def results.last_page?
+          true
+        end
+        step_class = CassandraBackend::AggregateStatementStep
+        prepared = step_class.new client, query.all_fields, query.conditions,
+                                  step, nil, step.parent
+        actual = prepared.process query.conditions, results, nil
+        expected = [
+            {["Bob"] => {tweet['Body'] => 3.0, tweet['Retweets'] => 12.0, user['Username'] => "Bob"}},
+            {["Alice"] => {tweet['Body'] => 7.0, tweet['Retweets'] => 14.0, user['Username'] => "Alice"}}
+        ]
+        expect(actual).to eq(expected)
+      end
+    end
   end
 end
