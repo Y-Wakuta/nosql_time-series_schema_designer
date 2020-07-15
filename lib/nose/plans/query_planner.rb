@@ -305,8 +305,8 @@ module NoSE
         # Walk up the tree and remove the branch for the failed plan
         while prune_step.children.length <= 1 &&
               !prune_step.is_a?(RootPlanStep)
-          prune_step = prune_step.parent
           prev_step = prune_step
+          prune_step = prune_step.parent
         end
 
         # If we reached the root, we have no plan
