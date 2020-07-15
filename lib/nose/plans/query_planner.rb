@@ -278,6 +278,50 @@ module NoSE
         find_plans_for_query(query).min
       end
 
+      # # Remove plans ending with this step in the tree
+      # # @return[Boolean] true if pruning resulted in an empty tree
+      #def prune_plan(prune_step)
+      #  prev_step = nil
+      #  return true if prune_step.is_a? RootPlanStep
+
+      #  # Walk up the tree and remove the branch for the failed plan
+      #  loop do
+      #    prev_step = prune_step
+      #    prune_step = prune_step.parent
+
+      #    break if prune_step.is_a?(RootPlanStep) or prune_step.children.length > 1
+      #  end
+
+      #  # If we reached the root, we have no plan
+      #  return true if prune_step.is_a? RootPlanStep and prune_step.children.length <= 1
+      #  # If the only one plan is left, we should not delete children
+      #  return true if prune_step.children.length <= 1
+
+      #  tmp = prune_step.children.dup
+      #  prune_step.children.delete prev_step
+      #  puts "deleted child number is : " + (tmp.size - prune_step.children.size).to_s
+
+      #  false
+      #end
+
+      # Remove plans ending with this step in the tree
+      # @return[Boolean] true if pruning resulted in an empty tree
+      def prune_plan(prune_step)
+        # Walk up the tree and remove the branch for the failed plan
+        while prune_step.children.length <= 1 &&
+              !prune_step.is_a?(RootPlanStep)
+          prev_step = prune_step
+          prune_step = prune_step.parent
+        end
+
+        # If we reached the root, we have no plan
+        return true if prune_step.is_a? RootPlanStep
+
+        prune_step.children.delete prev_step
+
+        false
+      end
+
       private
 
       # Produce indexes possibly useful for this query
@@ -297,24 +341,6 @@ module NoSE
         end
 
         indexes_by_joins
-      end
-
-      # Remove plans ending with this step in the tree
-      # @return[Boolean] true if pruning resulted in an empty tree
-      def prune_plan(prune_step)
-        # Walk up the tree and remove the branch for the failed plan
-        while prune_step.children.length <= 1 &&
-              !prune_step.is_a?(RootPlanStep)
-          prev_step = prune_step
-          prune_step = prune_step.parent
-        end
-
-        # If we reached the root, we have no plan
-        return true if prune_step.is_a? RootPlanStep
-
-        prune_step.children.delete prev_step
-
-        false
       end
 
       def prepare_next_step(step, child_steps, indexes_by_joins)
