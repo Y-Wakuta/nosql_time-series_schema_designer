@@ -386,46 +386,6 @@ module NoSE
       end
     end
 
-    class PreparingQueryPlanner < QueryPlanner
-
-      def initialize(model, indexes, cost_model, depth)
-        @depth = depth
-        super(model, indexes, cost_model)
-      end
-
-      def plan_depth(step)
-        depth = 0
-        tmp_step = step
-        while (not tmp_step.is_a? RootPlanStep) and (not tmp_step.parent.is_a? RootPlanStep)
-          tmp_step = tmp_step.parent
-          depth += 1
-        end
-        depth
-      end
-
-      # Find possible query plans for a query starting at the given step
-      # @return [void]
-      def find_plans_for_step(step, indexes_by_joins, prune: true)
-        return if step.state.answered?
-
-        steps = find_steps_for_state step, step.state, indexes_by_joins
-
-        # create query plans with specified depth
-        if !steps.empty? and plan_depth(step) < @depth
-          prepare_next_step step, steps, indexes_by_joins
-        elsif prune
-          return if step.is_a?(RootPlanStep) || prune_plan(step.parent)
-        else
-          step.children = [PrunedPlanStep.new]
-        end
-      end
-
-      # Get a list of possible next steps for a query in the given state
-      # @return [Array<PlanStep>]
-      def find_steps_for_state(parent, state, indexes_by_joins)
-        find_indexed_steps parent, state, indexes_by_joins
-      end
-    end
 
     class PrunedQueryPlanner < QueryPlanner
       def initialize(model, indexes, cost_model, index_step_size_threshold)
@@ -469,6 +429,15 @@ module NoSE
           current = current.parent
         end
         indexPlanStepCount >= @index_step_size_threshold and child_step.is_a? IndexLookupPlanStep # threshold
+      end
+    end
+
+    class PreparingQueryPlanner < PrunedQueryPlanner
+
+      # Get a list of possible next steps for a query in the given state
+      # @return [Array<PlanStep>]
+      def find_steps_for_state(parent, state, indexes_by_joins)
+        find_indexed_steps parent, state, indexes_by_joins
       end
     end
   end
