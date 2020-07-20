@@ -260,6 +260,23 @@ module NoSE
           fail InvalidResultsException unless \
           (check_indexes_one_timestep - @enumerated_indexes).empty?
         end
+
+        validate_migrate_plans
+      end
+
+      def validate_migrate_plans
+        (0...(@timesteps - 1)).each do |now|
+
+          # all new CF need to have preparing plans
+          #(@indexes[now + 1] - @indexes[now]).each do |new_index|
+          (indexes_used_in_plans(now + 1) - indexes_used_in_plans(now)).each do |new_index|
+            prepare_plans = @migrate_plans.select{|mp| mp.start_time == now}.map{|mp| mp.prepare_plans}.flatten(1)
+            unless prepare_plans.any?{|pp| pp.index == new_index}
+              STDERR.puts new_index.inspect
+            end
+            fail 'no preparing plan for new CF provided' unless prepare_plans.any?{|pp| pp.index == new_index}
+          end
+        end
       end
 
       # Ensure that all the query plans use valid indexes
