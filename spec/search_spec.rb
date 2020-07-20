@@ -1,3 +1,6 @@
+require_relative './support/dummy_cost_model'
+require_relative './support/entities'
+
 module NoSE
   module Search
     describe Search do
@@ -116,6 +119,28 @@ module NoSE
         expect(result.plans).to have(1).plan
       end
 
+      it 'migration preparing plan produced in the result' do
+        rubis_workload = NoSE::TimeDependWorkload.new do
+          Model 'rubis'
+          increase = [1,2,3]
+          TimeSteps increase.size
+          Group 'ViewBidHistory', default: increase do
+            Q 'SELECT bids.* FROM items.bids WHERE items.id = ? -- 6'
+            Q 'SELECT bids.qty, bids.date FROM bids.item WHERE item.id=? ' \
+              'ORDER BY bids.bid LIMIT 2 -- 19'
+            Q 'INSERT INTO items SET id=?, name=?, description=?, initial_price=?, ' \
+              'quantity=?, reserve_price=?, buy_now=?, nb_of_bids=0, max_bid=0, ' \
+              'start_date=?, end_date=? AND CONNECT TO category(?), seller(?) -- 10'
+          end
+        end
+
+        indexes = PrunedIndexEnumerator.new(rubis_workload, cost_model, 1, 2).indexes_for_workload.to_a
+        #indexes = IndexEnumerator.new(rubis_workload).indexes_for_workload.to_a
+        expect do
+          Search.new(rubis_workload, cost_model).search_overlap indexes
+        end.not_to raise_error
+      end
+
       let(:cost_model) do
         class TmpDummyCost < NoSE::Cost::Cost
           include Subtype
@@ -125,6 +150,14 @@ module NoSE
             parts = _step.state.hash_cardinality
             0.0078395645 + parts * 0.0013692786 +
                 rows * 1.17093638386496e-005
+          end
+
+          def delete_cost(step)
+            0.001
+          end
+
+          def insert_cost(step)
+            0.001
           end
         end
         TmpDummyCost.new
