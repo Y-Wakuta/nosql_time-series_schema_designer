@@ -51,6 +51,12 @@ module NoSE
           fail if @time_depend_statement_weights[mix].map{|_, weights| weights.size}.uniq.size > 1
           frequencies = (frequency.nil? ? weight : frequency).map{|f| f * @interval}
           @time_depend_statement_weights[mix][statement] = frequencies
+
+          print group&.rjust(22)
+          print (" " + mix.to_s + " ").rjust(22)
+          print frequencies.map{|f| f.round.to_s.rjust(10)}
+          puts ""
+
         end
       elsif @definition_type == DEFINITION_TYPE::WORKLOAD_SET_RATIO
         fail "required field is not given" if @start_workload_ratio.nil? or @end_workload_ratio.nil? \
@@ -89,7 +95,7 @@ module NoSE
     def migrate_support_queries(index)
       # Get all fields which need to be selected by support queries
       select = index.all_fields - index.hash_fields - index.order_fields
-      return [] if select.empty?
+      select = index.hash_fields + index.order_fields if select.empty?
 
       # Build conditions by traversing the foreign keys
       conditions = (index.hash_fields + index.order_fields).map do |c|

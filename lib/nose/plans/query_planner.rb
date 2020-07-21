@@ -265,10 +265,10 @@ module NoSE
       # check the query plan tree include materialized plan
       def does_include_materialized_plan(tree, query)
         materialize_plans = tree.select do |plan|
-          plan.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}.size == 1
+          plan.indexes.size == 1
         end
         unless materialize_plans.any? {|mvp| mvp.indexes.include? query.materialize_view}
-          fail 'materialized plan is not enumerated'
+          #fail 'materialized plan is not enumerated'
         end
       end
 
@@ -276,6 +276,24 @@ module NoSE
       # @return [QueryPlan]
       def min_plan(query)
         find_plans_for_query(query).min
+      end
+
+      # Remove plans ending with this step in the tree
+      # @return[Boolean] true if pruning resulted in an empty tree
+      def prune_plan(prune_step)
+        # Walk up the tree and remove the branch for the failed plan
+        while prune_step.children.length <= 1 &&
+            !prune_step.is_a?(RootPlanStep)
+          prev_step = prune_step
+          prune_step = prune_step.parent
+        end
+
+        # If we reached the root, we have no plan
+        return true if prune_step.is_a? RootPlanStep
+
+        prune_step.children.delete prev_step
+
+        false
       end
 
       private
@@ -297,24 +315,6 @@ module NoSE
         end
 
         indexes_by_joins
-      end
-
-      # Remove plans ending with this step in the tree
-      # @return[Boolean] true if pruning resulted in an empty tree
-      def prune_plan(prune_step)
-        # Walk up the tree and remove the branch for the failed plan
-        while prune_step.children.length <= 1 &&
-              !prune_step.is_a?(RootPlanStep)
-          prev_step = prune_step
-          prune_step = prune_step.parent
-        end
-
-        # If we reached the root, we have no plan
-        return true if prune_step.is_a? RootPlanStep
-
-        prune_step.children.delete prev_step
-
-        false
       end
 
       def prepare_next_step(step, child_steps, indexes_by_joins)
@@ -432,12 +432,54 @@ module NoSE
       end
     end
 
+    # this planner only look for IndexLookupStep
+    # prune some indexes based on some roles
     class PreparingQueryPlanner < PrunedQueryPlanner
+
+      def initialize(model, indexes, cost_model, target_index,  index_step_size_threshold)
+        @target_index = target_index
+        indexes = remove_indexes_similar_to_target indexes, target_index
+
+        super(model, indexes, cost_model, index_step_size_threshold)
+      end
 
       # Get a list of possible next steps for a query in the given state
       # @return [Array<PlanStep>]
       def find_steps_for_state(parent, state, indexes_by_joins)
         find_indexed_steps parent, state, indexes_by_joins
+      end
+
+      def find_plans_for_query(query)
+        tree = super(query)
+        #if tree.to_a.size == 1
+        #  fail if tree.first.steps.size != 1
+        #  fail if tree.first.steps.first.index != @target_index
+        #end
+        fail 'migration support plan should include itself' unless tree.any? do |plan|
+          plan.indexes.size == 1 and plan.indexes.first == @target_index
+        end
+        tree
+      end
+
+      private
+
+      def remove_indexes_similar_to_target(indexes, target_index)
+        worth_indexes = indexes.select do |index|
+          next true if index == target_index # every preparing plan should have one plan consist of itself
+          next false if index.hash_fields == target_index.hash_fields \
+                          and index.all_fields == target_index.all_fields # no fields would be changed in this migration
+          true
+        end
+
+        # grouping used indexes and use only the first index
+        # Since Migration Support Query does not have ordering, non-hash_fields fields can be regarded as values simply
+        slim_indexes = worth_indexes.reject{|i| i == target_index}
+                           .group_by{|i| [i.hash_fields, (i.order_fields.to_set + i.extra).to_set]}
+                           .map do |_, index_group|
+          index_group.sort_by{|i| i.hash_str}.first
+        end << target_index
+
+        slim_indexes
       end
     end
   end

@@ -36,14 +36,14 @@ module NoSE
       range = get_query_range query
       eq = get_query_eq query
 
-      indexes = query.graph.subgraphs.flat_map do |graph|
+      #Parallel.flat_map(query.graph.subgraphs, in_processes: 5) do |graph|
+      query.graph.subgraphs.flat_map do |graph|
         indexes_for_graph graph, query.select, query.counts, query.sums, query.maxes, query.avgs, eq, range, query.groupby
       end.uniq << query.materialize_view
-
     end
 
     def indexes_for_queries(queries, additional_indexes)
-      #Parallel.map(queries) do |query|
+      #Parallel.map(queries, in_processes: 5) do |query|
       queries.map do |query|
         indexes_for_query(query).to_a
       end.inject(additional_indexes, &:+)
@@ -54,7 +54,7 @@ module NoSE
     def indexes_for_workload(additional_indexes = [], by_id_graph = false)
       queries = @workload.queries
       indexes = indexes_for_queries queries, additional_indexes
-      puts("basic query enumeration done : " + indexes.size.to_s)
+      #puts("basic query enumeration done : " + indexes.size.to_s)
 
       # Add indexes generated for support queries
       supporting = support_indexes indexes, by_id_graph
@@ -155,7 +155,8 @@ module NoSE
 
     def indexes_for_choices(graph, choices, order_choices)
       return [] if choices.size == 0
-      Parallel.flat_map(choices, in_processes: 6) do |index, extra|
+      #Parallel.flat_map(choices, in_processes: 6) do |index, extra|
+      choices.flat_map do |index, extra|
         indexes = []
 
         order_choices.each do |order|
@@ -164,8 +165,8 @@ module NoSE
               (index + order)
 
           # Partition into the ordering portion
-          indexes += Parallel.flat_map(index.partitions, in_threads: 5) do |index_prefix, order_prefix|
-          #index.partitions.each do |index_prefix, order_prefix|
+          #indexes += Parallel.flat_map(index.partitions, in_threads: 5) do |index_prefix, order_prefix|
+          indexes += index.partitions.each do |index_prefix, order_prefix|
             hash_fields = index_prefix.take_while do |field|
               field.parent == index.first.parent
             end
