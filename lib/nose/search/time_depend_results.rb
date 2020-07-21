@@ -167,8 +167,6 @@ module NoSE
         prepare_plans = []
         plan.each do |step|
           next unless step.is_a?(Plans::IndexLookupPlanStep)
-          next if step.index.extra.empty?
-
           migrate_support_query = migrate_prepare_plans.select{|p| p.index == step.index}.keys.first
           migrate_support_tree = migrate_prepare_plans.select{|p| p.index == step.index}.values.first[:tree]
           prepare_plan_for_the_timestep = migrate_support_tree.select do |plan|
@@ -266,10 +264,9 @@ module NoSE
 
       def validate_migrate_plans
         (0...(@timesteps - 1)).each do |now|
-
           # all new CF need to have preparing plans
-          #(@indexes[now + 1] - @indexes[now]).each do |new_index|
-          (indexes_used_in_plans(now + 1) - indexes_used_in_plans(now)).each do |new_index|
+          (@indexes[now + 1] - @indexes[now]).each do |new_index|
+            #(indexes_used_in_plans(now + 1) - indexes_used_in_plans(now)).each do |new_index|
             prepare_plans = @migrate_plans.select{|mp| mp.start_time == now}.map{|mp| mp.prepare_plans}.flatten(1)
             unless prepare_plans.any?{|pp| pp.index == new_index}
               STDERR.puts new_index.inspect
