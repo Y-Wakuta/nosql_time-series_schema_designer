@@ -27,6 +27,7 @@ module NoSE
         migrate_support_queries = @migrate_prepare_plans.keys
         queries += migrate_support_queries
         @include_migration_cost = workload.include_migration_cost
+        @MIGRATE_COST_DUMMY_CONST = 0.0000001 # multiple migrate cost by this value to ignore
 
         super(queries, workload.updates, data, objective)
       end
@@ -54,7 +55,7 @@ module NoSE
         end
 
         cost = add_update_costs cost
-        cost = add_migration_cost(cost) if @include_migration_cost
+        cost = add_migration_cost(cost)
         cost
       end
 
@@ -67,7 +68,10 @@ module NoSE
 
             # index which is during the preparing for the next timestep also need to be updated
             (0...(@timesteps - 1)).each do |ts|
-              min_cost.add @migrate_vars[index][ts + 1] * (@data[:prepare_update_costs][update][index][ts])
+              cost = @include_migration_cost ? @data[:prepare_update_costs][update][index][ts]
+                              : @MIGRATE_COST_DUMMY_CONST
+
+              min_cost.add @migrate_vars[index][ts + 1] * cost
             end
           end
         end
@@ -96,7 +100,8 @@ module NoSE
       def add_creation_cost(schema_cost)
         @indexes.each do |index|
           (1...@timesteps).each do |ts|
-            schema_cost.add @migrate_vars[index][ts] * index.creation_cost(@creation_coeff)
+            cost = @include_migration_cost ? index.creation_cost(@creation_coeff) : @MIGRATE_COST_DUMMY_CONST
+            schema_cost.add @migrate_vars[index][ts] * cost
           end
         end
         schema_cost
@@ -112,9 +117,8 @@ module NoSE
               if cost.nil?
                 subsubexpr.add MIPPeR::LinExpr.new
               else
-                query_cost = cost.last[ts] * 1.0
+                query_cost = @include_migration_cost ? cost.last[ts] * 1.0 : @MIGRATE_COST_DUMMY_CONST
                 cost_expr = @prepare_vars[index][query][ts] * query_cost
-
                 subsubexpr.add cost_expr
               end
             end)

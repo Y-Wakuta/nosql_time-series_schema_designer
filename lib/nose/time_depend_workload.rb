@@ -181,7 +181,8 @@ module NoSE
     end
 
     def IncludeMigrationCost(include_migration_cost)
-      puts "ignore migration cost" unless include_migration_cost
+      puts "ignore migration cost. NOTE: This option does not literally ignore migration cost. "\
+           "This option changes each migration cost drastically smaller" unless include_migration_cost
       @workload.include_migration_cost = include_migration_cost
     end
 
