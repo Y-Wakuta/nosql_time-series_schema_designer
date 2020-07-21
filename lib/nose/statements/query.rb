@@ -119,17 +119,15 @@ module NoSE
 
     # this method is for debugging
     def simplified_queries
-      simplified_queries = @select.to_a.combination(@select.size - 1).map(&:to_set).flat_map do |s|
+      simplified_queries = @select.to_a.combination(@select.size - 2).map(&:to_set).flat_map do |s|
         next if s.empty?
         @conditions.to_a.combination(@conditions.size - 1).flat_map do |cs|
           next unless cs.any? {|c| c.last.operator == "=".to_sym}
-          (@groupby.to_a.combination(@groupby.size - 1) || Set.new).map(&:to_set).flat_map do |g|
-            params = @params.dup
-            params[:select][:fields] = s
-            params[:groupby] = g
-            params[:conditions] = cs.map{|c| Hash[c[0], c[1]]}.inject(&:merge)
-            Query.new params, ""
-          end
+
+          params = @params.dup
+          params[:select][:fields] = s
+          params[:conditions] = cs.map{|c| Hash[c[0], c[1]]}.inject(&:merge)
+          [Query.new(params, "")]
         end
       end.compact
       simplified_queries
