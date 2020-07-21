@@ -174,20 +174,31 @@ module NoSE
       # Initialize query and index variables
       # @return [void]
       def add_variables
-        @index_vars = {}
+        add_index_variable
+        add_query_index_variable
+        add_cf_creation_variables
+        add_cf_prepare_variables
+      end
+
+      def add_query_index_variable
         @query_vars = {}
-        @indexes.each do |index|
-          @query_vars[index] = {}
-          @queries.each_with_index do |query, q|
-            @query_vars[index][query] = {}
+        @queries.each_with_index do |query, q|
+          @data[:costs][query].keys.each do |related_index|
+            @query_vars[related_index] = {} if @query_vars[related_index].nil?
+            @query_vars[related_index][query] = {} if @query_vars[related_index][query].nil?
             (0...@timesteps).each do |ts|
               query_var = "q#{q}_#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
               var = MIPPeR::Variable.new 0, 1, 0, :binary, query_var
               @model << var
-              @query_vars[index][query][ts] = var
+              @query_vars[related_index][query][ts] = var
             end
           end
+        end
+      end
 
+      def add_index_variable
+        @index_vars = {}
+        @indexes.each do |index|
           var_name = index.key if ENV['NOSE_LOG'] == 'debug'
           @index_vars[index] = {}
           (0...@timesteps).each do |ts|
@@ -219,9 +230,6 @@ module NoSE
         end
 
         @index_vars.each_value { |vars| vars.each_value {|var| @model << var }}
-
-        add_cf_creation_variables
-        add_cf_prepare_variables
       end
 
       # add variable for whether to create CF at the timestep
