@@ -27,7 +27,7 @@ module NoSE
         migrate_support_queries = @migrate_prepare_plans.keys
         queries += migrate_support_queries
         @include_migration_cost = workload.include_migration_cost
-        @MIGRATE_COST_DUMMY_CONST = 0.0000001 # multiple migrate cost by this value to ignore
+        @MIGRATE_COST_DUMMY_CONST = 0.00001 # multiple migrate cost by this value to ignore
 
         super(queries, workload.updates, data, objective)
       end
@@ -185,7 +185,7 @@ module NoSE
         @query_vars = {}
         @queries.each_with_index do |query, q|
           next if query.is_a? MigrateSupportQuery
-          @data[:costs][query].keys.each do |related_index|
+          @data[:costs][query].keys.uniq.each do |related_index|
             @query_vars[related_index] = {} if @query_vars[related_index].nil?
             @query_vars[related_index][query] = {} if @query_vars[related_index][query].nil?
             (0...@timesteps).each do |ts|
@@ -254,15 +254,15 @@ module NoSE
       # @return [void]
       def add_cf_prepare_variables
         @prepare_vars = {}
-        @indexes.each do |index|
-          @prepare_vars[index] = {}
           @queries.select{|q| q.is_a? MigrateSupportQuery}.each do |migrate_support_query|
-            @prepare_vars[index][migrate_support_query] = {}
-            (0...(@timesteps - 1)).each do |ts|
-              query_var = "ms_q_#{migrate_support_query}_#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
-              var = MIPPeR::Variable.new 0, 1, 0, :binary, query_var
-              @model << var
-              @prepare_vars[index][migrate_support_query][ts] = var
+            @data[:costs][migrate_support_query].keys.uniq.each do |related_index|
+              @prepare_vars[related_index] = {} if @prepare_vars[related_index].nil?
+              @prepare_vars[related_index][migrate_support_query] = {} if @prepare_vars[related_index][migrate_support_query].nil?
+              (0...(@timesteps - 1)).each do |ts|
+                query_var = "ms_q_#{migrate_support_query}_#{related_index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+                var = MIPPeR::Variable.new 0, 1, 0, :binary, query_var
+                @model << var
+                @prepare_vars[related_index][migrate_support_query][ts] = var
             end
           end
         end

@@ -8,7 +8,7 @@ module NoSE
       def self.apply(problem)
           # constraint for Query or SupportQuery
           problem.queries.reject{|q| q.is_a? MigrateSupportQuery}.each_with_index do |query, q|
-            problem.data[:costs][query].keys.each do |related_index|
+            problem.data[:costs][query].keys.uniq.each do |related_index|
               (0...problem.timesteps).each do |ts|
                 name = "q#{q}_#{index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
                 constr = MIPPeR::Constraint.new problem.query_vars[related_index][query][ts] +
@@ -21,13 +21,13 @@ module NoSE
 
           # constraint for MigrateSupportQuery
           # if the index is created in the migration process, indexes for migration are required
-          problem.indexes.each do |index|
-            problem.queries.select{|q| q.is_a? MigrateSupportQuery}.each do |ms_query|
-              (0...(problem.timesteps - 1)).each do |ts|
-                name = "ms_q#{ms_query}_#{index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
-                constr = MIPPeR::Constraint.new problem.prepare_vars[index][ms_query][ts] +
-                                                  problem.index_vars[index][ts] * -1,
-                                                :<=, 0, name
+          problem.queries.select{|q| q.is_a? MigrateSupportQuery}.each do |ms_query|
+            problem.data[:costs][ms_query].keys.uniq.each do |related_index|
+            (0...(problem.timesteps - 1)).each do |ts|
+              name = "ms_q#{ms_query}_#{related_index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              constr = MIPPeR::Constraint.new problem.prepare_vars[related_index][ms_query][ts] +
+                                                problem.index_vars[related_index][ts] * -1,
+                                              :<=, 0, name
                 problem.model << constr
               end
             end
