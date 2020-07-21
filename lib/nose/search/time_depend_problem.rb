@@ -43,7 +43,8 @@ module NoSE
       # @return [MIPPeR::LinExpr]
       def total_cost
         cost = @queries.reject{|q| q.is_a? MigrateSupportQuery}.reduce(MIPPeR::LinExpr.new) do |expr, query|
-          expr.add(@indexes.reduce(MIPPeR::LinExpr.new) do |subexpr, index|
+          used_indexes = data[:costs][query].keys
+          expr.add(used_indexes.reduce(MIPPeR::LinExpr.new) do |subexpr, index|
             subexpr.add((0...@timesteps).reduce(MIPPeR::LinExpr.new) do |subsubexpr, ts|
               subsubexpr.add total_query_cost(@data[:costs][query][index],
                                               @query_vars[index][query],
@@ -183,6 +184,7 @@ module NoSE
       def add_query_index_variable
         @query_vars = {}
         @queries.each_with_index do |query, q|
+          next if query.is_a? MigrateSupportQuery
           @data[:costs][query].keys.each do |related_index|
             @query_vars[related_index] = {} if @query_vars[related_index].nil?
             @query_vars[related_index][query] = {} if @query_vars[related_index][query].nil?
