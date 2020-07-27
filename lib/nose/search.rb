@@ -240,7 +240,7 @@ module NoSE
       def get_migrate_preparing_plans(indexes)
         migrate_plans = indexes.map do |base_index|
           #migrate_plans = Parallel.map(indexes, in_processes: [Etc.nprocessors - 3, 2].max()) do |base_index|
-          migrate_support_query = @workload.migrate_support_queries(base_index)
+          migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
 
           planner = Plans::PreparingQueryPlanner.new @workload, indexes, @cost_model, base_index,  2
           _costs, tree = query_cost planner, migrate_support_query, [1] * @workload.timesteps

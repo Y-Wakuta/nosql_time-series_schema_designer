@@ -275,11 +275,6 @@ module NoSE
       entity_choice
     end
 
-    def get_median(a)
-      a.sort!
-      (a.size % 2).zero? ? a[a.size/2 - 1, 2].inject(:+) / 2.0 : a[a.size/2]
-    end
-
     def enumerate_by_primary_fields(fields)
       primary_fields = fields.select{|f| f.primary_key?}.permutation.to_a
       non_primary_fields = fields.select{|f| !f.primary_key?}.sort_by { |fp| [-fp.cardinality, fp.name]}
