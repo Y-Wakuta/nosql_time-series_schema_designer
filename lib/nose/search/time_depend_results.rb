@@ -150,16 +150,14 @@ module NoSE
       def indexes_used_in_plans(timestep)
         indexes_query = @time_depend_plans
                             .map{|tdp| tdp.plans[timestep]}
-                            .map(&:indexes)
-                            .flatten(1)
+                            .flat_map(&:indexes)
         indexes_support_query = @time_depend_update_plans
                                     .map{|tdup| tdup.plans_all_timestep[timestep]
                                                     .plans
                                                     .map(&:query_plans)}
                                     .flatten(2)
-                                    .map(&:indexes)
-                                    .flatten(1)
-        indexes_query + indexes_support_query
+                                    .flat_map(&:indexes)
+        (indexes_query + indexes_support_query).uniq
       end
 
       # given timestep is one of obsolete timestep
@@ -272,17 +270,29 @@ module NoSE
             end
             fail 'no preparing plan for new CF provided' unless prepare_plans.any?{|pp| pp.index == new_index}
           end
+
+          #fail 'now + 1 does not match' unless @indexes[now + 1].to_set == indexes_used_in_plans(now + 1).to_set
+          #fail 'now does not match' unless @indexes[now].to_set == indexes_used_in_plans(now).to_set
         end
       end
 
-      # Ensure that all the query plans use valid indexes
       # @return [void]
-      def validate_query_indexes(plans)
-        plans.each do |plan|
-          plan.each do |step|
-            valid_plan = !step.is_a?(Plans::IndexLookupPlanStep) ||
-                @indexes.reduce(Set.new){|b, n| b.merge(n)}.include?(step.index)
-            fail InvalidResultsException unless valid_plan
+      def validate_query_indexes(td_plans)
+        td_plans.transpose.each_with_index do |plans_each_ts, ts|
+          validate_plans_use_existing_indexes plans_each_ts, @indexes[ts]
+
+          # Ensure that all of existing indexes are used in at least one query plan
+          current_used_indexes = plans_each_ts.flat_map(&:indexes).to_set
+          indexes_for_upseart = update_plans.flat_map{|_, upseart| upseart[ts]}
+                                    .flat_map(&:query_plans)
+                                    .flat_map(&:indexes)
+                                    .uniq.to_set
+          if @indexes[ts].to_set > (current_used_indexes + indexes_for_upseart)
+            puts "== unused indexes: "
+            (@indexes[ts].to_set - (current_used_indexes + indexes_for_upseart)).each do |i|
+              puts "#{ts} -- #{i.key} : #{i.hash_str}"
+            end
+            fail InvalidResultsException
           end
         end
       end
@@ -293,7 +303,7 @@ module NoSE
         @update_plans.each do |_, plan_all_timestep|
           plan_all_timestep.each_with_index do |plans_each_time, ts|
             plans_each_time.each do |plan|
-              validate_query_indexes plan.query_plans
+              validate_plans_use_existing_indexes plan.query_plans, @indexes[ts]
               valid_plan = @indexes[ts].include?(plan.index)
 
               # allow updating the index in the next timestep if it is for the migration

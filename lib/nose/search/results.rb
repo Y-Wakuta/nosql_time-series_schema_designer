@@ -186,10 +186,15 @@ module NoSE
       # Ensure that all the query plans use valid indexes
       # @return [void]
       def validate_query_indexes(plans)
+        validate_plans_use_existing_indexes plans, @indexes
+      end
+
+      # Ensure that all the query plans use valid indexes
+      def validate_plans_use_existing_indexes(plans, indexes)
         plans.each do |plan|
           plan.each do |step|
             valid_plan = !step.is_a?(Plans::IndexLookupPlanStep) ||
-              @indexes.include?(step.index)
+              indexes.include?(step.index)
             fail InvalidResultsException unless valid_plan
           end
         end
