@@ -17,7 +17,7 @@ NoSE::TimeDependWorkload.new do
   Static true
   timestep = increase.size
   TimeSteps timestep
-  Interval 7200
+  Interval 120
   IncludeMigrationCost false
 
   #increase_func = Proc.new() {|x_coef, t, y| (0..t).map{|t_| x_coef * t_ * t_ * t_ + y}}

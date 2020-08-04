@@ -12,7 +12,7 @@ NoSE::TimeDependWorkload.new do
 
   timesteps=10
   percentage=0.20
-  Interval 4000
+  Interval 65
 
   TimeSteps timesteps
   IncludeMigrationCost false
