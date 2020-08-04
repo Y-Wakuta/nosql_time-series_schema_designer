@@ -15,7 +15,7 @@ module NoSE
         TimeDependWorkload.new do
           TimeSteps ts
           DefaultMix :default
-          Interval 3600
+          Interval 60
           Model 'rubis'
 
           Group 'Test1', 1.0, default: [0.001, 0.5, 9] do
@@ -146,7 +146,7 @@ module NoSE
       end
 
       it 'time depend workload get the same cost as static workload if the frequency does not change' do
-        interval = 3600
+        interval = 60
         timesteps = 3
         td_workload_ = TimeDependWorkload.new do
           TimeSteps timesteps

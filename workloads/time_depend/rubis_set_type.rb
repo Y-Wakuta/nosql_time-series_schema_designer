@@ -9,7 +9,7 @@ NoSE::TimeDependWorkload.new do
   DefinitionType DEFINITION_TYPE::WORKLOAD_SET_RATIO
 
   TimeSteps 4
-  Interval 14400
+  Interval 240
   StartWorkloadSet :browsing, 0.9
   EndWorkloadSet :bidding, 0.1
 

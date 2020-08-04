@@ -18,9 +18,10 @@ module NoSE
       @time_depend_statement_weights = { default: {} }
       @model = model || Model.new
       @mix = :default
-      @interval = 3600 # set seconds in an hour as default
-      @creation_coeff = 0.01
-      @migrate_support_coeff = 0.00000001
+      @interval = 60 # set minutes in an hour as default
+      warn "The interval should be set in minutes" if @interval > 1000
+      @creation_coeff = 0.001
+      @migrate_support_coeff = 0.001
       @is_static = false
       @include_migration_cost = true
       @definition_type = DEFINITION_TYPE::FLOAT_ARRAY

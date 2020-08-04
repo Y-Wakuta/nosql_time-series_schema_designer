@@ -4,12 +4,12 @@
 NoSE::TimeDependWorkload.new do
   Model 'tpch'
 
-  doubled = (0..10).map{|i| 2 ** i}
+  doubled = (0..6).map{|i| (1.5 ** i)}
   # Define queries and their relative weights, weights taken from below
   DefaultMix :default
   TimeSteps doubled.size
-  Interval 7200
-  IncludeMigrationCost false
+  Interval 60
+  #IncludeMigrationCost false
 
   Group 'Upseart', default: doubled do
     Q 'INSERT INTO lineitem SET l_orderkey=?, l_linenumber=?, l_quantity=?, l_extendedprice=?, l_discount=?, ' \
