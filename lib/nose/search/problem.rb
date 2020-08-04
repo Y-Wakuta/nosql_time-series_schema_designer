@@ -58,6 +58,8 @@ module NoSE
         # Store the objective value
         @objective_value = @obj_var.value
 
+        validate_model
+
         if @objective_type != Objective::INDEXES && previous_type.nil?
           solve_next Objective::INDEXES
           return
@@ -134,6 +136,18 @@ module NoSE
       end
 
       private
+
+      # validate the model that the coefficient and the objective value are within the desirable range
+      def validate_model
+        constraint_coefficients = @model.constraints.flat_map{|c| c.expression.terms.values}
+        ratio = constraint_coefficients.max() / constraint_coefficients.select{|cr| cr > 0}.min()
+
+        # ref: https://www.gurobi.com/documentation/9.0/refman/num_does_my_model_have_num.html
+        warn "Warning: the ratio of the largest to the smallest coefficient too large #{ratio} > 10e+9" if ratio > 10e+9
+
+        # ref: https://www.gurobi.com/documentation/9.0/refman/num_recommended_ranges_for.html
+        warn "Warning: the objective value may be too large #{@obj_var.value} > 10e+4" if @obj_var.value > 10e+4
+      end
 
       # Pin the current objective value and set a new objective
       # @return [void]
