@@ -175,8 +175,8 @@ module NoSE
       # Initialize query and index variables
       # @return [void]
       def add_variables
-        add_index_variable
         add_query_index_variable
+        add_index_variable
         add_cf_creation_variables
         add_cf_prepare_variables
       end
@@ -189,7 +189,7 @@ module NoSE
             @query_vars[related_index] = {} if @query_vars[related_index].nil?
             @query_vars[related_index][query] = {} if @query_vars[related_index][query].nil?
             (0...@timesteps).each do |ts|
-              query_var = "q#{q}_#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              query_var = "q#{q}_#{related_index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
               var = MIPPeR::Variable.new 0, 1, 0, :binary, query_var
               @model << var
               @query_vars[related_index][query][ts] = var
@@ -201,9 +201,9 @@ module NoSE
       def add_index_variable
         @index_vars = {}
         @indexes.each do |index|
-          var_name = index.key if ENV['NOSE_LOG'] == 'debug'
           @index_vars[index] = {}
           (0...@timesteps).each do |ts|
+            var_name = "#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
             @index_vars[index][ts] = MIPPeR::Variable.new 0, 1, 0, :binary, var_name
           end
 
@@ -215,15 +215,16 @@ module NoSE
 
           # Add a new variable for the ID graph if needed
           unless @index_vars.key? id_graph
-            var_name = index.key if ENV['NOSE_LOG'] == 'debug'
-            @index_vars[id_graph] = MIPPeR::Variable.new 0, 1, 0, :binary,
-                                                         var_name
+            (0...@timesteps).each do |ts|
+              var_name = "#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              @index_vars[id_graph][ts] = MIPPeR::Variable.new 0, 1, 0, :binary,
+                                                           var_name
+            end
           end
 
           (0...@timesteps).each do |ts|
             # Ensure that the ID graph of this index is present if we use it
-            name = "ID_#{id_graph.key}_#{index.key}_#{ts}" \
-            if ENV['NOSE_LOG'] == 'debug'
+            name = "#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
             constr = MIPPeR::Constraint.new @index_vars[id_graph][ts] * 1.0 + \
                                           @index_vars[index][ts] * -1.0,
                                             :>=, 0, name
@@ -259,7 +260,7 @@ module NoSE
               @prepare_vars[related_index] = {} if @prepare_vars[related_index].nil?
               @prepare_vars[related_index][migrate_support_query] = {} if @prepare_vars[related_index][migrate_support_query].nil?
               (0...(@timesteps - 1)).each do |ts|
-                query_var = "ms_q_#{migrate_support_query}_#{related_index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+                query_var = "ms_q_#{related_index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
                 var = MIPPeR::Variable.new 0, 1, 0, :binary, query_var
                 @model << var
                 @prepare_vars[related_index][migrate_support_query][ts] = var

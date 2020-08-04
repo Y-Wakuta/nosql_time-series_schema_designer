@@ -181,8 +181,6 @@ module NoSE
         log_model 'Model'
       end
 
-      private
-
       # Set the value of the objective function (workload cost)
       # @return [void]
       def define_objective(var_name = 'objective')
