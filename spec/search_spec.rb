@@ -1,3 +1,6 @@
+require_relative './support/dummy_cost_model'
+require_relative './support/entities'
+
 module NoSE
   module Search
     describe Search do
@@ -125,6 +128,14 @@ module NoSE
             parts = _step.state.hash_cardinality
             0.0078395645 + parts * 0.0013692786 +
                 rows * 1.17093638386496e-005
+          end
+
+          def delete_cost(step)
+            0.001
+          end
+
+          def insert_cost(step)
+            0.001
           end
         end
         TmpDummyCost.new

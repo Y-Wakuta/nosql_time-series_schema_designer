@@ -149,56 +149,51 @@ module NoSE
 
       def indexes_used_in_plans(timestep)
         indexes_query = @time_depend_plans
-                          .map{|tdp| tdp.plans[timestep]}
-                          .map(&:indexes)
-                          .flatten(1)
+                            .map{|tdp| tdp.plans[timestep]}
+                            .flat_map(&:indexes)
         indexes_support_query = @time_depend_update_plans
-                                  .map{|tdup| tdup.plans_all_timestep[timestep]
-                                                .plans
-                                                .map(&:query_plans)}
-                                  .flatten(2)
-                                  .map(&:indexes)
-                                  .flatten(1)
-        indexes_query + indexes_support_query
+                                    .map{|tdup| tdup.plans_all_timestep[timestep]
+                                                    .plans
+                                                    .map(&:query_plans)}
+                                    .flatten(2)
+                                    .flat_map(&:indexes)
+        (indexes_query + indexes_support_query).uniq
       end
 
       # given timestep is one of obsolete timestep
-      def get_prepare_plans(plan, migrate_prepare_plans ,timestep)
-        prepare_plans = []
-        plan.each do |step|
-          next unless step.is_a?(Plans::IndexLookupPlanStep)
-          next if step.index.extra.empty?
+      def get_prepare_plan(new_index, migrate_prepare_plans, timestep)
+        # if step.index already exists at timestep t, new prepare plan for timestep t + 1 is not required
+        return nil if @indexes[timestep].include? new_index
 
-          migrate_support_query = migrate_prepare_plans.select{|p| p.index == step.index}.keys.first
-          migrate_support_tree = migrate_prepare_plans.select{|p| p.index == step.index}.values.first[:tree]
-          prepare_plan_for_the_timestep = migrate_support_tree.select do |plan|
-            plan.indexes.to_set == @query_indexes[migrate_support_query]&.fetch(timestep, nil)
-          end
+        migrate_support_query = migrate_prepare_plans.select{|p| p.index == new_index}.keys.first
+        migrate_support_tree = migrate_prepare_plans.select{|p| p.index == new_index}.values.first[:tree]
+        prepare_plan_for_the_timestep = migrate_support_tree.select do |plan|
+          plan.indexes.to_set == @query_indexes[migrate_support_query]&.fetch(timestep, nil)
+        end
 
-          next if prepare_plan_for_the_timestep.empty?
-          fail "more than one query plan found for one query" if prepare_plan_for_the_timestep.size > 1
-
-          # if step.index already exists at timestep t, new prepare plan for timestep t + 1 is not required
-          next if not @workload.include_migration_cost and @time_depend_indexes.indexes_all_timestep[timestep]
-                                                             .indexes
-                                                             .include? step.index
-          fail "New CF cannot be included in the preparing plan" if prepare_plan_for_the_timestep.first
+        fail 'migrate prepare plan was not created' if prepare_plan_for_the_timestep.empty?
+        fail "more than one query plan found for one query" if prepare_plan_for_the_timestep.size > 1
+        fail "New CF cannot be included in the preparing plan" if prepare_plan_for_the_timestep.first
                                                                       .steps
                                                                       .select{|s| s.is_a? Plans::IndexLookupPlanStep}
                                                                       .map{|s| s.index}
-                                                                      .include? step.index
+                                                                      .include? new_index
 
-          prepare_plans << Plans::MigratePreparePlan.new(step.index, prepare_plan_for_the_timestep.first, timestep)
-        end
-        prepare_plans
+        Plans::MigratePreparePlan.new(new_index, prepare_plan_for_the_timestep.first, timestep)
+      end
+
+      def get_prepare_plans(new_plan, migrate_prepare_plans, ts)
+        new_plan.select{|s| s.is_a? Plans::IndexLookupPlanStep}.map do |new_step|
+          get_prepare_plan(new_step.index, migrate_prepare_plans, ts)
+        end.compact
       end
 
       def set_migrate_preparing_plans(migrate_prepare_plans)
         @time_depend_plans.each do |tdp|
-          tdp.plans.each_cons(2).to_a.each_with_index do |(obsolete_plan, new_plan), ind|
+          tdp.plans.each_cons(2).to_a.each_with_index do |(obsolete_plan, new_plan), ts|
             next if obsolete_plan == new_plan
-            migrate_plan = Plans::MigratePlan.new(tdp.query, ind,  obsolete_plan, new_plan)
-            migrate_plan.prepare_plans = get_prepare_plans(new_plan, migrate_prepare_plans, ind)
+            migrate_plan = Plans::MigratePlan.new(tdp.query, ts,  obsolete_plan, new_plan)
+            migrate_plan.prepare_plans = get_prepare_plans(new_plan, migrate_prepare_plans, ts)
             @migrate_plans << migrate_plan
           end
         end
@@ -260,16 +255,44 @@ module NoSE
           fail InvalidResultsException unless \
           (check_indexes_one_timestep - @enumerated_indexes).empty?
         end
+
+        validate_migrate_plans
       end
 
-      # Ensure that all the query plans use valid indexes
+      def validate_migrate_plans
+        (0...(@timesteps - 1)).each do |now|
+          # all new CF need to have preparing plans
+          (@indexes[now + 1] - @indexes[now]).each do |new_index|
+            #(indexes_used_in_plans(now + 1) - indexes_used_in_plans(now)).each do |new_index|
+            prepare_plans = @migrate_plans.select{|mp| mp.start_time == now}.map{|mp| mp.prepare_plans}.flatten(1)
+            unless prepare_plans.any?{|pp| pp.index == new_index}
+              STDERR.puts new_index.inspect
+            end
+            fail 'no preparing plan for new CF provided' unless prepare_plans.any?{|pp| pp.index == new_index}
+          end
+
+          #fail 'now + 1 does not match' unless @indexes[now + 1].to_set == indexes_used_in_plans(now + 1).to_set
+          #fail 'now does not match' unless @indexes[now].to_set == indexes_used_in_plans(now).to_set
+        end
+      end
+
       # @return [void]
-      def validate_query_indexes(plans)
-        plans.each do |plan|
-          plan.each do |step|
-            valid_plan = !step.is_a?(Plans::IndexLookupPlanStep) ||
-              @indexes.reduce(Set.new){|b, n| b.merge(n)}.include?(step.index)
-            fail InvalidResultsException unless valid_plan
+      def validate_query_indexes(td_plans)
+        td_plans.transpose.each_with_index do |plans_each_ts, ts|
+          validate_plans_use_existing_indexes plans_each_ts, @indexes[ts]
+
+          # Ensure that all of existing indexes are used in at least one query plan
+          current_used_indexes = plans_each_ts.flat_map(&:indexes).to_set
+          indexes_for_upseart = update_plans.flat_map{|_, upseart| upseart[ts]}
+                                    .flat_map(&:query_plans)
+                                    .flat_map(&:indexes)
+                                    .uniq.to_set
+          if @indexes[ts].to_set > (current_used_indexes + indexes_for_upseart)
+            puts "== unused indexes: "
+            (@indexes[ts].to_set - (current_used_indexes + indexes_for_upseart)).each do |i|
+              puts "#{ts} -- #{i.key} : #{i.hash_str}"
+            end
+            fail InvalidResultsException
           end
         end
       end
@@ -280,7 +303,7 @@ module NoSE
         @update_plans.each do |_, plan_all_timestep|
           plan_all_timestep.each_with_index do |plans_each_time, ts|
             plans_each_time.each do |plan|
-              validate_query_indexes plan.query_plans
+              validate_plans_use_existing_indexes plan.query_plans, @indexes[ts]
               valid_plan = @indexes[ts].include?(plan.index)
 
               # allow updating the index in the next timestep if it is for the migration

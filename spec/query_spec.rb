@@ -14,7 +14,6 @@ module NoSE
                                 'Tweet.Body = ? AND Tweet.Timestamp = ? GROUP BY Tweet.Retweets, Tweet.TweetId', workload.model
       query.simplified_queries.each do |simplified_query|
         expect(query.select).to be > simplified_query.select
-        expect(query.groupby).to be > simplified_query.groupby
         expect(query.conditions).to be > simplified_query.conditions
       end
     end

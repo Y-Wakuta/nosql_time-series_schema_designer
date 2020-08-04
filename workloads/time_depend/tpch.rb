@@ -1,29 +1,33 @@
 # frozen_string_literal: true
 
-NoSE::Workload.new do
+
+NoSE::TimeDependWorkload.new do
   Model 'tpch'
 
+  doubled = (0..10).map{|i| 2 ** i}
   # Define queries and their relative weights, weights taken from below
   DefaultMix :default
+  TimeSteps doubled.size
+  Interval 7200
+  IncludeMigrationCost false
 
-  # 1対多の多の側を更新する時は1の entity に CONNECT する
-#  Group 'Upseart', default: 1000 do
-#    Q 'INSERT INTO lineitem SET l_orderkey=?, l_linenumber=?, l_quantity=?, l_extendedprice=?, l_discount=?, ' \
-#                  'l_tax = ?, l_returnflag=?, l_linestatus=?, l_shipdate=?, l_commitdate=?, l_receiptdate=?, ' \
-#                  'l_shipmode=?, l_comment=? AND CONNECT TO to_partsupp(?), to_orders(?) -- 1'
-#    Q 'INSERT INTO part SET p_partkey=?, p_name=?, p_mfgr=?, p_brand=?, p_type=?, p_size=?, p_container=?, ' \
-#                  'p_retailprice=?, p_comment=? -- 2'
-#    Q 'INSERT INTO partsupp SET ps_partkey=?, ps_suppkey=?, ps_availqty=?, ps_supplycost=?, ps_comment=? ' \
-#                  'AND CONNECT TO to_part(?), to_supplier(?) -- 3'
-#    Q 'INSERT INTO orders SET o_orderkey=?, o_orderstatus=?, o_totalprice=?, o_orderdate=?, o_orderpriority=?, '\
-#                  'o_clerk=?, o_shippriority=?, o_comment=? AND CONNECT TO to_customer(?) -- 4'
-#    Q 'INSERT INTO nation SET n_nationkey=?, n_name=?, n_comment=? AND CONNECT TO to_region(?) -- 5'
-#    Q 'INSERT INTO region SET r_regionkey=?, r_name=?, r_comment=? -- 6'
-#    Q 'INSERT INTO supplier SET s_suppkey=?, s_name=?, s_address=?, s_phone=?, s_acctbal=?, s_comment=? '\
-#                  'AND CONNECT TO from_customer(?), to_nation(?) -- 7'
-#  end
+  Group 'Upseart', default: doubled do
+    Q 'INSERT INTO lineitem SET l_orderkey=?, l_linenumber=?, l_quantity=?, l_extendedprice=?, l_discount=?, ' \
+                  'l_tax = ?, l_returnflag=?, l_linestatus=?, l_shipdate=?, l_commitdate=?, l_receiptdate=?, ' \
+                  'l_shipmode=?, l_comment=? AND CONNECT TO to_partsupp(?), to_orders(?) -- 1'
+    Q 'INSERT INTO orders SET o_orderkey=?, o_orderstatus=?, o_totalprice=?, o_orderdate=?, o_orderpriority=?, '\
+                  'o_clerk=?, o_shippriority=?, o_comment=? AND CONNECT TO to_customer(?) -- 4'
+    #Q 'INSERT INTO part SET p_partkey=?, p_name=?, p_mfgr=?, p_brand=?, p_type=?, p_size=?, p_container=?, ' \
+    #              'p_retailprice=?, p_comment=? -- 2'
+    #Q 'INSERT INTO partsupp SET ps_partkey=?, ps_suppkey=?, ps_availqty=?, ps_supplycost=?, ps_comment=? ' \
+    #              'AND CONNECT TO to_part(?), to_supplier(?) -- 3'
+    #Q 'INSERT INTO nation SET n_nationkey=?, n_name=?, n_comment=? AND CONNECT TO to_region(?) -- 5'
+    #Q 'INSERT INTO region SET r_regionkey=?, r_name=?, r_comment=? -- 6'
+    #Q 'INSERT INTO supplier SET s_suppkey=?, s_name=?, s_address=?, s_phone=?, s_acctbal=?, s_comment=? '\
+    #              'AND CONNECT TO from_customer(?), to_nation(?) -- 7'
+  end
 
-  Group 'Group1', default: 1 do
+  Group 'Group1', default: doubled.reverse do
     # === Q1 ===
     #   select
     #     l_returnflag,
@@ -216,372 +220,372 @@ NoSE::Workload.new do
     #     and l_discount between [DISCOUNT] - 0.01 and [DISCOUNT] + 0.01
     #     and l_quantity < [QUANTITY];
 
-    Q 'SELECT sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
-      'FROM lineitem ' \
-      'WHERE lineitem.l_orderkey = ? AND lineitem.l_shipdate >= ? AND lineitem.l_shipdate < ? ' \
-          'AND lineitem.l_discount > ? AND lineitem.l_discount < ? ' \
-          'AND lineitem.l_quantity < ? -- Q6'
-
-    # === Q7 ===
-    #   select
-    #     supp_nation,
-    #     cust_nation,
-    #     l_year, sum(volume) as revenue
-    #   from (
-    #         select
-    #           n1.n_name as supp_nation,
-    #           n2.n_name as cust_nation,
-    #           extract(year from l_shipdate) as l_year,
-    #           l_extendedprice * (1 - l_discount) as volume
-    #         from
-    #           supplier,
-    #           lineitem,
-    #           orders,
-    #           customer,
-    #           nation n1,
-    #           nation n2
-    #         where
-    #           s_suppkey = l_suppkey
-    #           and o_orderkey = l_orderkey
-    #           and c_custkey = o_custkey
-    #           and s_nationkey = n1.n_nationkey
-    #           and c_nationkey = n2.n_nationkey
-    #           and (
-    #           (n1.n_name = '[NATION1]' and n2.n_name = '[NATION2]')
-    #           or (n1.n_name = '[NATION2]' and n2.n_name = '[NATION1]')
-    #           )
-    #           and l_shipdate between date '1995-01-01' and date '1996-12-31'
-    #         ) as shipping
-    #   group by
-    #     supp_nation,
-    #     cust_nation,
-    #     l_year
-    #   order by
-    #     supp_nation,
-    #     cust_nation,
-    #     l_year;
-
-    Q 'SELECT to_nation.n_name, lineitem.l_shipdate, '\
-              'sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
-      'FROM lineitem.to_orders.to_customer.to_nation '\
-      'WHERE lineitem.l_orderkey = ? AND lineitem.l_shipdate < ? AND lineitem.l_shipdate > ? ' \
-      'ORDER BY to_nation.n_name, lineitem.l_shipdate ' \
-      'GROUP BY to_nation.n_name, lineitem.l_shipdate -- Q7'
-
-    # === Q8 ===
-    #   select
-    #     o_year,
-    #     sum(case
-    #     when nation = '[NATION]'
-    #     then volume
-    #     else 0
-    #     end) / sum(volume) as mkt_share
-    #   from (
-    #        select
-    #          extract(year from o_orderdate) as o_year,
-    #          l_extendedprice * (1-l_discount) as volume,
-    #          n2.n_name as nation
-    #        from
-    #          part,
-    #          supplier,
-    #          lineitem,
-    #          orders,
-    #          customer,
-    #          nation n1,
-    #          nation n2,
-    #          region
-    #        where
-    #          p_partkey = l_partkey
-    #          and s_suppkey = l_suppkey
-    #          and l_orderkey = o_orderkey
-    #          and o_custkey = c_custkey
-    #          and c_nationkey = n1.n_nationkey
-    #          and n1.n_regionkey = r_regionkey
-    #          and r_name = '[REGION]'
-    #          and s_nationkey = n2.n_nationkey
-    #          and o_orderdate between date '1995-01-01' and date '1996-12-31'
-    #          and p_type = '[TYPE]'
-    #     ) as all_nations
-    #   group by
-    #     o_year
-    #     order by
-    #     o_year;
-
-    Q 'SELECT to_orders.o_orderdate, from_lineitem.l_extendedprice, from_lineitem.l_discount, to_nation.n_name '\
-      'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation.to_region ' \
-      'WHERE to_region.r_name = ? AND to_orders.o_orderdate < ? AND to_orders.o_orderdate > ? AND part.p_type = ? ' \
-      'ORDER BY to_orders.o_orderdate ' \
-      'GROUP BY to_orders.o_orderdate -- Q8'
-
-    # === Q9 ===
-    #   select
-    #     nation,
-    #     o_year,
-    #     sum(amount) as sum_profit
-    #   from (
-    #        select
-    #          n_name as nation,
-    #          extract(year from o_orderdate) as o_year,
-    #          l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount
-    #        from
-    #          part,
-    #          supplier,
-    #          lineitem,
-    #          partsupp,
-    #          orders,
-    #          nation
-    #        where
-    #          s_suppkey = l_suppkey
-    #          and ps_suppkey = l_suppkey
-    #          and ps_partkey = l_partkey
-    #          and p_partkey = l_partkey
-    #          and o_orderkey = l_orderkey
-    #          and s_nationkey = n_nationkey
-    #          and p_name like '%[COLOR]%'
-    #      ) as profit
-    #   group by
-    #     nation,
-    #     o_year
-    #   order by
-    #     nation,
-    #     o_year desc;
-
-    Q 'SELECT to_nation.n_name, to_orders.o_orderdate, sum(from_lineitem.l_extendedprice), sum(from_lineitem.l_discount), '  \
-          'sum(from_partsupp.ps_supplycost), sum(from_lineitem.l_quantity) ' \
-      'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation ' \
-      'WHERE part.p_name = ? AND from_lineitem.l_orderkey = ? ' \
-      'ORDER BY to_nation.n_name, to_orders.o_orderdate ' \
-      'GROUP BY to_nation.n_name, to_orders.o_orderdate -- Q9'
-
-    # === Q10 ===
-    #   select
-    #      c_custkey,
-    #      c_name,
-    #      sum(l_extendedprice * (1 - l_discount)) as revenue,
-    #      c_acctbal,
-    #      n_name,
-    #      c_address,
-    #      c_phone,
-    #      c_comment
-    #   from
-    #      customer,
-    #      orders,
-    #      lineitem,
-    #      nation
-    #   where
-    #      c_custkey = o_custkey
-    #      and l_orderkey = o_orderkey
-    #      and o_orderdate >= date '[DATE]'
-    #      and o_orderdate < date '[DATE]' + interval '3' month
-    #      and l_returnflag = 'R'
-    #      and c_nationkey = n_nationkey
-    #   group by
-    #      c_custkey,
-    #      c_name,
-    #      c_acctbal,
-    #      c_phone,
-    #      n_name,
-    #      c_address,
-    #      c_comment
-    #   order by
-    #      revenue desc;
-
-    Q 'SELECT to_customer.c_custkey, to_customer.c_name, '\
-          'sum(lineitem.l_extendedprice), sum(lineitem.l_discount), '\
-          'to_customer.c_acctbal, to_nation.n_name, '\
-          'to_customer.c_address, to_customer.c_phone, to_customer.c_comment '\
-       'FROM lineitem.to_orders.to_customer.to_nation '\
-       'WHERE to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? AND lineitem.l_returnflag = ? '\
-       'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
-       'GROUP BY to_customer.c_custkey -- Q10'
-
-    # === Q11 ===
-    #   select
-    #      ps_partkey,
-    #      sum(ps_supplycost * ps_availqty) as value
-    #   from
-    #      partsupp,
-    #      supplier,
-    #      nation
-    #   where
-    #      ps_suppkey = s_suppkey
-    #      and s_nationkey = n_nationkey
-    #      and n_name = '[NATION]'
-    #   group by
-    #      ps_partkey
-    #   having
-    #      sum(ps_supplycost * ps_availqty) > (
-    #        select
-    #          sum(ps_supplycost * ps_availqty) * [FRACTION]
-    #        from
-    #          partsupp,
-    #          supplier,
-    #          nation
-    #        where
-    #          ps_suppkey = s_suppkey
-    #          and s_nationkey = n_nationkey
-    #          and n_name = '[NATION]'
-    #      )
-    #   order by
-    #      value desc;
-    Q 'SELECT partsupp.ps_partkey, sum(partsupp.ps_supplycost), sum(partsupp.ps_availqty) ' \
-      'FROM partsupp.to_supplier.to_nation '\
-      'WHERE to_nation.n_name = ? AND partsupp.ps_supplycost = ? AND partsupp.ps_availqty = ? '\
-      'ORDER BY partsupp.ps_supplycost, partsupp.ps_availqty ' \
-      'GROUP BY partsupp.ps_partkey -- Q11_outer'
-    Q 'SELECT sum(partsupp.ps_supplycost), sum(partsupp.ps_availqty) '\
-      'FROM partsupp.to_supplier.to_nation '\
-      'WHERE to_nation.n_name = ? -- Q11_inner'
-
-    # === Q12 ===
-    #   select
-    #       l_shipmode,
-    #       sum(case
-    #          when o_orderpriority ='1-URGENT'
-    #          or o_orderpriority ='2-HIGH'
-    #          then 1
-    #          else 0
-    #       end) as high_line_count,
-    #       sum(case
-    #          when o_orderpriority <> '1-URGENT'
-    #          and o_orderpriority <> '2-HIGH'
-    #          then 1
-    #          else 0
-    #       end) as low_line_count
-    #   from
-    #      orders,
-    #      lineitem
-    #   where
-    #      o_orderkey = l_orderkey
-    #      and l_shipmode in ('[SHIPMODE1]', '[SHIPMODE2]')
-    #      and l_commitdate < l_receiptdate
-    #      and l_shipdate < l_commitdate
-    #      and l_receiptdate >= date '[DATE]'
-    #      and l_receiptdate < date '[DATE]' + interval '1' year
-    #   group by
-    #      l_shipmode
-    #   order by
-    #      l_shipmode;
-    Q 'SELECT lineitem.l_shipmode, sum(to_orders.o_orderpriority) '\
-      'FROM lineitem.to_orders '\
-      'WHERE lineitem.l_shipmode = ? AND lineitem.l_commitdate < ? ' \
-          'AND lineitem.l_commitdate > ? AND lineitem.l_shipdate < ? ' \
-          'AND lineitem.l_receiptdate > ? AND lineitem.l_receiptdate >= ? AND lineitem.l_receiptdate < ? ' \
-      'ORDER BY lineitem.l_shipmode ' \
-      'GROUP BY lineitem.l_shipmode -- Q12'
-
-    # === Q13 ===
-    #select
-    #   c_count, count(*) as custdist
-    #from (
-    #    select
-    #      c_custkey,
-    #      count(o_orderkey)
-    #    from
-    #      customer left outer join orders on
-    #      c_custkey = o_custkey
-    #      and o_comment not like ‘%[WORD1]%[WORD2]%’
-    #    group by
-    #      c_custkey
-    #  )as c_orders (c_custkey, c_count)
-    #group by
-    #   c_count
-    #order by
-    #   custdist desc,
-    #   c_count desc;
-    Q 'SELECT to_customer.c_custkey, count(orders.o_orderkey) ' \
-      'FROM orders.to_customer ' \
-      'WHERE orders.o_comment = ? ' \
-      'GROUP BY to_customer.c_custkey, orders.o_orderkey -- Q13'
-
-    # === Q14 ===
-    #   select
-    #      100.00 * sum(case
-    #         when p_type like 'PROMO%'
-    #         then l_extendedprice*(1-l_discount)
-    #         else 0
-    #      end) / sum(l_extendedprice * (1 - l_discount)) as promo_revenue
-    #   from
-    #      lineitem,
-    #      part
-    #   where
-    #      l_partkey = p_partkey
-    #      and l_shipdate >= date '[DATE]'
-    #      and l_shipdate < date '[DATE]' + interval '1' month;
-    Q 'SELECT sum(to_part.p_type), sum(lineitem.l_extendedprice), sum(lineitem.l_discount) '\
-      'FROM lineitem.to_partsupp.to_part '\
-      'WHERE lineitem.l_orderkey = ? AND lineitem.l_shipdate >= ? AND lineitem.l_shipdate < ? -- Q14'
-
-    # === Q15 ===
-    #   create view revenue[STREAM_ID] (supplier_no, total_revenue) as
-    #       select
-    #       l_suppkey,
-    #       sum(l_extendedprice * (1 - l_discount))
-    #       from
-    #       lineitem
-    #       where
-    #       l_shipdate >= date '[DATE]'
-    #       and l_shipdate < date '[DATE]' + interval '3' month
-    #       group by
-    #       l_suppkey;
-    #
-    #   select
-    #      s_suppkey,
-    #      s_name,
-    #      s_address,
-    #      s_phone,
-    #      total_revenue
-    #   from
-    #      supplier,
-    #      revenue[STREAM_ID]
-    #   where
-    #      s_suppkey = supplier_no
-    #      and total_revenue = (
-    #        select
-    #        max(total_revenue)
-    #        from
-    #        revenue[STREAM_ID]
-    #      )
-    #   order by
-    #      s_suppkey;
-    Q 'SELECT to_partsupp.ps_suppkey, max(lineitem.l_extendedprice), max(lineitem.l_discount) ' \
-      'FROM lineitem.to_partsupp '\
-      'WHERE lineitem.l_orderkey = ? AND lineitem.l_shipdate >= ? AND lineitem.l_shipdate < ? ' \
-      'GROUP BY to_partsupp.ps_suppkey -- Q15_inner'
-
-    # === Q16 ===
-    # select
-    #     p_brand,
-    #     p_type,
-    #     p_size,
-    #     count(distinct ps_suppkey) as supplier_cnt
-    # from
-    #     partsupp,
-    #     part
-    # where
-    #     p_partkey = ps_partkey
-    #     and p_brand <> '[BRAND]'
-    #     and p_type not like '[TYPE]%'
-    #     and p_size in ([SIZE1], [SIZE2], [SIZE3], [SIZE4], [SIZE5], [SIZE6], [SIZE7], [SIZE8])
-    #     and ps_suppkey not in (
-    #         select
-    #         s_suppkey
-    #         from
-    #         supplier
-    #         where
-    #         s_comment like '%Customer%Complaints%'
-    #     )
-    # group by
-    #     p_brand,
-    #     p_type,
-    #     p_size
-    # order by
-    #     supplier_cnt desc,
-    #     p_brand,
-    #     p_type,
-    #     p_size;
-    #    Q 'SELECT supplier.s_suppkey FROM supplier WHERE supplier.comment = ? -- Q16_inner'
-    #    Q 'SELECT to_part.p_brand, to_part.p_type, to_part.p_size, count(partsupp.ps_suppkey) ' \
+    #    Q 'SELECT sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
+#      'FROM lineitem ' \
+#      'WHERE lineitem.l_orderkey = ? AND lineitem.l_shipdate >= ? AND lineitem.l_shipdate < ? ' \
+#          'AND lineitem.l_discount > ? AND lineitem.l_discount < ? ' \
+#          'AND lineitem.l_quantity < ? -- Q6'
+#
+#    # === Q7 ===
+#    #   select
+#    #     supp_nation,
+#    #     cust_nation,
+#    #     l_year, sum(volume) as revenue
+#    #   from (
+#    #         select
+#    #           n1.n_name as supp_nation,
+#    #           n2.n_name as cust_nation,
+#    #           extract(year from l_shipdate) as l_year,
+#    #           l_extendedprice * (1 - l_discount) as volume
+#    #         from
+#    #           supplier,
+#    #           lineitem,
+#    #           orders,
+#    #           customer,
+#    #           nation n1,
+#    #           nation n2
+#    #         where
+#    #           s_suppkey = l_suppkey
+#    #           and o_orderkey = l_orderkey
+#    #           and c_custkey = o_custkey
+#    #           and s_nationkey = n1.n_nationkey
+#    #           and c_nationkey = n2.n_nationkey
+#    #           and (
+#    #           (n1.n_name = '[NATION1]' and n2.n_name = '[NATION2]')
+#    #           or (n1.n_name = '[NATION2]' and n2.n_name = '[NATION1]')
+#    #           )
+#    #           and l_shipdate between date '1995-01-01' and date '1996-12-31'
+#    #         ) as shipping
+#    #   group by
+#    #     supp_nation,
+#    #     cust_nation,
+#    #     l_year
+#    #   order by
+#    #     supp_nation,
+#    #     cust_nation,
+#    #     l_year;
+#
+#    Q 'SELECT to_nation.n_name, lineitem.l_shipdate, '\
+#              'sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
+#      'FROM lineitem.to_orders.to_customer.to_nation '\
+#      'WHERE lineitem.l_orderkey = ? AND lineitem.l_shipdate < ? AND lineitem.l_shipdate > ? ' \
+#      'ORDER BY to_nation.n_name, lineitem.l_shipdate ' \
+#      'GROUP BY to_nation.n_name, lineitem.l_shipdate -- Q7'
+#
+#    # === Q8 ===
+#    #   select
+#    #     o_year,
+#    #     sum(case
+#    #     when nation = '[NATION]'
+#    #     then volume
+#    #     else 0
+#    #     end) / sum(volume) as mkt_share
+#    #   from (
+#    #        select
+#    #          extract(year from o_orderdate) as o_year,
+#    #          l_extendedprice * (1-l_discount) as volume,
+#    #          n2.n_name as nation
+#    #        from
+#    #          part,
+#    #          supplier,
+#    #          lineitem,
+#    #          orders,
+#    #          customer,
+#    #          nation n1,
+#    #          nation n2,
+#    #          region
+#    #        where
+#    #          p_partkey = l_partkey
+#    #          and s_suppkey = l_suppkey
+#    #          and l_orderkey = o_orderkey
+#    #          and o_custkey = c_custkey
+#    #          and c_nationkey = n1.n_nationkey
+#    #          and n1.n_regionkey = r_regionkey
+#    #          and r_name = '[REGION]'
+#    #          and s_nationkey = n2.n_nationkey
+#    #          and o_orderdate between date '1995-01-01' and date '1996-12-31'
+#    #          and p_type = '[TYPE]'
+#    #     ) as all_nations
+#    #   group by
+#    #     o_year
+#    #     order by
+#    #     o_year;
+#
+#    Q 'SELECT to_orders.o_orderdate, from_lineitem.l_extendedprice, from_lineitem.l_discount, to_nation.n_name '\
+#      'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation.to_region ' \
+#      'WHERE to_region.r_name = ? AND to_orders.o_orderdate < ? AND to_orders.o_orderdate > ? AND part.p_type = ? ' \
+#      'ORDER BY to_orders.o_orderdate ' \
+#      'GROUP BY to_orders.o_orderdate -- Q8'
+#
+#    # === Q9 ===
+#    #   select
+#    #     nation,
+#    #     o_year,
+#    #     sum(amount) as sum_profit
+#    #   from (
+#    #        select
+#    #          n_name as nation,
+#    #          extract(year from o_orderdate) as o_year,
+#    #          l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount
+#    #        from
+#    #          part,
+#    #          supplier,
+#    #          lineitem,
+#    #          partsupp,
+#    #          orders,
+#    #          nation
+#    #        where
+#    #          s_suppkey = l_suppkey
+#    #          and ps_suppkey = l_suppkey
+#    #          and ps_partkey = l_partkey
+#    #          and p_partkey = l_partkey
+#    #          and o_orderkey = l_orderkey
+#    #          and s_nationkey = n_nationkey
+#    #          and p_name like '%[COLOR]%'
+#    #      ) as profit
+#    #   group by
+#    #     nation,
+#    #     o_year
+#    #   order by
+#    #     nation,
+#    #     o_year desc;
+#
+#    Q 'SELECT to_nation.n_name, to_orders.o_orderdate, sum(from_lineitem.l_extendedprice), sum(from_lineitem.l_discount), '  \
+#          'sum(from_partsupp.ps_supplycost), sum(from_lineitem.l_quantity) ' \
+#      'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation ' \
+#      'WHERE part.p_name = ? AND from_lineitem.l_orderkey = ? ' \
+#      'ORDER BY to_nation.n_name, to_orders.o_orderdate ' \
+#      'GROUP BY to_nation.n_name, to_orders.o_orderdate -- Q9'
+#
+#    # === Q10 ===
+#    #   select
+#    #      c_custkey,
+#    #      c_name,
+#    #      sum(l_extendedprice * (1 - l_discount)) as revenue,
+#    #      c_acctbal,
+#    #      n_name,
+#    #      c_address,
+#    #      c_phone,
+#    #      c_comment
+#    #   from
+#    #      customer,
+#    #      orders,
+#    #      lineitem,
+#    #      nation
+#    #   where
+#    #      c_custkey = o_custkey
+#    #      and l_orderkey = o_orderkey
+#    #      and o_orderdate >= date '[DATE]'
+#    #      and o_orderdate < date '[DATE]' + interval '3' month
+#    #      and l_returnflag = 'R'
+#    #      and c_nationkey = n_nationkey
+#    #   group by
+#    #      c_custkey,
+#    #      c_name,
+#    #      c_acctbal,
+#    #      c_phone,
+#    #      n_name,
+#    #      c_address,
+#    #      c_comment
+#    #   order by
+#    #      revenue desc;
+#
+#    Q 'SELECT to_customer.c_custkey, to_customer.c_name, '\
+#          'sum(lineitem.l_extendedprice), sum(lineitem.l_discount), '\
+#          'to_customer.c_acctbal, to_nation.n_name, '\
+#          'to_customer.c_address, to_customer.c_phone, to_customer.c_comment '\
+#       'FROM lineitem.to_orders.to_customer.to_nation '\
+#       'WHERE to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? AND lineitem.l_returnflag = ? '\
+#       'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
+#       'GROUP BY to_customer.c_custkey -- Q10'
+#
+#    # === Q11 ===
+#    #   select
+#    #      ps_partkey,
+#    #      sum(ps_supplycost * ps_availqty) as value
+#    #   from
+#    #      partsupp,
+#    #      supplier,
+#    #      nation
+#    #   where
+#    #      ps_suppkey = s_suppkey
+#    #      and s_nationkey = n_nationkey
+#    #      and n_name = '[NATION]'
+#    #   group by
+#    #      ps_partkey
+#    #   having
+#    #      sum(ps_supplycost * ps_availqty) > (
+#    #        select
+#    #          sum(ps_supplycost * ps_availqty) * [FRACTION]
+#    #        from
+#    #          partsupp,
+#    #          supplier,
+#    #          nation
+#    #        where
+#    #          ps_suppkey = s_suppkey
+#    #          and s_nationkey = n_nationkey
+#    #          and n_name = '[NATION]'
+#    #      )
+#    #   order by
+#    #      value desc;
+#    Q 'SELECT partsupp.ps_partkey, sum(partsupp.ps_supplycost), sum(partsupp.ps_availqty) ' \
+#      'FROM partsupp.to_supplier.to_nation '\
+#      'WHERE to_nation.n_name = ? AND partsupp.ps_supplycost = ? AND partsupp.ps_availqty = ? '\
+#      'ORDER BY partsupp.ps_supplycost, partsupp.ps_availqty ' \
+#      'GROUP BY partsupp.ps_partkey -- Q11_outer'
+#    Q 'SELECT sum(partsupp.ps_supplycost), sum(partsupp.ps_availqty) '\
+#      'FROM partsupp.to_supplier.to_nation '\
+#      'WHERE to_nation.n_name = ? -- Q11_inner'
+#
+#    # === Q12 ===
+#    #   select
+#    #       l_shipmode,
+#    #       sum(case
+#    #          when o_orderpriority ='1-URGENT'
+#    #          or o_orderpriority ='2-HIGH'
+#    #          then 1
+#    #          else 0
+#    #       end) as high_line_count,
+#    #       sum(case
+#    #          when o_orderpriority <> '1-URGENT'
+#    #          and o_orderpriority <> '2-HIGH'
+#    #          then 1
+#    #          else 0
+#    #       end) as low_line_count
+#    #   from
+#    #      orders,
+#    #      lineitem
+#    #   where
+#    #      o_orderkey = l_orderkey
+#    #      and l_shipmode in ('[SHIPMODE1]', '[SHIPMODE2]')
+#    #      and l_commitdate < l_receiptdate
+#    #      and l_shipdate < l_commitdate
+#    #      and l_receiptdate >= date '[DATE]'
+#    #      and l_receiptdate < date '[DATE]' + interval '1' year
+#    #   group by
+#    #      l_shipmode
+#    #   order by
+#    #      l_shipmode;
+#    Q 'SELECT lineitem.l_shipmode, sum(to_orders.o_orderpriority) '\
+#      'FROM lineitem.to_orders '\
+#      'WHERE lineitem.l_shipmode = ? AND lineitem.l_commitdate < ? ' \
+#          'AND lineitem.l_commitdate > ? AND lineitem.l_shipdate < ? ' \
+#          'AND lineitem.l_receiptdate > ? AND lineitem.l_receiptdate >= ? AND lineitem.l_receiptdate < ? ' \
+#      'ORDER BY lineitem.l_shipmode ' \
+#      'GROUP BY lineitem.l_shipmode -- Q12'
+#
+#    # === Q13 ===
+#    #select
+#    #   c_count, count(*) as custdist
+#    #from (
+#    #    select
+#    #      c_custkey,
+#    #      count(o_orderkey)
+#    #    from
+#    #      customer left outer join orders on
+#    #      c_custkey = o_custkey
+#    #      and o_comment not like ‘%[WORD1]%[WORD2]%’
+#    #    group by
+#    #      c_custkey
+#    #  )as c_orders (c_custkey, c_count)
+#    #group by
+#    #   c_count
+#    #order by
+#    #   custdist desc,
+#    #   c_count desc;
+#    Q 'SELECT to_customer.c_custkey, count(orders.o_orderkey) ' \
+#      'FROM orders.to_customer ' \
+#      'WHERE orders.o_comment = ? ' \
+#      'GROUP BY to_customer.c_custkey, orders.o_orderkey -- Q13'
+#
+#    # === Q14 ===
+#    #   select
+#    #      100.00 * sum(case
+#    #         when p_type like 'PROMO%'
+#    #         then l_extendedprice*(1-l_discount)
+#    #         else 0
+#    #      end) / sum(l_extendedprice * (1 - l_discount)) as promo_revenue
+#    #   from
+#    #      lineitem,
+#    #      part
+#    #   where
+#    #      l_partkey = p_partkey
+#    #      and l_shipdate >= date '[DATE]'
+#    #      and l_shipdate < date '[DATE]' + interval '1' month;
+#    Q 'SELECT sum(to_part.p_type), sum(lineitem.l_extendedprice), sum(lineitem.l_discount) '\
+#      'FROM lineitem.to_partsupp.to_part '\
+#      'WHERE lineitem.l_orderkey = ? AND lineitem.l_shipdate >= ? AND lineitem.l_shipdate < ? -- Q14'
+#
+#    # === Q15 ===
+#    #   create view revenue[STREAM_ID] (supplier_no, total_revenue) as
+#    #       select
+#    #       l_suppkey,
+#    #       sum(l_extendedprice * (1 - l_discount))
+#    #       from
+#    #       lineitem
+#    #       where
+#    #       l_shipdate >= date '[DATE]'
+#    #       and l_shipdate < date '[DATE]' + interval '3' month
+#    #       group by
+#    #       l_suppkey;
+#    #
+#    #   select
+#    #      s_suppkey,
+#    #      s_name,
+#    #      s_address,
+#    #      s_phone,
+#    #      total_revenue
+#    #   from
+#    #      supplier,
+#    #      revenue[STREAM_ID]
+#    #   where
+#    #      s_suppkey = supplier_no
+#    #      and total_revenue = (
+#    #        select
+#    #        max(total_revenue)
+#    #        from
+#    #        revenue[STREAM_ID]
+#    #      )
+#    #   order by
+#    #      s_suppkey;
+#    Q 'SELECT to_partsupp.ps_suppkey, max(lineitem.l_extendedprice), max(lineitem.l_discount) ' \
+#      'FROM lineitem.to_partsupp '\
+#      'WHERE lineitem.l_orderkey = ? AND lineitem.l_shipdate >= ? AND lineitem.l_shipdate < ? ' \
+#      'GROUP BY to_partsupp.ps_suppkey -- Q15_inner'
+#
+#    # === Q16 ===
+#    # select
+#    #     p_brand,
+#    #     p_type,
+#    #     p_size,
+#    #     count(distinct ps_suppkey) as supplier_cnt
+#    # from
+#    #     partsupp,
+#    #     part
+#    # where
+#    #     p_partkey = ps_partkey
+#    #     and p_brand <> '[BRAND]'
+#    #     and p_type not like '[TYPE]%'
+#    #     and p_size in ([SIZE1], [SIZE2], [SIZE3], [SIZE4], [SIZE5], [SIZE6], [SIZE7], [SIZE8])
+#    #     and ps_suppkey not in (
+#    #         select
+#    #         s_suppkey
+#    #         from
+#    #         supplier
+#    #         where
+#    #         s_comment like '%Customer%Complaints%'
+#    #     )
+#    # group by
+#    #     p_brand,
+#    #     p_type,
+#    #     p_size
+#    # order by
+#    #     supplier_cnt desc,
+#    #     p_brand,
+#    #     p_type,
+#    #     p_size;
+#    #    Q 'SELECT supplier.s_suppkey FROM supplier WHERE supplier.comment = ? -- Q16_inner'
+#    Q 'SELECT to_part.p_brand, to_part.p_type, to_part.p_size, count(partsupp.ps_suppkey) ' \
 #      'FROM partsupp.to_part ' \
 #      'WHERE to_part.p_brand = ? AND to_part.p_type = ? AND to_part.p_size = ? AND partsupp.ps_suppkey = ? ' \
 #      'ORDER BY to_part.p_brand, to_part.p_type, to_part.p_size ' \

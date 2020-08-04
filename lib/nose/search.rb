@@ -45,6 +45,13 @@ module NoSE
         query_weights = combine_query_weights indexes
         costs, trees = query_costs query_weights, indexes
 
+        trees.each do |tree|
+          q = tree.root.state.query
+          next if q.is_a? SupportQuery
+          join_plan_size = tree.to_a.select{|p| p.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}.size > 1}.size
+          puts "--- #{tree.to_a.size} plans : #{join_plan_size} join plans for #{q.text} ---"
+        end
+
         # prepare_update_costs possibly takes nil value if the workload is not time-depend workload
         update_costs, update_plans, prepare_update_costs = update_costs trees, indexes
 
@@ -63,7 +70,6 @@ module NoSE
         if @workload.is_a? TimeDependWorkload
           STDERR.puts("set migration query plans")
 
-          # TODO: pass this variable by nose.yml
           migrate_prepare_plans = get_migrate_preparing_plans(indexes)
           costs.merge!(migrate_prepare_plans.values.map{|v| v[:costs]}.reduce(&:merge))
           solver_params[:migrate_prepare_plans] = migrate_prepare_plans
@@ -149,7 +155,9 @@ module NoSE
                       TimeDependProblem.new(queries, @workload, data, @objective)
                       : Problem.new(queries, @workload.updates, data, @objective)
 
+        STDERR.puts "start solving"
         problem.solve
+        STDERR.puts "solving is done"
 
         # We won't get here if there's no valdi solution
         @logger.debug 'Found solution with total cost ' \
@@ -216,10 +224,10 @@ module NoSE
       # Get the cost of using each index for each query in a workload
       def query_costs(query_weights, indexes)
         planner = @is_pruned ?
-                      Plans::PrunedQueryPlanner.new(@workload, indexes, @cost_model, 1) :
+                      Plans::PrunedQueryPlanner.new(@workload, indexes, @cost_model, 2) :
                       Plans::QueryPlanner.new(@workload, indexes, @cost_model)
 
-        results = Parallel.map(query_weights) do |query, weight|
+        results = Parallel.map(query_weights, in_processes: 6) do |query, weight|
           query_cost planner, query, weight
         end
         costs = Hash[query_weights.each_key.map.with_index do |query, q|
@@ -230,14 +238,11 @@ module NoSE
       end
 
       def get_migrate_preparing_plans(indexes)
-        migrate_plans = Parallel.map(indexes, in_threads: [Etc.nprocessors - 3, 2].max()) do |base_index|
-          # if the base_index does not have non-key field, migrate support query is not necessary
-          next if base_index.extra.empty?
+        migrate_plans = indexes.map do |base_index|
+          #migrate_plans = Parallel.map(indexes, in_processes: [Etc.nprocessors - 3, 2].max()) do |base_index|
+          migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
 
-          migrate_support_query = @workload.migrate_support_queries(base_index)
-
-          planner = Plans::PreparingQueryPlanner.new @workload, indexes, @cost_model, 2
-          # TODO: migrate support query executed only once, therefore treat this as free
+          planner = Plans::PreparingQueryPlanner.new @workload, indexes, @cost_model, base_index,  2
           _costs, tree = query_cost planner, migrate_support_query, [1] * @workload.timesteps
 
           # calculate cost

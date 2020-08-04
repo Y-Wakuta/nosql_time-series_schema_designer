@@ -311,11 +311,11 @@ module NoSE
     end
 
     class AggregationStepRepresenter < PlanStepRepresenter
-      property :counts, decrator: FieldRepresenter
-      property :sums, decrator: FieldRepresenter
-      property :avgs, decrator: FieldRepresenter
-      property :maxes, decrator: FieldRepresenter
-      property :groupby, decrator: FieldRepresenter
+      collection :counts, decorator: FieldRepresenter
+      collection :sums, decorator: FieldRepresenter
+      collection :avgs, decorator: FieldRepresenter
+      collection :maxes, decorator: FieldRepresenter
+      collection :groupby, decorator: FieldRepresenter
     end
 
     # Represent the filtered fields in filter plan steps
@@ -790,6 +790,15 @@ module NoSE
         eq = step_hash['eq'].map(&f)
         range = f.call(step_hash['range']) if step_hash['range']
         Plans::FilterPlanStep.new eq, range, parent.state
+      end
+
+      def build_aggregation_step(step_hash, _state, parent, _indexes, f)
+        counts = step_hash['counts'].map(&f)
+        sums = step_hash['sums'].map(&f)
+        avgs = step_hash['avgs'].map(&f)
+        maxes = step_hash['maxes'].map(&f)
+        groupby = step_hash['groupby'].map(&f)
+        Plans::AggregationPlanStep.new(counts, sums, avgs, maxes, groupby, parent.state)
       end
 
       # Rebuild an index lookup step

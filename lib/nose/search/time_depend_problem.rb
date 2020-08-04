@@ -27,6 +27,7 @@ module NoSE
         migrate_support_queries = @migrate_prepare_plans.keys
         queries += migrate_support_queries
         @include_migration_cost = workload.include_migration_cost
+        @MIGRATE_COST_DUMMY_CONST = 0.00001 # multiple migrate cost by this value to ignore
 
         super(queries, workload.updates, data, objective)
       end
@@ -42,7 +43,8 @@ module NoSE
       # @return [MIPPeR::LinExpr]
       def total_cost
         cost = @queries.reject{|q| q.is_a? MigrateSupportQuery}.reduce(MIPPeR::LinExpr.new) do |expr, query|
-          expr.add(@indexes.reduce(MIPPeR::LinExpr.new) do |subexpr, index|
+          used_indexes = data[:costs][query].keys
+          expr.add(used_indexes.reduce(MIPPeR::LinExpr.new) do |subexpr, index|
             subexpr.add((0...@timesteps).reduce(MIPPeR::LinExpr.new) do |subsubexpr, ts|
               subsubexpr.add total_query_cost(@data[:costs][query][index],
                                               @query_vars[index][query],
@@ -54,7 +56,7 @@ module NoSE
         end
 
         cost = add_update_costs cost
-        cost = add_migration_cost(cost) if @include_migration_cost
+        cost = add_migration_cost(cost)
         cost
       end
 
@@ -67,7 +69,10 @@ module NoSE
 
             # index which is during the preparing for the next timestep also need to be updated
             (0...(@timesteps - 1)).each do |ts|
-              min_cost.add @migrate_vars[index][ts + 1] * (@data[:prepare_update_costs][update][index][ts])
+              cost = @include_migration_cost ? @data[:prepare_update_costs][update][index][ts]
+                              : @MIGRATE_COST_DUMMY_CONST
+
+              min_cost.add @migrate_vars[index][ts + 1] * cost
             end
           end
         end
@@ -96,7 +101,8 @@ module NoSE
       def add_creation_cost(schema_cost)
         @indexes.each do |index|
           (1...@timesteps).each do |ts|
-            schema_cost.add @migrate_vars[index][ts] * index.creation_cost(@creation_coeff)
+            cost = @include_migration_cost ? index.creation_cost(@creation_coeff) : @MIGRATE_COST_DUMMY_CONST
+            schema_cost.add @migrate_vars[index][ts] * cost
           end
         end
         schema_cost
@@ -112,9 +118,8 @@ module NoSE
               if cost.nil?
                 subsubexpr.add MIPPeR::LinExpr.new
               else
-                query_cost = cost.last[ts] * 1.0
+                query_cost = @include_migration_cost ? cost.last[ts] * 1.0 : @MIGRATE_COST_DUMMY_CONST
                 cost_expr = @prepare_vars[index][query][ts] * query_cost
-
                 subsubexpr.add cost_expr
               end
             end)
@@ -170,23 +175,35 @@ module NoSE
       # Initialize query and index variables
       # @return [void]
       def add_variables
-        @index_vars = {}
+        add_query_index_variable
+        add_index_variable
+        add_cf_creation_variables
+        add_cf_prepare_variables
+      end
+
+      def add_query_index_variable
         @query_vars = {}
-        @indexes.each do |index|
-          @query_vars[index] = {}
-          @queries.each_with_index do |query, q|
-            @query_vars[index][query] = {}
+        @queries.each_with_index do |query, q|
+          next if query.is_a? MigrateSupportQuery
+          @data[:costs][query].keys.uniq.each do |related_index|
+            @query_vars[related_index] = {} if @query_vars[related_index].nil?
+            @query_vars[related_index][query] = {} if @query_vars[related_index][query].nil?
             (0...@timesteps).each do |ts|
-              query_var = "q#{q}_#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              query_var = "q#{q}_#{related_index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
               var = MIPPeR::Variable.new 0, 1, 0, :binary, query_var
               @model << var
-              @query_vars[index][query][ts] = var
+              @query_vars[related_index][query][ts] = var
             end
           end
+        end
+      end
 
-          var_name = index.key if ENV['NOSE_LOG'] == 'debug'
+      def add_index_variable
+        @index_vars = {}
+        @indexes.each do |index|
           @index_vars[index] = {}
           (0...@timesteps).each do |ts|
+            var_name = "#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
             @index_vars[index][ts] = MIPPeR::Variable.new 0, 1, 0, :binary, var_name
           end
 
@@ -198,15 +215,16 @@ module NoSE
 
           # Add a new variable for the ID graph if needed
           unless @index_vars.key? id_graph
-            var_name = index.key if ENV['NOSE_LOG'] == 'debug'
-            @index_vars[id_graph] = MIPPeR::Variable.new 0, 1, 0, :binary,
-                                                         var_name
+            (0...@timesteps).each do |ts|
+              var_name = "#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              @index_vars[id_graph][ts] = MIPPeR::Variable.new 0, 1, 0, :binary,
+                                                           var_name
+            end
           end
 
           (0...@timesteps).each do |ts|
             # Ensure that the ID graph of this index is present if we use it
-            name = "ID_#{id_graph.key}_#{index.key}_#{ts}" \
-            if ENV['NOSE_LOG'] == 'debug'
+            name = "#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
             constr = MIPPeR::Constraint.new @index_vars[id_graph][ts] * 1.0 + \
                                           @index_vars[index][ts] * -1.0,
                                             :>=, 0, name
@@ -215,9 +233,6 @@ module NoSE
         end
 
         @index_vars.each_value { |vars| vars.each_value {|var| @model << var }}
-
-        add_cf_creation_variables
-        add_cf_prepare_variables
       end
 
       # add variable for whether to create CF at the timestep
@@ -240,15 +255,15 @@ module NoSE
       # @return [void]
       def add_cf_prepare_variables
         @prepare_vars = {}
-        @indexes.each do |index|
-          @prepare_vars[index] = {}
           @queries.select{|q| q.is_a? MigrateSupportQuery}.each do |migrate_support_query|
-            @prepare_vars[index][migrate_support_query] = {}
-            (0...(@timesteps - 1)).each do |ts|
-              query_var = "ms_q_#{migrate_support_query}_#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
-              var = MIPPeR::Variable.new 0, 1, 0, :binary, query_var
-              @model << var
-              @prepare_vars[index][migrate_support_query][ts] = var
+            @data[:costs][migrate_support_query].keys.uniq.each do |related_index|
+              @prepare_vars[related_index] = {} if @prepare_vars[related_index].nil?
+              @prepare_vars[related_index][migrate_support_query] = {} if @prepare_vars[related_index][migrate_support_query].nil?
+              (0...(@timesteps - 1)).each do |ts|
+                query_var = "ms_q_#{related_index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+                var = MIPPeR::Variable.new 0, 1, 0, :binary, query_var
+                @model << var
+                @prepare_vars[related_index][migrate_support_query][ts] = var
             end
           end
         end

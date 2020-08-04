@@ -48,6 +48,8 @@ module NoSE
       def solve(previous_type = nil)
         return unless @status.nil?
 
+        puts "model variables: " + @model.variables.size.to_s
+        puts "model constraints: " + @model.constraints.size.to_s
         # Run the optimization
         @model.optimize
         @status = model.status
@@ -178,8 +180,6 @@ module NoSE
 
         log_model 'Model'
       end
-
-      private
 
       # Set the value of the objective function (workload cost)
       # @return [void]

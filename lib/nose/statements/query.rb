@@ -119,17 +119,15 @@ module NoSE
 
     # this method is for debugging
     def simplified_queries
-      simplified_queries = @select.to_a.combination(@select.size - 1).map(&:to_set).flat_map do |s|
+      simplified_queries = @select.to_a.combination(@select.size - 2).map(&:to_set).flat_map do |s|
         next if s.empty?
         @conditions.to_a.combination(@conditions.size - 1).flat_map do |cs|
           next unless cs.any? {|c| c.last.operator == "=".to_sym}
-          (@groupby.to_a.combination(@groupby.size - 1) || Set.new).map(&:to_set).flat_map do |g|
-            params = @params.dup
-            params[:select][:fields] = s
-            params[:groupby] = g
-            params[:conditions] = cs.map{|c| Hash[c[0], c[1]]}.inject(&:merge)
-            Query.new params, ""
-          end
+
+          params = @params.dup
+          params[:select][:fields] = s
+          params[:conditions] = cs.map{|c| Hash[c[0], c[1]]}.inject(&:merge)
+          [Query.new(params, "")]
         end
       end.compact
       simplified_queries
@@ -251,5 +249,34 @@ module NoSE
     end
     alias eql? ==
 
+    # Get all the support queries for updates in the workload
+    # @return[Array<Statement>]
+    def self.migrate_support_query_for_index(index)
+      # Get all fields which need to be selected by support queries
+      select = index.all_fields - index.hash_fields - index.order_fields
+      select = index.hash_fields + index.order_fields if select.empty?
+
+      # Build conditions by traversing the foreign keys
+      conditions = (index.hash_fields + index.order_fields).map do |c|
+        next unless index.graph.entities.include? c.parent
+
+        Condition.new c, '='.to_sym, nil
+      end.compact
+      conditions = Hash[conditions.map do |condition|
+        [condition.field.id, condition]
+      end]
+
+      params = {
+          select: {fields: select},
+          graph: index.graph,
+          key_path: index.graph.longest_path,
+          entity: index.graph.entities,
+          conditions: conditions,
+          index: index
+      }
+      query = MigrateSupportQuery.new(params, nil, group: "PrepareQuery")
+      query.set_text
+      query
+    end
   end
 end

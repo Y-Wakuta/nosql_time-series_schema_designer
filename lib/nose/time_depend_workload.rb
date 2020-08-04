@@ -51,6 +51,12 @@ module NoSE
           fail if @time_depend_statement_weights[mix].map{|_, weights| weights.size}.uniq.size > 1
           frequencies = (frequency.nil? ? weight : frequency).map{|f| f * @interval}
           @time_depend_statement_weights[mix][statement] = frequencies
+
+          print group&.rjust(22)
+          print (" " + mix.to_s + " ").rjust(22)
+          print frequencies.map{|f| f.round.to_s.rjust(10)}
+          puts ""
+
         end
       elsif @definition_type == DEFINITION_TYPE::WORKLOAD_SET_RATIO
         fail "required field is not given" if @start_workload_ratio.nil? or @end_workload_ratio.nil? \
@@ -82,36 +88,6 @@ module NoSE
           end
         end
       end
-    end
-
-    # Get all the support queries for updates in the workload
-    # @return[Array<Statement>]
-    def migrate_support_queries(index)
-      # Get all fields which need to be selected by support queries
-      select = index.all_fields - index.hash_fields - index.order_fields
-      return [] if select.empty?
-
-      # Build conditions by traversing the foreign keys
-      conditions = (index.hash_fields + index.order_fields).map do |c|
-        next unless index.graph.entities.include? c.parent
-
-        Condition.new c, '='.to_sym, nil
-      end.compact
-      conditions = Hash[conditions.map do |condition|
-        [condition.field.id, condition]
-      end]
-
-      params = {
-        select: {fields: select},
-        graph: index.graph,
-        key_path: index.graph.longest_path,
-        entity: index.graph.entities,
-        conditions: conditions,
-        index: index
-      }
-      query = MigrateSupportQuery.new(params, nil, group: "PrepareQuery")
-      query.set_text
-      query
     end
 
     def time_depend_statement_weights
@@ -175,7 +151,8 @@ module NoSE
     end
 
     def IncludeMigrationCost(include_migration_cost)
-      puts "ignore migration cost" unless include_migration_cost
+      puts "ignore migration cost. NOTE: This option does not literally ignore migration cost. "\
+           "This option changes each migration cost drastically smaller" unless include_migration_cost
       @workload.include_migration_cost = include_migration_cost
     end
 

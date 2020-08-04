@@ -21,33 +21,64 @@ module NoSE
       puts "entity_fields (pattern) size: " + entity_fields.size.to_s
       extra_fields = get_frequent_extra_choices queries
 
-      indexes = Parallel.flat_map(queries, in_processes: 12) do |query|
-        #indexes = queries.flat_map do |query|
+      #indexes = Parallel.flat_map(queries, in_processes: 12) do |query|
+      indexes = queries.flat_map do |query|
         indexes_for_query(query, entity_fields[query], extra_fields).to_a
       end
       indexes += additional_indexes
+      indexes = get_used_indexes queries, indexes
 
-      get_used_indexes_in_query_plans queries, indexes
+      if queries.all? {|q| q.instance_of? Query}
+        puts "index size before pruning: " + indexes.size.to_s
+        indexes = pruning_tree_by_is_shared queries, indexes
+        puts "index size after pruning: " + indexes.size.to_s
+      end
+      indexes
     end
 
     # remove CFs that are not used in query plans
-    def get_used_indexes_in_query_plans(queries, indexes)
+    def get_used_indexes(queries, indexes)
       puts "whole indexes : " + indexes.size.to_s
-      planner = Plans::PrunedQueryPlanner.new @workload.model, indexes, @cost_model, 2
-      used_indexes = Parallel.flat_map(queries, in_processes: 4) do |query|
-        #used_indexes = queries.flat_map do |query|
-        plans = planner.find_plans_for_query(query)
-        join_plan_size = plans.select{|p| p.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}.size > 1}.size
-        puts "--- #{plans.size} plans : #{join_plan_size} join plans for #{query.text} ---"
+      planner = Plans::PrunedQueryPlanner.new @workload.model, indexes, @cost_model, @index_steps_threshold
 
-        plans.flat_map{|p| p.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}.map(&:index)}.uniq
+      Parallel.flat_map(queries, in_processes: 4) do |query|
+        tree = planner.find_plans_for_query(query)
+        join_plan_size = tree.select{|p| p.indexes.size > 1}.size
+        puts "--- #{tree.to_a.size} plans : #{join_plan_size} join plans for #{tree.query.text} ---"
+        tree.flat_map(&:indexes).uniq
       end
-      puts "used indexes : " + used_indexes.size.to_s
-      puts "#{queries.size} : distinct used indexes : " + used_indexes.uniq.size.to_s
-      #used_indexes.select{|ui| used_indexes.count(ui) > 1}.uniq.each do |i|
-      #  puts i.hash_str
-      #end
-      used_indexes
+    end
+
+    # Remove CFs based on whether the CF is share with other queries or not
+    def pruning_tree_by_is_shared(queries, indexes)
+      planner = Plans::PrunedQueryPlanner.new @workload.model, indexes, @cost_model, @index_steps_threshold
+      trees = Parallel.flat_map(queries, in_processes: 4) do |query|
+        planner.find_plans_for_query(query)
+      end
+
+      upserts = @workload.statement_weights.keys.select{|s| s.is_a?(Insert) or s.is_a?(Update)}
+      trees.each do |tree|
+        other_tree_indexes = trees.reject{|t| t == tree}.flat_map{|t| t.flat_map(&:indexes)}.uniq
+        tree.each do |plan|
+          next if plan.indexes.size == 1 and plan.query.materialize_view == plan.indexes.first
+
+          # not-shared join plans are still worthy when any upsearts modifies its field.
+          is_modified = upserts.any? do |upsert|
+            plan.indexes.any? do |index|
+              upsert.modifies_index? index
+            end
+          end
+          # MV plan is not worthy if it is upserted, since there is MV plan.
+          next if is_modified and plan.indexes.size > 1
+
+          # if the included indexes are not shared with other queries, the plan would not be recommended
+          is_shared = plan.indexes.any? do |index|
+            other_tree_indexes.include? index
+          end
+          indexes -= plan.indexes unless is_shared
+        end
+      end
+      indexes
     end
 
     # Produce all possible indices for a given query
@@ -63,15 +94,14 @@ module NoSE
         indexes_for_graph graph, query.select, eq, range, entity_fields, extra_fields
       end.uniq << query.materialize_view
 
-      puts "pie == #{query.text} =============================== " + indexes.size.to_s
       indexes
     end
 
-     # Since support queries are simple, use IndexEnumerator to make migration easier
-     def support_indexes(indexes, by_id_graph)
-       puts "start enumerating support indexes"
-       IndexEnumerator.new(@workload).support_indexes indexes, by_id_graph
-     end
+    # Since support queries are simple, use IndexEnumerator to make migration easier
+    def support_indexes(indexes, by_id_graph)
+      puts "start enumerating support indexes"
+      IndexEnumerator.new(@workload).support_indexes indexes, by_id_graph
+    end
 
     private
 
@@ -92,8 +122,8 @@ module NoSE
         fields.permutation.to_a
       end.uniq << []
       extra_choices = frequent_extra_choices(graph, select, eq, range, extra_fields)
-      puts("graph : #{graph.entities.map{|n| n.name}}")
-      puts("eq_choices : #{eq_choices.size}")
+      #puts("graph : #{graph.entities.map{|n| n.name}}")
+      #puts("eq_choices : #{eq_choices.size}")
       #puts("extra_choices : #{extra_choices.size}")
 
       [eq_choices, order_choices, extra_choices]
@@ -150,7 +180,7 @@ module NoSE
       shared_fields = unique_shared_fields.map{|_, usf| usf[:shared]}
       support_threshold = [2, queries.size].min()
       FpGrowth.mine(shared_fields.map(&:dup), 30)
-                                   .select{|ef| ef.support >= support_threshold and ef.content.size > 1}
+          .select{|ef| ef.support >= support_threshold and ef.content.size > 1}
     end
 
     # every fields should be split into unique or shared.
@@ -213,9 +243,9 @@ module NoSE
       # unique fields is not shared with other queries and no need to enumerate subset of unique fields
       0.upto([graph_entity_size_for_unique, 1].max()).flat_map do |n|
         unique_patterns.combination(n)
-                            .map(&:flatten)
-                            .map(&:uniq)
-                            .map{|e| e.sort_by { |b | [-b.cardinality, b.name] }}.uniq
+            .map(&:flatten)
+            .map(&:uniq)
+            .map{|e| e.sort_by { |b | [-b.cardinality, b.name] }}.uniq
       end
     end
 
@@ -243,11 +273,6 @@ module NoSE
       return entity_choice if frequent_fields_set.nil?
       entity_choice = (entity_choice - frequent_fields_set) + [frequent_fields_set.flatten.uniq]
       entity_choice
-    end
-
-    def get_median(a)
-      a.sort!
-      (a.size % 2).zero? ? a[a.size/2 - 1, 2].inject(:+) / 2.0 : a[a.size/2]
     end
 
     def enumerate_by_primary_fields(fields)
