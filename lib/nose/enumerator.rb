@@ -46,7 +46,7 @@ module NoSE
       #Parallel.map(queries, in_processes: 5) do |query|
       queries.map do |query|
         indexes_for_query(query).to_a
-      end.inject(additional_indexes, &:+)
+      end.inject(additional_indexes, &:+).uniq
     end
 
     # Produce all possible indices for a given workload

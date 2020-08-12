@@ -45,13 +45,6 @@ module NoSE
         query_weights = combine_query_weights indexes
         costs, trees = query_costs query_weights, indexes
 
-        trees.each do |tree|
-          q = tree.root.state.query
-          next if q.is_a? SupportQuery
-          join_plan_size = tree.to_a.select{|p| p.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}.size > 1}.size
-          puts "--- #{tree.to_a.size} plans : #{join_plan_size} join plans for #{q.text} ---"
-        end
-
         # prepare_update_costs possibly takes nil value if the workload is not time-depend workload
         update_costs, update_plans, prepare_update_costs = update_costs trees, indexes
 
@@ -70,8 +63,9 @@ module NoSE
         if @workload.is_a? TimeDependWorkload
           STDERR.puts("set migration query plans")
 
-          migrate_prepare_plans = get_migrate_preparing_plans(indexes)
-          costs.merge!(migrate_prepare_plans.values.map{|v| v[:costs]}.reduce(&:merge))
+          migrate_prepare_plans = get_migrate_preparing_plans(trees, indexes, migrate_prepare_plans)
+          costs.merge!(migrate_prepare_plans.values.flat_map{|v| v.values}.map{|v| v[:costs]}.reduce(&:merge))
+
           solver_params[:migrate_prepare_plans] = migrate_prepare_plans
         end
 
@@ -237,28 +231,40 @@ module NoSE
         [costs, results.map(&:last)]
       end
 
-      def get_migrate_preparing_plans(indexes)
-        migrate_plans = indexes.map do |base_index|
-          #migrate_plans = Parallel.map(indexes, in_processes: [Etc.nprocessors - 3, 2].max()) do |base_index|
-          migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
+      def get_migrate_preparing_plans(trees, indexes, migrate_plans)
+        migrate_plans = {}
 
+        # create new migrate_prepare_plan
+        indexes.each do |base_index|
+          migrate_plans[base_index] = {} if migrate_plans[base_index].nil?
           planner = Plans::PreparingQueryPlanner.new @workload, indexes, @cost_model, base_index,  2
-          _costs, tree = query_cost planner, migrate_support_query, [1] * @workload.timesteps
+          migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
+          migrate_plans[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
+        end
 
-          # calculate cost
-          _costs = _costs.map do |index, (step, costs)|
-            {index =>  [step, costs.map{|cost| @workload.migrate_support_coeff * cost * index.size}]}
-          end.reduce(&:merge)
-
-          costs = Hash[migrate_support_query, _costs]
-          migrate_plan = {}
-          migrate_plan[migrate_support_query] = {
-              costs: costs,
-              tree: tree
-          }
-          migrate_plan
-        end.compact.reduce(&:merge)
+        # convert existing other trees into migrate_prepare_tree
+        planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, indexes, @cost_model,  2
+        indexes.each do |base_index|
+          migrate_plans[base_index] = {} if migrate_plans[base_index].nil?
+          related_trees = trees.select{|t| t.flat_map{|p| p.indexes}.include? base_index}
+          related_trees.each do |rtree|
+            simple_query = MigrateSupportSimplifiedQuery.simple_query rtree.query, base_index
+            migrate_plans[base_index][simple_query] = support_query_cost simple_query, planner
+          end
+        end
         migrate_plans
+      end
+
+      def support_query_cost(query, planner)
+        _costs, tree = query_cost planner, query, [1] * @workload.timesteps
+
+        # calculate cost
+        _costs = _costs.map do |index, (step, costs)|
+          {index =>  [step, costs.map{|cost| @workload.migrate_support_coeff * cost * index.size}]}
+        end.reduce(&:merge)
+
+        costs = Hash[query, _costs]
+        {:costs => costs, :tree => tree}
       end
 
       # Get the cost for indices for an individual query
