@@ -63,7 +63,7 @@ module NoSE
         if @workload.is_a? TimeDependWorkload
           STDERR.puts("set migration query plans")
 
-          migrate_prepare_plans = get_migrate_preparing_plans(trees, indexes, migrate_prepare_plans)
+          migrate_prepare_plans = get_migrate_preparing_plans(trees, indexes)
           costs.merge!(migrate_prepare_plans.values.flat_map{|v| v.values}.map{|v| v[:costs]}.reduce(&:merge))
 
           solver_params[:migrate_prepare_plans] = migrate_prepare_plans
@@ -231,7 +231,7 @@ module NoSE
         [costs, results.map(&:last)]
       end
 
-      def get_migrate_preparing_plans(trees, indexes, migrate_plans)
+      def get_migrate_preparing_plans(trees, indexes)
         migrate_plans = {}
 
         # create new migrate_prepare_plan

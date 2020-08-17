@@ -165,8 +165,14 @@ module NoSE
         # if step.index already exists at timestep t, new prepare plan for timestep t + 1 is not required
         return nil if @indexes[timestep].include? new_index
 
-        migrate_support_query = migrate_prepare_plans.select{|p| p.index == new_index}.keys.first
-        migrate_support_tree = migrate_prepare_plans.select{|p| p.index == new_index}.values.first[:tree]
+        migrate_support_queries = migrate_prepare_plans.select{|idx| idx == new_index}
+        migrate_support_query = migrate_support_queries.flat_map do |idx, support_query_tree|
+          support_query_tree.keys.select do |support_query|
+            @problem.prepare_tree_vars[idx][support_query][timestep].value
+          end
+        end.first
+
+        migrate_support_tree = migrate_prepare_plans[new_index][migrate_support_query][:tree]
         prepare_plan_for_the_timestep = migrate_support_tree.select do |plan|
           plan.indexes.to_set == @query_indexes[migrate_support_query]&.fetch(timestep, nil)
         end
@@ -178,7 +184,6 @@ module NoSE
                                                                       .select{|s| s.is_a? Plans::IndexLookupPlanStep}
                                                                       .map{|s| s.index}
                                                                       .include? new_index
-
         Plans::MigratePreparePlan.new(new_index, prepare_plan_for_the_timestep.first, timestep)
       end
 
