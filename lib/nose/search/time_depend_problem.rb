@@ -60,6 +60,7 @@ module NoSE
 
         cost = add_update_costs cost
         cost = add_migration_cost(cost)
+        cost = add_initial_index_loading_cost(cost)
         cost
       end
 
@@ -107,6 +108,15 @@ module NoSE
             cost = @include_migration_cost ? index.creation_cost(@creation_coeff) : @MIGRATE_COST_DUMMY_CONST
             schema_cost.add @migrate_vars[index][ts] * cost
           end
+        end
+        schema_cost
+      end
+
+      # calculate cf creation cost that exist from the start timestep
+      def add_initial_index_loading_cost(schema_cost)
+        @indexes.each do |index|
+          cost = @include_migration_cost ? index.creation_cost(@creation_coeff) : @MIGRATE_COST_DUMMY_CONST
+          schema_cost.add @index_vars[index][0] * cost
         end
         schema_cost
       end
