@@ -260,7 +260,9 @@ module NoSE
 
         # calculate cost
         _costs = _costs.map do |index, (step, costs)|
-          {index =>  [step, costs.map{|cost| @workload.migrate_support_coeff * cost * index.size}]}
+          # query execution cost already considers record width.
+          # Therefore the cost is multiplied by index.entries not by index.size
+          {index =>  [step, costs.map{|cost| @workload.migrate_support_coeff * cost * index.entries}]}
         end.reduce(&:merge)
 
         costs = Hash[query, _costs]
