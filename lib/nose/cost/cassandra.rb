@@ -29,16 +29,6 @@ module NoSE
         step.state.cardinality * @options[:insert_cost]
       end
 
-      def prepare_delete_cost(step)
-        return nil if step.state.nil?
-        step.state.cardinality * @options[:prepare_delete_cost]
-      end
-
-      def prepare_insert_cost(step)
-        return nil if step.state.nil?
-        step.state.cardinality * @options[:prepare_insert_cost]
-      end
-
       # The cost of aggregating the intermediate results at the last step
       # @return [Fixnum]
       def aggregation_cost(_step)

@@ -34,8 +34,21 @@ module NoSE
         [@index, @type].hash
       end
 
-      def calculate_update_prepare_cost_with_size(cost_model)
-        @prepare_update_cost_with_size = (cost_model.method(('prepare_' + subtype_name + '_cost').to_sym).call self) * index.size
+      # calculate the cost of updates during CF creation
+      # Since the time length of CF creation corresponding to the CF size,
+      # multiple update cost with index.size with coefficient
+      # At least this cost is smaller than normal update cost since this
+      # updating-creating-cf does not executed for whole interval
+      # As long as the creation time is shorter than the interval
+      def calculate_update_prepare_cost(cost_model)
+        @prepare_update_cost_with_size =
+            (cost_model.method((subtype_name + '_cost').to_sym).call self) * index_creation_time
+      end
+
+      private
+
+      def index_creation_time
+        @index.size * 0.000_001
       end
     end
 

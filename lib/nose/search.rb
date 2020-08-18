@@ -202,7 +202,7 @@ module NoSE
         plans_for_update.each do |plan|
           if @workload.is_a?(TimeDependWorkload)
             update_costs[statement][plan.index] = weights.map{|w| plan.update_cost * w}
-            plan.steps.each { |step| step.calculate_update_prepare_cost_with_size @cost_model }
+            plan.steps.each { |step| step.calculate_update_prepare_cost @cost_model }
 
             # the definition of query frequency is execution times per second.
             # But the weight is multiplied frequency by migration interval,
