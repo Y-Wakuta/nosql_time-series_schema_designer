@@ -239,28 +239,6 @@ module NoSE
 
         expect(result.migrate_plans.size).to eq 0
       end
-
-      it 'migration preparing plan produced in the result' do
-        rubis_workload = NoSE::TimeDependWorkload.new do
-          Model 'rubis'
-          increase = [1,2,3]
-          TimeSteps increase.size
-          Group 'ViewBidHistory', default: increase do
-            Q 'SELECT bids.* FROM items.bids WHERE items.id = ? -- 6'
-            Q 'SELECT bids.qty, bids.date FROM bids.item WHERE item.id=? ' \
-              'ORDER BY bids.bid LIMIT 2 -- 19'
-            Q 'INSERT INTO items SET id=?, name=?, description=?, initial_price=?, ' \
-              'quantity=?, reserve_price=?, buy_now=?, nb_of_bids=0, max_bid=0, ' \
-              'start_date=?, end_date=? AND CONNECT TO category(?), seller(?) -- 10'
-          end
-        end
-
-        indexes = PrunedIndexEnumerator.new(rubis_workload, cost_model, 1, 2).indexes_for_workload.to_a
-        #indexes = IndexEnumerator.new(rubis_workload).indexes_for_workload.to_a
-        expect do
-          Search.new(rubis_workload, cost_model).search_overlap indexes
-        end.not_to raise_error
-      end
     end
   end
 end

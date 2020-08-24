@@ -15,7 +15,7 @@ NoSE::Model.new do
     String 'p_container'
     Integer 'p_retailprice'
     Integer 'p_comment'
-  end) * 200000
+  end) * 2000_000
 
   (Entity 'supplier' do
     ID 's_suppkey'
@@ -24,7 +24,7 @@ NoSE::Model.new do
     String 's_phone'
     Integer 's_acctbal'
     String 's_comment'
-  end) * 10000
+  end) * 10_000
 
   (Entity 'partsupp' do
     ID 'ps_partkey'
@@ -32,7 +32,7 @@ NoSE::Model.new do
     Integer 'ps_availqty'
     Integer 'ps_supplycost'
     String 'ps_comment'
-  end) * 800000
+  end) * 800_000
 
   (Entity 'customer'do
     ID 'c_custkey'
@@ -42,7 +42,7 @@ NoSE::Model.new do
     Integer 'c_acctbal'
     String 'c_mktsegment'
     String 'c_comment'
-  end) * 150000
+  end) * 150_000
 
   (Entity 'orders' do
     ID 'o_orderkey'
@@ -53,7 +53,7 @@ NoSE::Model.new do
     String 'o_clerk'
     Integer 'o_shippriority'
     String 'o_comment'
-  end) * 1500000
+  end) * 1_500_000
 
   (Entity 'lineitem' do
     ID 'l_orderkey'
@@ -71,7 +71,7 @@ NoSE::Model.new do
     String 'l_shipinstruct'
     String 'l_comment'
     Integer 'dummy', count: 1
-  end) * 6001215
+  end) * 6_000_000
 
   (Entity 'nation' do
     ID 'n_nationkey'

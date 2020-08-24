@@ -135,23 +135,6 @@ module NoSE
         if @hash_fields.map(&:parent).to_set.size > 1
     end
 
-    def validate_aggregation_fields
-
-      fail InvalidIndexException, 'COUNT, SUM, AVG must be Set' \
-        if [@count_fields, @sum_fields, @max_fields, @avg_fields].any?{|af| not af.is_a? Set}
-
-      fail InvalidIndexException, 'COUNT fields need to be exist in index fields' \
-        unless @all_fields >= @count_fields
-      fail InvalidIndexException, 'SUM fields need to be exist in index fields' \
-        unless @all_fields >= @sum_fields
-      fail InvalidIndexException, 'AVG fields need to be exist in index fields' \
-        unless @all_fields >= @avg_fields
-      fail InvalidIndexException, 'GROUP BY fields should be exist in key fields' \
-        unless @groupby_fields.empty? or
-                ((@hash_fields + @order_fields) >= @groupby_fields and \
-                @groupby_fields.any? {|gf| @hash_fields.include? gf})
-    end
-
     # Ensure an index is nonempty
     # @return [void]
     def validate_nonempty
