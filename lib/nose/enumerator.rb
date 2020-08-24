@@ -87,16 +87,18 @@ module NoSE
       # since other updates will be managed automatically by index maintenance
       indexes = indexes.map(&:to_id_graph).uniq if by_id_graph
 
-      # Collect all possible support queries
-      queries = indexes.flat_map do |index|
+      queries = support_queries indexes
+      indexes_for_queries queries, []
+    end
+
+    # Collect all possible support queries
+    def support_queries(indexes)
+      # Enumerate indexes for each support query
+      indexes.flat_map do |index|
         @workload.updates.flat_map do |update|
           update.support_queries(index)
         end
-      end
-
-      # Enumerate indexes for each support query
-      queries.uniq!
-      indexes_for_queries queries, []
+      end.uniq
     end
 
     private
@@ -185,7 +187,7 @@ module NoSE
 
     # Get all possible indices which jump a given piece of a query graph
     # @return [Array<Index>]
-    def indexes_for_graph(graph, select, count, sum, max, avg, eq, range, group_by)
+    def indexes_for_graph(graph, select, eq, range)
       eq_choices = eq_choices graph, eq
       range_fields = graph.entities.map { |entity| range[entity] }.reduce(&:+)
       range_fields.uniq!

@@ -7,11 +7,13 @@ require 'fpgrowth'
 module NoSE
   # Produces potential indices to be used in schemas
   class PrunedIndexEnumerator < IndexEnumerator
-    def initialize(workload, cost_model, is_shared_threshold, index_steps_threshold)
+    def initialize(workload, cost_model, is_entity_fields_shared_threshold,
+                   index_plan_step_threshold, index_plan_shared_threshold)
       @eq_threshold = 1
       @cost_model = cost_model
-      @is_shared_threshold = is_shared_threshold
-      @index_steps_threshold = index_steps_threshold
+      @is_entity_fields_shared_threshold = is_entity_fields_shared_threshold
+      @index_steps_threshold = index_plan_step_threshold
+      @index_plan_shared_threshold = index_plan_shared_threshold
       super(workload)
     end
 
@@ -33,7 +35,7 @@ module NoSE
         indexes = pruning_tree_by_is_shared queries, indexes
         puts "index size after pruning: " + indexes.size.to_s
       end
-      indexes
+      indexes.uniq
     end
 
     # remove CFs that are not used in query plans
@@ -44,9 +46,9 @@ module NoSE
       Parallel.flat_map(queries, in_processes: 4) do |query|
         tree = planner.find_plans_for_query(query)
         join_plan_size = tree.select{|p| p.indexes.size > 1}.size
-        puts "--- #{tree.to_a.size} plans : #{join_plan_size} join plans for #{tree.query.text} ---"
+        puts "--- #{tree.to_a.size} plans : #{join_plan_size} join plans for #{tree.query.text}  ---"
         tree.flat_map(&:indexes).uniq
-      end
+      end.uniq
     end
 
     # Remove CFs based on whether the CF is share with other queries or not
@@ -58,10 +60,8 @@ module NoSE
 
       upserts = @workload.statement_weights.keys.select{|s| s.is_a?(Insert) or s.is_a?(Update)}
       trees.each do |tree|
-        other_tree_indexes = trees.reject{|t| t == tree}.flat_map{|t| t.flat_map(&:indexes)}.uniq
+        other_tree_indexes = trees.reject{|t| t == tree}.map{|t| t.flat_map(&:indexes).uniq}
         tree.each do |plan|
-          next if plan.indexes.size == 1 and plan.query.materialize_view == plan.indexes.first
-
           # not-shared join plans are still worthy when any upsearts modifies its field.
           is_modified = upserts.any? do |upsert|
             plan.indexes.any? do |index|
@@ -72,13 +72,16 @@ module NoSE
           next if is_modified and plan.indexes.size > 1
 
           # if the included indexes are not shared with other queries, the plan would not be recommended
-          is_shared = plan.indexes.any? do |index|
-            other_tree_indexes.include? index
+          is_shared_than_threshold = plan.indexes.any? do |index|
+            other_tree_indexes.count{|oti| oti.include?(index)} >= @index_plan_shared_threshold
           end
-          indexes -= plan.indexes unless is_shared
+          next if is_shared_than_threshold
+
+          indexes -= plan.indexes
         end
       end
-      indexes
+      # Since materialize view probably removed, re-add MVs explicitly here
+      (indexes + trees.map{|t| t.query.materialize_view}).uniq
     end
 
     # Produce all possible indices for a given query
@@ -97,10 +100,16 @@ module NoSE
       indexes
     end
 
-    # Since support queries are simple, use IndexEnumerator to make migration easier
+    # Produce the indexes necessary for support queries for these indexes
+    # @return [Array<Index>]
     def support_indexes(indexes, by_id_graph)
-      puts "start enumerating support indexes"
-      IndexEnumerator.new(@workload).support_indexes indexes, by_id_graph
+      ## If indexes are grouped by ID graph, convert them before updating
+      ## since other updates will be managed automatically by index maintenance
+      indexes = indexes.map(&:to_id_graph).uniq if by_id_graph
+
+      queries = support_queries indexes
+      support_indexes = IndexEnumerator.new(@workload).indexes_for_queries queries, []
+      get_used_indexes queries, support_indexes.uniq
     end
 
     private
@@ -122,9 +131,6 @@ module NoSE
         fields.permutation.to_a
       end.uniq << []
       extra_choices = frequent_extra_choices(graph, select, eq, range, extra_fields)
-      #puts("graph : #{graph.entities.map{|n| n.name}}")
-      #puts("eq_choices : #{eq_choices.size}")
-      #puts("extra_choices : #{extra_choices.size}")
 
       [eq_choices, order_choices, extra_choices]
     end
@@ -171,7 +177,7 @@ module NoSE
       entity_fields.map do |q, efs|
         shared = []
         unique = []
-        efs.each {|ef| fields_hash[ef] > @is_shared_threshold ? shared << ef : unique << ef}
+        efs.each {|ef| fields_hash[ef] > @is_entity_fields_shared_threshold ? shared << ef : unique << ef}
         Hash[q, {unique: unique, shared: shared}]
       end.inject(:merge)
     end
