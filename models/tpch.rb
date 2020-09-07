@@ -53,6 +53,7 @@ NoSE::Model.new do
     String 'o_clerk'
     Integer 'o_shippriority'
     String 'o_comment'
+    Integer 'dummy', count: 1
   end) * 1_500_000
 
   (Entity 'lineitem' do
@@ -61,6 +62,7 @@ NoSE::Model.new do
     Integer 'l_quantity'
     Integer 'l_extendedprice'
     Integer 'l_discount'
+    Integer 'l_suppkey'
     Integer 'l_tax'
     String 'l_returnflag'
     Integer 'l_linestatus'

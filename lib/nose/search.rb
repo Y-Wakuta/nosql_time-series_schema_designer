@@ -39,8 +39,9 @@ module NoSE
       # @return [Results]
       def search_overlap(indexes, max_space = Float::INFINITY)
         return if indexes.empty?
-
         STDERR.puts("set basic query plans")
+
+        indexes = pruning_tree_by_cost indexes
         # Get the costs of all queries and updates
         query_weights = combine_query_weights indexes
         costs, trees = query_costs query_weights, indexes
@@ -74,6 +75,32 @@ module NoSE
       end
 
       private
+
+      def pruning_tree_by_cost(indexes)
+        query_weights = combine_query_weights indexes
+        _, trees = query_costs query_weights, indexes
+        puts "index size before cost-based pruning: #{indexes.size}"
+        planner = @is_pruned ?
+                      Plans::PrunedQueryPlanner.new(@workload, indexes, @cost_model, 2) :
+                      Plans::QueryPlanner.new(@workload, indexes, @cost_model)
+
+        threshold = 1
+        trees.select{|t| t.to_a.size > threshold}.each do |tree|
+          before_tree_size = tree.size
+          plan_costs = tree.map(&:cost)
+          cost_threshold = 0.1 * (plan_costs.max() - plan_costs.min()) + plan_costs.min()
+          tree.each do |plan|
+            if plan.cost > cost_threshold
+              planner.prune_plan(plan.last)
+            end
+          end
+          after_tree_size = tree.size
+          puts "pruned #{before_tree_size} -> #{after_tree_size}, #{tree.query.text}" if before_tree_size > after_tree_size
+          puts "all plan cost was the same value #{tree.query.text}" if tree.all?{|p| p.indexes == 1} and plan_costs.size > 1 and plan_costs.uniq.size == 1
+        end
+        puts "index size after cost-based pruning: #{indexes.size}"
+        trees.flat_map{|t| t.flat_map(&:indexes)}.uniq
+      end
 
       # Combine the weights of queries and statements
       # @return [void]
@@ -207,7 +234,8 @@ module NoSE
             # the definition of query frequency is execution times per second.
             # But the weight is multiplied frequency by migration interval,
             # Therefore, divide this value by interval to get query frequency
-            preparing_update_costs[statement][plan.index] = weights.map{|w| (plan.prepare_update_cost_with_size / @workload.interval) * w}
+            preparing_update_costs[statement][plan.index] =
+                weights.map{|w| (plan.prepare_update_cost_with_size / @workload.interval) * w}
           else
             update_costs[statement][plan.index] = plan.update_cost * weights
           end
@@ -232,26 +260,29 @@ module NoSE
       end
 
       def get_migrate_preparing_plans(trees, indexes)
-        migrate_plans = {}
 
         # create new migrate_prepare_plan
-        indexes.each do |base_index|
-          migrate_plans[base_index] = {} if migrate_plans[base_index].nil?
+        migrate_plans = Parallel.map(indexes.uniq, in_processes: Etc.nprocessors - 2) do |base_index|
+          m_plan = {base_index => {}}
           planner = Plans::PreparingQueryPlanner.new @workload, indexes, @cost_model, base_index,  2
           migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
-          migrate_plans[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
-        end
+          m_plan[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
 
-        # convert existing other trees into migrate_prepare_tree
-        planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, indexes, @cost_model,  2
-        indexes.each do |base_index|
-          migrate_plans[base_index] = {} if migrate_plans[base_index].nil?
+          # convert existing other trees into migrate_prepare_tree
+          #related_trees = trees.select{|t| t.query.instance_of? Query}.select{|t| t.flat_map{|p| p.indexes}.include? base_index}
           related_trees = trees.select{|t| t.flat_map{|p| p.indexes}.include? base_index}
           related_trees.each do |rtree|
             simple_query = MigrateSupportSimplifiedQuery.simple_query rtree.query, base_index
-            migrate_plans[base_index][simple_query] = support_query_cost simple_query, planner
+            planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, indexes.reject{|i| i==base_index}, @cost_model,  2
+            begin
+              m_plan[base_index][simple_query] = support_query_cost simple_query, planner
+            rescue Plans::NoPlanException => e
+              puts "#{e.inspect} for #{base_index.key}"
+              next
+            end
           end
-        end
+          m_plan
+        end.reduce(&:merge)
         migrate_plans
       end
 
