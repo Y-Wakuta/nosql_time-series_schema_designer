@@ -5,6 +5,7 @@ module NoSE
   class Index
     attr_reader :hash_fields, :order_fields, :extra, :all_fields, :path,
                 :entries, :entry_size, :size, :hash_count, :per_hash_count, :graph
+    attr_accessor :normalized_size
 
     def initialize(hash_fields, order_fields, extra, graph, saved_key: nil)
       order_set = order_fields.to_set

@@ -170,11 +170,22 @@ module NoSE
       # Get the size of all indexes in the workload
       # @return [Array]
       def total_size_each_timestep
+        calculate_index_normalized_sizes
         # TODO: Update for indexes grouped by ID path
         (0...@timesteps).map do |ts|
           @indexes.map do |index|
-            @index_vars[index][ts] * (index.size * 1.0)
+            # calculating total_size with 'normalized' size reduce the objective value and gives more precise result.
+            @index_vars[index][ts] * (index.normalized_size * 1.0)
           end.reduce(&:+)
+        end
+      end
+
+      # This method simply divides each index size by gcd.
+      # General normalized that maps values to 0 to 1 produces, float value and increase computation costs
+      def calculate_index_normalized_sizes
+        size_gcd = @indexes.map(&:size).inject(&:gcd)
+        @indexes.each do |index|
+          index.normalized_size = index.size / size_gcd
         end
       end
 
