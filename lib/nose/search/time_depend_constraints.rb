@@ -44,6 +44,11 @@ module NoSE
                                                 problem.index_vars[index][ts - 1] * 1.0,
                                             :>=, 0)
             problem.model << constr
+
+            constr_upper = MIPPeR::Constraint.new(problem.migrate_vars[index][ts] * 1.0 +
+                                                problem.index_vars[index][ts] * -1.0,
+                                            :<=, 0)
+            problem.model << constr_upper
           end
         end
       end
@@ -193,7 +198,32 @@ module NoSE
                 plan_expr.add problem.prepare_tree_vars[index][query][ts]
             end
             constr = MIPPeR::Constraint.new plan_expr + problem.migrate_vars[index][ts + 1] * -1.0,
-                                            :>=,  0, "prepare_tree_constr_#{index.key}"
+                                            :==,  0, "prepare_tree_constr_#{index.key}"
+            problem.model << constr
+          end
+        end
+      end
+    end
+
+    class TimeDependPresentIndexesOnceUsedConstraints < Constraint
+      def self.apply(problem)
+        problem.indexes.select do |index|
+          used_expr = MIPPeR::LinExpr.new
+          (0...problem.timesteps).each do |ts|
+            if problem.query_vars.keys.include? index
+              problem.query_vars[index].each do |_, vars|
+                used_expr += vars[ts] * 1.0
+              end
+            end
+            problem.prepare_vars[index].each do |ms_query, vars|
+              next if ts >= problem.timesteps - 1
+              next if index == ms_query.index
+              used_expr += vars[ts] * 1.0
+            end
+          end
+          (0...problem.timesteps).each do |ts|
+            constr = MIPPeR::Constraint.new used_expr + problem.index_vars[index][ts] * -1.0, :>=,
+                                            0, "i_once_used_constr_#{index.key}"
             problem.model << constr
           end
         end

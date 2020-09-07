@@ -355,9 +355,10 @@ module NoSE
             TimeDependCreationConstraints,
             TimeDependPrepareConstraints,
             TimeDependPrepareTreeConstraints,
+            TimeDependPresentIndexesOnceUsedConstraints
         ]
 
-        constraints.each { |constraint| constraint.apply self }
+        Parallel.each(constraints, in_threads: 7) { |constraint| constraint.apply self }
 
         @logger.debug do
           "Added #{@model.constraints.count} constraints to model"
