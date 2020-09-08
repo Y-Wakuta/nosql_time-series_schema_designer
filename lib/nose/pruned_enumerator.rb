@@ -139,6 +139,13 @@ module NoSE
 
     private
 
+    def has_upsearted_entity?(query)
+      upsearts = @workload.statement_weights.keys.reject{|k| k.instance_of? Query}
+      upsearts.any? do |upsts|
+        query.graph.entities.include? upsts.entity
+      end
+    end
+
     # Get all possible indices which jump a given piece of a query graph
     # @return [Array<Index>]
     def indexes_for_graph(graph, select, eq, range, entity_fields_patterns, extra_fields)

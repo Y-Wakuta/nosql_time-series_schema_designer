@@ -263,9 +263,15 @@ module NoSE
 
         # create new migrate_prepare_plan
         migrate_plans = Parallel.map(indexes.uniq, in_processes: Etc.nprocessors - 2) do |base_index|
+
+          useable_indexes = indexes.reject{|oi| is_similar_index?(base_index, oi)}
+          useable_indexes << base_index
+          puts "basic index size: #{indexes.size}, useable_index size: #{useable_indexes.size}"
+
           m_plan = {base_index => {}}
-          planner = Plans::PreparingQueryPlanner.new @workload, indexes, @cost_model, base_index,  2
+          planner = Plans::PreparingQueryPlanner.new @workload, useable_indexes, @cost_model, base_index,  2
           migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
+          puts migrate_support_query.text
           m_plan[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
 
           # convert existing other trees into migrate_prepare_tree
@@ -284,6 +290,11 @@ module NoSE
           m_plan
         end.reduce(&:merge)
         migrate_plans
+      end
+
+      def is_similar_index?(index, other_index)
+        return true if index.hash_fields == other_index.hash_fields and index.all_fields == other_index.all_fields
+        false
       end
 
       def support_query_cost(query, planner)
