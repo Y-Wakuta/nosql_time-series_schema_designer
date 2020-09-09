@@ -5,6 +5,7 @@ module NoSE
     # A container for results from a schema search
     class TimeDependResults < Results
       attr_accessor :timesteps, :migrate_plans, :time_depend_plans, :time_depend_indexes, :time_depend_update_plans, :each_total_cost
+      attr_reader :query_indexes
 
       def initialize(problem = nil, by_id_graph = false)
         @problem = problem

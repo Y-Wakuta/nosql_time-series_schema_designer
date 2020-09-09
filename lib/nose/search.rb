@@ -134,10 +134,15 @@ module NoSE
                         update_plans)
         # Solve the LP using MIPPeR
         STDERR.puts "start optimization"
-        result = solve_mipper query_weights.keys, indexes, **solver_params
+        result = solve_mipper query_weights.keys, indexes, update_plans, **solver_params
 
+        setup_result result, solver_params, update_plans
+        result
+      end
+
+      def setup_result(result, solver_params, update_plans)
         result.workload = @workload
-        result.plans_from_trees trees
+        result.plans_from_trees solver_params[:trees]
         result.set_update_plans update_plans
         result.cost_model = @cost_model
 
@@ -149,9 +154,7 @@ module NoSE
           result.set_time_depend_update_plans
           result.set_migrate_preparing_plans solver_params[:migrate_prepare_plans]
         end
-
         result.validate
-
         result
       end
 
@@ -170,7 +173,7 @@ module NoSE
 
       # Solve the index selection problem using MIPPeR
       # @return [Results]
-      def solve_mipper(queries, indexes, data)
+      def solve_mipper(queries, indexes, update_plans, data)
         # Construct and solve the ILP
         problem = @workload.is_a?(TimeDependWorkload) ?
                       TimeDependProblem.new(queries, @workload, data, @objective)
@@ -264,14 +267,24 @@ module NoSE
         # create new migrate_prepare_plan
         migrate_plans = Parallel.map(indexes.uniq, in_processes: Etc.nprocessors - 2) do |base_index|
 
+          #useable_indexes = indexes
           useable_indexes = indexes.reject{|oi| is_similar_index?(base_index, oi)}
           useable_indexes << base_index
-          puts "basic index size: #{indexes.size}, useable_index size: #{useable_indexes.size}"
+          #puts "basic index size: #{indexes.size}, useable_index size: #{useable_indexes.size}"
+
+          # tmp ====
+          #puts "look for similar index"
+          #puts base_index.hash_str
+          #indexes.each do |other_index|
+          #  if is_similar_index? base_index, other_index
+          #    puts "  " + other_index.hash_str
+          #  end
+          #end
+          # tmp ====
 
           m_plan = {base_index => {}}
           planner = Plans::PreparingQueryPlanner.new @workload, useable_indexes, @cost_model, base_index,  2
           migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
-          puts migrate_support_query.text
           m_plan[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
 
           # convert existing other trees into migrate_prepare_tree

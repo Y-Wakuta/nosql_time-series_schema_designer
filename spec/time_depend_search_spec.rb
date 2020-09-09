@@ -234,10 +234,38 @@ module NoSE
         query_decrease = 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
         td_workload_static.add_statement query_increase, frequency: [0.01, 0.5, 9]
         td_workload_static.add_statement query_decrease, frequency: [9, 0.5, 0.01]
+        #td_workload_static.migrate_support_coeff = 1.0e-06
+        #td_workload_static.creation_coeff = 1.0e-07
         indexes = IndexEnumerator.new(td_workload_static).indexes_for_workload.to_a
         result = Search.new(td_workload_static, cost_model).search_overlap indexes, 9800000
 
         expect(result.migrate_plans.size).to eq 0
+      end
+    end
+
+    describe IterativeSearch do
+      include_context 'dummy cost model'
+      it 'splits problem into small timesteps'do
+        ts = 10
+        td_workload = TimeDependWorkload.new do
+          TimeSteps ts
+          Interval 1000
+          Model 'rubis'
+
+          Group 'Test1', 1.0, default: (0...10).map{|i| 10 ** i} do
+            Q 'SELECT users.* FROM users WHERE users.id = ? -- 0'
+            Q 'SELECT users.* FROM users WHERE users.rating=? -- 1'
+          end
+
+          Group 'Test2', 1.0, default: (0...10).map{|i| 10 ** i}.reverse do
+            Q 'SELECT items.* FROM items WHERE items.id = ? -- 2'
+            Q 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
+          end
+        end
+
+        indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
+        result = IterativeSearch.new(td_workload, cost_model).search_overlap indexes, 9800000
+        puts result.migrate_plans.size
       end
     end
   end
