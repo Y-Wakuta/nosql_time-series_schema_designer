@@ -293,7 +293,15 @@ module NoSE
       end
 
       def is_similar_index?(index, other_index)
+        # e.g. `[f1, f2][f3, f4] -> [f5, f6]`
+
+        # similar: `[f1, f2][f3] -> [f4, f5, f6]`
         return true if index.hash_fields == other_index.hash_fields and index.all_fields == other_index.all_fields
+
+        # similar: `[f1, f2][f3] -> [f4, f5, f6, f7, f8]`
+        return true if index.hash_fields == other_index.hash_fields and \
+          other_index.all_fields > index.all_fields and other_index.all_fields.size - index.all_fields.size < 3
+
         false
       end
 
