@@ -84,17 +84,11 @@ module NoSE
       end
 
       def index_insert(index, results)
-        result_chunk = []
-        #STDERR.puts "load data to index: \e[35m#{index.key}: #{index.hash_str} \e[0m"
-        results.each do |result|
-          result_chunk.push result
-          next if result_chunk.length < 1000
-
+        STDERR.puts "load data to index: \e[35m#{index.key}: #{index.hash_str} \e[0m"
+        results.to_a.each_slice(20000) do |result_chunk|
+          puts "inserting chunk: " + result_chunk.size.to_s
           index_insert_chunk index, result_chunk
-          result_chunk = []
         end
-        index_insert_chunk index, result_chunk \
-          unless result_chunk.empty?
       end
 
       def get_all_data(index)
