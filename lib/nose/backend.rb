@@ -280,7 +280,7 @@ module NoSE
         end
       end
 
-      class AggregateStatementStep < StatementStep
+      class AggregationStatementStep < StatementStep
         def initialize(_client, _fields, _conditions,
                        step, _next_step, _prev_step)
           @step = step

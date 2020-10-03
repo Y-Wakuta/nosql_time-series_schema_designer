@@ -34,6 +34,8 @@ module NoSE
           query_var.each do |query, time_var|
             time_var.each do |ts, var|
               next unless var.value
+              puts "prepare_vars is 1 for #{index.key}, ms_q: #{query.index.key}, migrate_vars: #{@problem.migrate_vars[query.index][ts + 1].value}, #{ts} -> #{ts + 1}"
+
               # the index of migrate support query is newly created
               next unless problem.migrate_vars[query.index][ts + 1].value
 
@@ -272,7 +274,7 @@ module NoSE
             #(indexes_used_in_plans(now + 1) - indexes_used_in_plans(now)).each do |new_index|
             prepare_plans = @migrate_plans.select{|mp| mp.start_time == now}.map{|mp| mp.prepare_plans}.flatten(1)
             unless prepare_plans.any?{|pp| pp.index == new_index}
-              STDERR.puts new_index.inspect
+              STDERR.puts "prepare plan not found for :" + new_index.inspect
             end
             fail 'no preparing plan for new CF provided' unless prepare_plans.any?{|pp| pp.index == new_index}
           end

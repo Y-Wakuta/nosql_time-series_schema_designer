@@ -30,7 +30,6 @@ module NoSE
       def add_iterative_constraints
         constraints = [
             TimeDependIndexFixConstraints,
-        #TimeDependQueryPlanFixConstraints
         ]
 
         Parallel.each(constraints, in_threads: 2) { |constraint| constraint.apply self }
