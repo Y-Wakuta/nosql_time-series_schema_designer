@@ -32,9 +32,6 @@ module NoSE
       puts "index size before pruning: " + indexes.size.to_s
       if queries.all? {|q| q.instance_of? Query}
         indexes = pruning_tree_by_is_shared(queries, indexes)
-        puts "after frequency based pruning"
-        trees = get_trees queries, indexes
-        show_tree trees
       else
         indexes = get_used_indexes(queries, indexes)
       end
@@ -128,12 +125,14 @@ module NoSE
     # Produce the indexes necessary for support queries for these indexes
     # @return [Array<Index>]
     def support_indexes(indexes, by_id_graph)
+      STDERR.puts "start enumerating support indexes"
       ## If indexes are grouped by ID graph, convert them before updating
       ## since other updates will be managed automatically by index maintenance
       indexes = indexes.map(&:to_id_graph).uniq if by_id_graph
 
       queries = support_queries indexes
       support_indexes = IndexEnumerator.new(@workload).indexes_for_queries queries, []
+      STDERR.puts "end enumerating support indexes"
       get_used_indexes queries, support_indexes.uniq
     end
 

@@ -26,7 +26,7 @@ module NoSE
         indexes.map!(&:to_id_graph).uniq! if @backend.by_id_graph
 
         # XXX Assuming backend is thread-safe
-        Parallel.each(indexes, in_threads: [Etc.nprocessors - 2, 5].max()) do |index|
+        Parallel.each(indexes, in_threads: [Etc.nprocessors / 2, 5].max()) do |index|
           load_index index, config, show_progress, limit, skip_existing
         end
       end
@@ -83,7 +83,13 @@ module NoSE
 
         sql, fields = index_sql index, limit
         results = if @query_options
-                    client.query(sql, **@query_options)
+                    begin
+                      puts sql
+                      client.query(sql, **@query_options)
+                    rescue => e
+                      puts index.inspect
+                      throw e
+                    end
                   else
                     client.query(sql).map { |row| hash_from_row row, fields }
                   end

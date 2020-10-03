@@ -131,6 +131,7 @@ module NoSE
       end
 
       def clear_keyspace
+        puts "clearing keyspace: #{@keyspace}"
         client()
         @cluster.keyspace(@keyspace).tables.map(&:name).each do |index_key|
           client.execute("DROP TABLE #{index_key}")
@@ -168,6 +169,10 @@ module NoSE
                     else
                       value
                     end
+          end
+
+          if value.instance_of?(BigDecimal)
+            value = value.to_f
           end
 
           value
@@ -217,7 +222,7 @@ module NoSE
         when [Fields::StringField]
           :text
         when [Fields::DateField]
-          :timestamp
+          :date
         when [Fields::IDField],
              [Fields::ForeignKeyField]
           :uuid
@@ -256,6 +261,12 @@ module NoSE
 
               # XXX Useful to test that we never insert null values
               # fail if value.nil?
+
+              if value.instance_of?(BigDecimal)
+                value = value.to_f
+              elsif value.instance_of?(Time)
+                value = value.to_datetime
+              end
 
               value
             end
@@ -354,14 +365,12 @@ module NoSE
         # @return [String]
         def select_cql(select, conditions)
           select = expand_selected_fields select
-          cql = "SELECT #{select} FROM " \
+          cql = "SELECT #{select.map { |f| "\"#{f.id}\"" }.join ', '} FROM " \
                 "\"#{@step.index.key}\" WHERE #{cql_where_clause conditions}"
           cql += cql_order_by
 
           # Add an optional limit
           cql << " LIMIT #{@step.limit}" unless @step.limit.nil?
-
-          puts cql
 
           cql
         end
