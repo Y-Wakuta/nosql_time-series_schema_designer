@@ -393,7 +393,7 @@ module NoSE
         @index_step_size_threshold = index_step_size_threshold
       end
 
-            # Find possible query plans for a query starting at the given step
+      # Find possible query plans for a query starting at the given step
       # @return [void]
       def find_plans_for_step(step, indexes_by_joins, prune: true, prune_slow: true)
         return if step.state.answered?

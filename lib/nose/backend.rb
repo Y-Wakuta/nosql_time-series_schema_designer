@@ -166,7 +166,7 @@ module NoSE
         # Get lookup values from the query for the first step
         def initial_results(conditions)
           [Hash[conditions.map do |field_id, condition|
-            fail if condition.value.nil?
+            fail 'no condition given' if condition.value.nil?
             [field_id, condition.value]
           end]]
         end

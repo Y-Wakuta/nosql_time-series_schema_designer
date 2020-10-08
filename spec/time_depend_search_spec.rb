@@ -246,26 +246,28 @@ module NoSE
     describe IterativeSearch do
       include_context 'dummy cost model'
       it 'splits problem into small timesteps'do
-        ts = 10
+        ts = 5
         td_workload = TimeDependWorkload.new do
           TimeSteps ts
-          Interval 1000
+          Interval 2000
           Model 'rubis'
 
-          Group 'Test1', 1.0, default: (0...10).map{|i| 10 ** i} do
+          Group 'Test1', 1.0, default: (0...ts).map{|i| 10 ** i} do
             Q 'SELECT users.* FROM users WHERE users.id = ? -- 0'
             Q 'SELECT users.* FROM users WHERE users.rating=? -- 1'
+            Q 'INSERT INTO users SET id = ?, rating = ? -- 2'
           end
 
-          Group 'Test2', 1.0, default: (0...10).map{|i| 10 ** i}.reverse do
+          Group 'Test2', 1.0, default: (0...ts).map{|i| 10 ** i}.reverse do
             Q 'SELECT items.* FROM items WHERE items.id = ? -- 2'
             Q 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
+            Q 'INSERT INTO items SET id = ?, quantity = ? -- 5'
           end
         end
 
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
-        result = IterativeSearch.new(td_workload, cost_model).search_overlap indexes, 9800000
-        puts result.migrate_plans.size
+        result = IterativeSearch.new(td_workload, cost_model).search_overlap indexes, 12250000
+        expect(result.migrate_plans.size).to be 2
       end
     end
   end

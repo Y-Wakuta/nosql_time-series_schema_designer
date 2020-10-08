@@ -18,10 +18,16 @@ module NoSE
       @time_depend_statement_weights = { default: {} }
       @model = model || Model.new
       @mix = :default
-      @interval = 60 # set minutes in an hour as default
+      @interval = 60 # set minutes in an hour as default. Hyper Parameter
       warn "The interval should be set in minutes" if @interval > 1000
-      @creation_coeff = 0.001
-      @migrate_support_coeff = 0.001
+
+      # provided 3 migration plans with 3600 interval and (0...6).map{|i| 10 ** i}
+      #@creation_coeff = 1.0e-09 # Hyper Parameter
+      #@migrate_support_coeff = 1.0e-07 # Hyper Parameter
+
+      @creation_coeff = 1.0e-06 # Hyper Parameter
+      @migrate_support_coeff = 1.0e-06 # Hyper Parameter
+
       @is_static = false
       @include_migration_cost = true
       @definition_type = DEFINITION_TYPE::FLOAT_ARRAY
@@ -51,12 +57,8 @@ module NoSE
           # ensure that all query has the same # of timesteps
           fail if @time_depend_statement_weights[mix].map{|_, weights| weights.size}.uniq.size > 1
           frequencies = (frequency.nil? ? weight : frequency).map{|f| f * @interval}
+          fail "all frequency must have the same number of timesteps" if frequencies.size != @timesteps
           @time_depend_statement_weights[mix][statement] = frequencies
-
-          print group&.rjust(22)
-          print (" " + mix.to_s + " ").rjust(22)
-          print frequencies.map{|f| f.round.to_s.rjust(10)}
-          puts ""
 
         end
       elsif @definition_type == DEFINITION_TYPE::WORKLOAD_SET_RATIO
