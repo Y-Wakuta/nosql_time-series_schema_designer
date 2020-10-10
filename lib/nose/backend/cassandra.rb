@@ -70,31 +70,36 @@ module NoSE
         prepared = client.prepare prepared
 
         ids = []
-        client.execute(client.batch do |batch|
-          chunk.each do |row|
-            index_row = index_row(row, fields)
-            ids << (index.hash_fields.to_a + index.order_fields).map do |field|
-              index_row[fields.index field]
+        batches = client.batch do |batch|
+            chunk.each do |row|
+              index_row = index_row(row, fields)
+              ids << (index.hash_fields.to_a + index.order_fields).map do |field|
+                index_row[fields.index field]
+              end
+              batch.add prepared, arguments: index_row
             end
-            batch.add prepared, arguments: index_row
           end
-        end)
+        begin
+          client.execute(batches)
+        rescue => e
+          puts "===========+==========" + e
+          throw e
+        end
 
         ids
       end
 
       def index_insert(index, results)
-        result_chunk = []
-        #STDERR.puts "load data to index: \e[35m#{index.key}: #{index.hash_str} \e[0m"
-        results.each do |result|
-          result_chunk.push result
-          next if result_chunk.length < 1000
-
+        STDERR.puts "load data to index: \e[35m#{index.key}: #{index.hash_str} \e[0m"
+        results = results.to_a
+        fail "no data will be loaded on #{index.key}" if results.size == 0
+        chunk_size = 15000
+        inserted_size = 0
+        results.to_a.each_slice(chunk_size) do |result_chunk|
           index_insert_chunk index, result_chunk
-          result_chunk = []
+          inserted_size += result_chunk.size
+          puts "inserted chunk #{index.key}:  #{inserted_size} / #{results.size}"
         end
-        index_insert_chunk index, result_chunk \
-          unless result_chunk.empty?
       end
 
       def get_all_data(index)
@@ -131,6 +136,7 @@ module NoSE
       end
 
       def clear_keyspace
+        puts "clearing keyspace: #{@keyspace}"
         client()
         @cluster.keyspace(@keyspace).tables.map(&:name).each do |index_key|
           client.execute("DROP TABLE #{index_key}")
@@ -168,6 +174,10 @@ module NoSE
                     else
                       value
                     end
+          end
+
+          if value.instance_of?(BigDecimal)
+            value = value.to_f
           end
 
           value
@@ -217,7 +227,7 @@ module NoSE
         when [Fields::StringField]
           :text
         when [Fields::DateField]
-          :timestamp
+          :date
         when [Fields::IDField],
              [Fields::ForeignKeyField]
           :uuid
@@ -256,6 +266,12 @@ module NoSE
 
               # XXX Useful to test that we never insert null values
               # fail if value.nil?
+
+              if value.instance_of?(BigDecimal)
+                value = value.to_f
+              elsif value.instance_of?(Time)
+                value = value.to_datetime
+              end
 
               value
             end
@@ -328,13 +344,21 @@ module NoSE
       # A query step to look up data from a particular column family
       class IndexLookupStatementStep < Backend::IndexLookupStatementStep
         # rubocop:disable Metrics/ParameterLists
-        def initialize(client, select, conditions, step, next_step, prev_step)
-          super
+        def initialize(client, select, conditions, step, next_step, prev_step, next_next_step = nil)
+          super(client, select, conditions, step, next_step, prev_step)
+
+          @next_next_step = next_next_step
 
           @logger = Logging.logger['nose::backend::cassandra::indexlookupstep']
 
           # TODO: Check if we can apply the next filter via ALLOW FILTERING
-          @prepared = client.prepare select_cql(select, conditions)
+          cql = select_cql(select + conditions.values.map(&:field).to_set, conditions)
+          begin
+            @prepared = client.prepare cql
+          rescue => e
+            puts e
+            throw e
+          end
         end
         # rubocop:enable Metrics/ParameterLists
 
@@ -354,14 +378,12 @@ module NoSE
         # @return [String]
         def select_cql(select, conditions)
           select = expand_selected_fields select
-          cql = "SELECT #{select} FROM " \
+          cql = "SELECT #{select.map { |f| "\"#{f.id}\"" }.join ', '} FROM " \
                 "\"#{@step.index.key}\" WHERE #{cql_where_clause conditions}"
           cql += cql_order_by
 
           # Add an optional limit
           cql << " LIMIT #{@step.limit}" unless @step.limit.nil?
-
-          puts cql
 
           cql
         end
@@ -442,10 +464,14 @@ module NoSE
         # Produce the values used for lookup on a given set of conditions
         def lookup_values(condition_set,query_conditions)
           condition_set.map do |condition|
-            value = condition.value ||
-              query_conditions[condition.field.id].value
-            fail if value.nil?
-
+            begin
+              value = condition.value ||
+                  query_conditions[condition.field.id].value
+              fail "condition not found for #{condition.field.id}" if value.nil?
+            rescue => e
+              puts e
+              puts condition.field.id
+            end
             if condition.field.is_a?(Fields::IDField)
               Cassandra::Uuid.new(value.to_i)
             else

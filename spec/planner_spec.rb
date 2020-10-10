@@ -368,32 +368,24 @@ module NoSE
         expect(plan.steps).not_to include(a_kind_of(SortPlanStep))
       end
 
-      it 'enumerates join query plan for complicated queries' do
+      it 'enumerates join query plans for complicated queries' do
         tpch_workload = Workload.new do |_| Model('tpch')
-        Group 'Group1', default: 1 do
-          Q 'SELECT lineitem.l_orderkey, sum(lineitem.l_extendedprice), to_orders.o_shippriority '\
-              'FROM lineitem.to_orders.to_customer '\
-              'WHERE to_customer.c_mktsegment = ? AND to_orders.o_orderdate < ? '\
-              'ORDER BY lineitem.l_extendedprice, lineitem.l_discount, to_orders.o_orderdate ' \
-              'GROUP BY lineitem.l_orderkey, to_orders.o_orderdate, to_orders.o_shippriority'
-
-          Q 'SELECT to_orders.o_orderpriority, count(to_orders.o_orderkey) ' \
-              'FROM lineitem.to_orders '\
-              'WHERE to_orders.o_orderkey = ? AND to_orders.o_orderdate >= ? ' \
-              'ORDER BY to_orders.o_orderpriority ' \
-              'GROUP BY to_orders.o_orderpriority -- Q4'
-
-          Q 'SELECT to_nation.n_name, sum(lineitem.l_extendedprice) ' \
-              'FROM lineitem.to_orders.to_customer.to_nation.to_region ' \
-              'WHERE to_region.r_name = ? AND to_orders.o_orderdate >= ? ' \
-              'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
-              'GROUP BY to_nation.n_name -- Q5'
-        end
+          Group 'Group1', default: 1 do
+            Q 'INSERT INTO orders SET o_orderkey=?, o_orderstatus=?, o_totalprice=?, o_orderdate=?, o_orderpriority=?, '\
+                  'o_clerk=?, o_shippriority=?, o_comment=? AND CONNECT TO to_customer(?) -- 4'
+            Q 'SELECT lineitem.l_orderkey, lineitem.l_extendedprice, to_orders.o_shippriority '\
+                'FROM lineitem.to_orders.to_customer '\
+                'WHERE to_customer.c_mktsegment = ? AND to_orders.o_orderdate = ?'
+            Q 'SELECT lineitem.l_orderkey, lineitem.l_extendedprice, to_orders.o_shippriority '\
+                'FROM lineitem.to_orders.to_customer '\
+                'WHERE to_customer.c_mktsegment = ? AND to_orders.o_shippriority = ?'
+          end
         end
 
-        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model, 1, 100).indexes_for_workload
+        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model,
+                                            1, 100, 1).indexes_for_workload
         planner = QueryPlanner.new tpch_workload.model, indexes, cost_model
-        tpch_workload.statement_weights.keys.each do |q|
+        tpch_workload.statement_weights.select{|s| s.instance_of? Query}.keys.each do |q|
           join_plans = planner.find_plans_for_query(q).select do |plan|
             index_lookup_steps = plan.steps.select{|s| s.is_a? Plans::IndexLookupPlanStep}
             index_lookup_steps.size > 1
@@ -431,7 +423,7 @@ module NoSE
                'ORDER BY to_nation.n_name, to_orders.o_orderdate -- Q9'
           end
         end
-        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model, 1, 3).indexes_for_workload.to_a
+        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model, 1, 3, 1).indexes_for_workload.to_a
         pruned_planner = QueryPlanner.new tpch_workload.model, indexes, cost_model
         query_indexes_hash = tpch_workload.statement_weights.keys.flat_map do |q|
           pruned_plan = pruned_planner.find_plans_for_query q
@@ -443,25 +435,26 @@ module NoSE
         expect(used_indexes.size - used_indexes.uniq.size).to be 175
       end
 
-      it 'enumerates only allowed deep query plan' do
+      it 'enumerates only allowed depth query plan' do
         tpch_workload = Workload.new do |_|
           Model 'tpch'
           Group 'Group1', default: 1 do
-            Q 'SELECT to_orders.o_orderdate, from_lineitem.l_extendedprice, from_lineitem.l_discount, to_nation.n_name '\
+            Q 'INSERT INTO orders SET o_orderkey=?, o_orderstatus=?, o_totalprice=?, o_orderdate=?, o_orderpriority=?, '\
+                  'o_clerk=?, o_shippriority=?, o_comment=? AND CONNECT TO to_customer(?) -- 4'
+            Q 'SELECT to_orders.o_orderdate, from_lineitem.l_extendedprice '\
               'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation.to_region ' \
-              'WHERE to_region.r_name = ? AND to_orders.o_orderdate < ? AND to_orders.o_orderdate > ? AND part.p_type = ? ' \
-              'ORDER BY to_orders.o_orderdate -- Q8'
-            Q 'SELECT to_nation.n_name, to_orders.o_orderdate, from_lineitem.l_extendedprice, from_lineitem.l_discount, '  \
-              'from_partsupp.ps_supplycost, from_lineitem.l_quantity ' \
-              'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation ' \
-              'WHERE part.p_name = ? AND from_lineitem.l_orderkey = ? ' \
-              'ORDER BY to_nation.n_name, to_orders.o_orderdate -- Q9'
+              'WHERE to_region.r_name = ? AND part.p_type = ?'
+            Q 'SELECT to_orders.o_orderdate, from_lineitem.l_extendedprice '\
+              'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation.to_region ' \
+              'WHERE to_region.r_name = ? AND part.p_brand = ?'
           end
         end
-        1.upto(4).each do |index_step_size_threshold|
-          indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model, 1, index_step_size_threshold).indexes_for_workload.to_a
+        1.upto(3).each do |index_step_size_threshold|
+          indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model,
+                                              1, index_step_size_threshold, 1)
+                        .indexes_for_workload.to_a
           pruned_planner = PrunedQueryPlanner.new tpch_workload.model, indexes, cost_model, index_step_size_threshold
-          tpch_workload.statement_weights.keys.each do |q|
+          tpch_workload.statement_weights.keys.select { |s| s.instance_of? Query}.each do |q|
             step_sizes = pruned_planner.find_plans_for_query(q).map do |plan|
               index_steps = plan.select{|s| s.is_a? Plans::IndexLookupPlanStep}
               expect(index_steps.size).to be <= index_step_size_threshold
@@ -469,6 +462,36 @@ module NoSE
             end
             # some of them should have many step join plan if it is allowed
             expect(step_sizes.max()).to be >= index_step_size_threshold - 1
+          end
+        end
+      end
+    end
+
+    describe PreparingQueryPlanner do
+      include_context 'dummy cost model'
+      include_context 'entities'
+
+      it 'only has IndexLookupSteps' do
+        tpch_workload = TimeDependWorkload.new do |_|
+          TimeSteps 3
+          Model 'tpch'
+          Group 'Group1', default: [1,2,3] do
+            Q 'SELECT to_orders.o_orderpriority, count(to_orders.o_orderkey) ' \
+              'FROM lineitem.to_orders '\
+              'WHERE to_orders.o_orderkey = ? AND to_orders.o_orderpriority = ? AND lineitem.l_orderkey = ? ' \
+              'GROUP BY to_orders.o_orderpriority -- Q4'
+          end
+        end
+        indexes = IndexEnumerator.new(tpch_workload).indexes_for_workload [], false
+        indexes.each do |base_index|
+          query = MigrateSupportSimplifiedQuery.simple_query(tpch_workload.statement_weights.keys.first, base_index)
+          planner = Plans::MigrateSupportSimpleQueryPlanner.new tpch_workload, indexes, cost_model, 2
+          search = Search::Search.new(tpch_workload, cost_model)
+          tree = search.send(:support_query_cost, query, planner)[:tree]
+          tree.each do |plan|
+            plan.each do |step|
+              expect(step.class).to be IndexLookupPlanStep
+            end
           end
         end
       end

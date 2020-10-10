@@ -7,11 +7,13 @@ require 'fpgrowth'
 module NoSE
   # Produces potential indices to be used in schemas
   class PrunedIndexEnumerator < IndexEnumerator
-    def initialize(workload, cost_model, is_shared_threshold, index_steps_threshold)
+    def initialize(workload, cost_model, is_entity_fields_shared_threshold,
+                   index_plan_step_threshold, index_plan_shared_threshold)
       @eq_threshold = 1
       @cost_model = cost_model
-      @is_shared_threshold = is_shared_threshold
-      @index_steps_threshold = index_steps_threshold
+      @is_entity_fields_shared_threshold = is_entity_fields_shared_threshold
+      @index_steps_threshold = index_plan_step_threshold
+      @index_plan_shared_threshold = index_plan_shared_threshold
       super(workload)
     end
 
@@ -21,47 +23,45 @@ module NoSE
       puts "entity_fields (pattern) size: " + entity_fields.size.to_s
       extra_fields = get_frequent_extra_choices queries
 
-      #indexes = Parallel.flat_map(queries, in_processes: 12) do |query|
-      indexes = queries.flat_map do |query|
+      indexes = Parallel.flat_map(queries, in_processes: [Etc.nprocessors - 5, 10].min()) do |query|
+        #indexes = queries.flat_map do |query|
         indexes_for_query(query, entity_fields[query], extra_fields).to_a
-      end
+      end.uniq
       indexes += additional_indexes
-      indexes = get_used_indexes queries, indexes
 
+      puts "index size before pruning: " + indexes.size.to_s
       if queries.all? {|q| q.instance_of? Query}
-        puts "index size before pruning: " + indexes.size.to_s
-        indexes = pruning_tree_by_is_shared queries, indexes
-        puts "index size after pruning: " + indexes.size.to_s
+        indexes = pruning_tree_by_is_shared(queries, indexes)
+      else
+        indexes = get_used_indexes(queries, indexes)
       end
-      indexes
+
+
+      puts "index size after pruning: " + indexes.size.to_s
+
+      indexes.uniq
     end
 
     # remove CFs that are not used in query plans
     def get_used_indexes(queries, indexes)
       puts "whole indexes : " + indexes.size.to_s
-      planner = Plans::PrunedQueryPlanner.new @workload.model, indexes, @cost_model, @index_steps_threshold
-
-      Parallel.flat_map(queries, in_processes: 4) do |query|
-        tree = planner.find_plans_for_query(query)
-        join_plan_size = tree.select{|p| p.indexes.size > 1}.size
-        puts "--- #{tree.to_a.size} plans : #{join_plan_size} join plans for #{tree.query.text} ---"
+      get_trees(queries, indexes).flat_map do |tree|
         tree.flat_map(&:indexes).uniq
-      end
+      end.uniq
     end
 
     # Remove CFs based on whether the CF is share with other queries or not
     def pruning_tree_by_is_shared(queries, indexes)
-      planner = Plans::PrunedQueryPlanner.new @workload.model, indexes, @cost_model, @index_steps_threshold
-      trees = Parallel.flat_map(queries, in_processes: 4) do |query|
-        planner.find_plans_for_query(query)
-      end
+      trees = get_trees queries, indexes
+      show_tree trees
 
       upserts = @workload.statement_weights.keys.select{|s| s.is_a?(Insert) or s.is_a?(Update)}
+      fixed_indexes = []
       trees.each do |tree|
-        other_tree_indexes = trees.reject{|t| t == tree}.flat_map{|t| t.flat_map(&:indexes)}.uniq
-        tree.each do |plan|
-          next if plan.indexes.size == 1 and plan.query.materialize_view == plan.indexes.first
+        fixed_indexes << tree.query.materialize_view
 
+        other_tree_indexes = trees.reject{|t| t == tree}.map{|t| t.flat_map(&:indexes).uniq}
+        tree.each do |plan|
           # not-shared join plans are still worthy when any upsearts modifies its field.
           is_modified = upserts.any? do |upsert|
             plan.indexes.any? do |index|
@@ -69,22 +69,47 @@ module NoSE
             end
           end
           # MV plan is not worthy if it is upserted, since there is MV plan.
-          next if is_modified and plan.indexes.size > 1
+          if is_modified and plan.indexes.size > 1
+            fixed_indexes += plan.indexes
+            next
+          end
 
           # if the included indexes are not shared with other queries, the plan would not be recommended
-          is_shared = plan.indexes.any? do |index|
-            other_tree_indexes.include? index
+          is_shared_than_threshold = plan.indexes.any? do |index|
+            other_tree_indexes.count{|oti| oti.include?(index)} >= @index_plan_shared_threshold
           end
-          indexes -= plan.indexes unless is_shared
+          if is_shared_than_threshold
+            fixed_indexes += plan.indexes
+            next
+          end
         end
       end
-      indexes
+      fixed_indexes.uniq
+    end
+
+    def show_tree(trees)
+      trees.each do |tree|
+        join_plan_size = tree.select{|p| p.indexes.size > 1}.size
+        puts "--- #{tree.to_a.size} plans : #{join_plan_size} join plans for #{tree.query.text}  ---" if tree.query.instance_of? Query
+      end
+    end
+
+    def get_trees(queries, indexes)
+      planner = Plans::PrunedQueryPlanner.new @workload.model, indexes, @cost_model, @index_steps_threshold
+      Parallel.map(queries, in_processes: [Etc.nprocessors - 5, 10].min()) do |query|
+        planner.find_plans_for_query(query)
+      end
     end
 
     # Produce all possible indices for a given query
     # @return [Array<Index>]
     def indexes_for_query(query, entity_fields, extra_fields)
       @logger.debug "Enumerating indexes for query #{query.text}"
+
+      # not enumerate CFs for not-updated query
+      unless has_upsearted_entity? query
+        return [query.materialize_view]
+      end
 
       range = get_query_range query
       eq = get_query_eq query
@@ -97,13 +122,28 @@ module NoSE
       indexes
     end
 
-    # Since support queries are simple, use IndexEnumerator to make migration easier
+    # Produce the indexes necessary for support queries for these indexes
+    # @return [Array<Index>]
     def support_indexes(indexes, by_id_graph)
-      puts "start enumerating support indexes"
-      IndexEnumerator.new(@workload).support_indexes indexes, by_id_graph
+      STDERR.puts "start enumerating support indexes"
+      ## If indexes are grouped by ID graph, convert them before updating
+      ## since other updates will be managed automatically by index maintenance
+      indexes = indexes.map(&:to_id_graph).uniq if by_id_graph
+
+      queries = support_queries indexes
+      support_indexes = IndexEnumerator.new(@workload).indexes_for_queries queries, []
+      STDERR.puts "end enumerating support indexes"
+      get_used_indexes queries, support_indexes.uniq
     end
 
     private
+
+    def has_upsearted_entity?(query)
+      upsearts = @workload.statement_weights.keys.reject{|k| k.instance_of? Query}
+      upsearts.any? do |upsts|
+        query.graph.entities.include? upsts.entity
+      end
+    end
 
     # Get all possible indices which jump a given piece of a query graph
     # @return [Array<Index>]
@@ -122,9 +162,6 @@ module NoSE
         fields.permutation.to_a
       end.uniq << []
       extra_choices = frequent_extra_choices(graph, select, eq, range, extra_fields)
-      #puts("graph : #{graph.entities.map{|n| n.name}}")
-      #puts("eq_choices : #{eq_choices.size}")
-      #puts("extra_choices : #{extra_choices.size}")
 
       [eq_choices, order_choices, extra_choices]
     end
@@ -171,7 +208,7 @@ module NoSE
       entity_fields.map do |q, efs|
         shared = []
         unique = []
-        efs.each {|ef| fields_hash[ef] > @is_shared_threshold ? shared << ef : unique << ef}
+        efs.each {|ef| fields_hash[ef] > @is_entity_fields_shared_threshold ? shared << ef : unique << ef}
         Hash[q, {unique: unique, shared: shared}]
       end.inject(:merge)
     end

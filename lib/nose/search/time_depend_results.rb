@@ -5,6 +5,7 @@ module NoSE
     # A container for results from a schema search
     class TimeDependResults < Results
       attr_accessor :timesteps, :migrate_plans, :time_depend_plans, :time_depend_indexes, :time_depend_update_plans, :each_total_cost
+      attr_reader :query_indexes
 
       def initialize(problem = nil, by_id_graph = false)
         @problem = problem
@@ -33,6 +34,8 @@ module NoSE
           query_var.each do |query, time_var|
             time_var.each do |ts, var|
               next unless var.value
+              puts "prepare_vars is 1 for #{index.key}, ms_q: #{query.index.key}, migrate_vars: #{@problem.migrate_vars[query.index][ts + 1].value}, #{ts} -> #{ts + 1}"
+
               # the index of migrate support query is newly created
               next unless problem.migrate_vars[query.index][ts + 1].value
 
@@ -165,8 +168,14 @@ module NoSE
         # if step.index already exists at timestep t, new prepare plan for timestep t + 1 is not required
         return nil if @indexes[timestep].include? new_index
 
-        migrate_support_query = migrate_prepare_plans.select{|p| p.index == new_index}.keys.first
-        migrate_support_tree = migrate_prepare_plans.select{|p| p.index == new_index}.values.first[:tree]
+        migrate_support_queries = migrate_prepare_plans.select{|idx| idx == new_index}
+        migrate_support_query = migrate_support_queries.flat_map do |idx, support_query_tree|
+          support_query_tree.keys.select do |support_query|
+            @problem.prepare_tree_vars[idx][support_query][timestep].value
+          end
+        end.first
+
+        migrate_support_tree = migrate_prepare_plans[new_index][migrate_support_query][:tree]
         prepare_plan_for_the_timestep = migrate_support_tree.select do |plan|
           plan.indexes.to_set == @query_indexes[migrate_support_query]&.fetch(timestep, nil)
         end
@@ -178,7 +187,6 @@ module NoSE
                                                                       .select{|s| s.is_a? Plans::IndexLookupPlanStep}
                                                                       .map{|s| s.index}
                                                                       .include? new_index
-
         Plans::MigratePreparePlan.new(new_index, prepare_plan_for_the_timestep.first, timestep)
       end
 
@@ -266,7 +274,7 @@ module NoSE
             #(indexes_used_in_plans(now + 1) - indexes_used_in_plans(now)).each do |new_index|
             prepare_plans = @migrate_plans.select{|mp| mp.start_time == now}.map{|mp| mp.prepare_plans}.flatten(1)
             unless prepare_plans.any?{|pp| pp.index == new_index}
-              STDERR.puts new_index.inspect
+              STDERR.puts "prepare plan not found for :" + new_index.inspect
             end
             fail 'no preparing plan for new CF provided' unless prepare_plans.any?{|pp| pp.index == new_index}
           end

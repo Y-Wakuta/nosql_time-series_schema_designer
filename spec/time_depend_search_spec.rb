@@ -234,32 +234,40 @@ module NoSE
         query_decrease = 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
         td_workload_static.add_statement query_increase, frequency: [0.01, 0.5, 9]
         td_workload_static.add_statement query_decrease, frequency: [9, 0.5, 0.01]
+        #td_workload_static.migrate_support_coeff = 1.0e-06
+        #td_workload_static.creation_coeff = 1.0e-07
         indexes = IndexEnumerator.new(td_workload_static).indexes_for_workload.to_a
         result = Search.new(td_workload_static, cost_model).search_overlap indexes, 9800000
 
         expect(result.migrate_plans.size).to eq 0
       end
+    end
 
-      it 'migration preparing plan produced in the result' do
-        rubis_workload = NoSE::TimeDependWorkload.new do
+    describe IterativeSearch do
+      include_context 'dummy cost model'
+      it 'splits problem into small timesteps'do
+        ts = 5
+        td_workload = TimeDependWorkload.new do
+          TimeSteps ts
+          Interval 2000
           Model 'rubis'
-          increase = [1,2,3]
-          TimeSteps increase.size
-          Group 'ViewBidHistory', default: increase do
-            Q 'SELECT bids.* FROM items.bids WHERE items.id = ? -- 6'
-            Q 'SELECT bids.qty, bids.date FROM bids.item WHERE item.id=? ' \
-              'ORDER BY bids.bid LIMIT 2 -- 19'
-            Q 'INSERT INTO items SET id=?, name=?, description=?, initial_price=?, ' \
-              'quantity=?, reserve_price=?, buy_now=?, nb_of_bids=0, max_bid=0, ' \
-              'start_date=?, end_date=? AND CONNECT TO category(?), seller(?) -- 10'
+
+          Group 'Test1', 1.0, default: (0...ts).map{|i| 10 ** i} do
+            Q 'SELECT users.* FROM users WHERE users.id = ? -- 0'
+            Q 'SELECT users.* FROM users WHERE users.rating=? -- 1'
+            Q 'INSERT INTO users SET id = ?, rating = ? -- 2'
+          end
+
+          Group 'Test2', 1.0, default: (0...ts).map{|i| 10 ** i}.reverse do
+            Q 'SELECT items.* FROM items WHERE items.id = ? -- 2'
+            Q 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
+            Q 'INSERT INTO items SET id = ?, quantity = ? -- 5'
           end
         end
 
-        indexes = PrunedIndexEnumerator.new(rubis_workload, cost_model, 1, 2).indexes_for_workload.to_a
-        #indexes = IndexEnumerator.new(rubis_workload).indexes_for_workload.to_a
-        expect do
-          Search.new(rubis_workload, cost_model).search_overlap indexes
-        end.not_to raise_error
+        indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
+        result = IterativeSearch.new(td_workload, cost_model).search_overlap indexes, 12250000
+        expect(result.migrate_plans.size).to be 2
       end
     end
   end

@@ -44,6 +44,11 @@ module NoSE
                                                 problem.index_vars[index][ts - 1] * 1.0,
                                             :>=, 0)
             problem.model << constr
+
+            constr_upper = MIPPeR::Constraint.new(problem.migrate_vars[index][ts] * 1.0 +
+                                                problem.index_vars[index][ts] * -1.0,
+                                            :<=, 0)
+            problem.model << constr_upper
           end
         end
       end
@@ -164,12 +169,12 @@ module NoSE
           next if index_var.nil?
 
           if timestep < (problem.timesteps - 1) # The SupportQuery maybe for updating migrate-preparing indexes
-            next_timestep_migrate_var = problem.migrate_vars[query.index]&.fetch(timestep + 1)
+            next_timestep_migrate_var = problem.prepare_tree_vars[query.index][query]&.fetch(timestep)
 
             fail "if index_var exists, next_timestep_migrate_var also should exists" if next_timestep_migrate_var.nil?
 
             # TODO: even if index_var and next_timestep_migrate_var are 0, constraint can take 1
-            constr_next_timestep= MIPPeR::Constraint.new constraint + next_timestep_migrate_var * -1.0,
+            constr_next_timestep = MIPPeR::Constraint.new constraint + next_timestep_migrate_var * -1.0,
                                                          :==, 0, name
             problem.model << constr_next_timestep
           end
@@ -180,6 +185,48 @@ module NoSE
       def self.apply_query(query, q, problem)
         return unless query.is_a? MigrateSupportQuery
         time_depend_complete_plan_constraint(query, q, problem, problem.prepare_vars, problem.timesteps - 1)
+      end
+    end
+
+    class TimeDependPrepareTreeConstraints < Constraint
+      def self.apply_query(query, q, problem)
+        return unless query.is_a?(MigrateSupportQuery)
+        (0...(problem.timesteps - 1)).each do |ts|
+          problem.migrate_prepare_plans.each do |index, query_trees|
+            plan_expr = MIPPeR::LinExpr.new
+            query_trees.keys.each do |query|
+                plan_expr.add problem.prepare_tree_vars[index][query][ts]
+            end
+            constr = MIPPeR::Constraint.new plan_expr + problem.migrate_vars[index][ts + 1] * -1.0,
+                                            :==,  0, "prepare_tree_constr_#{index.key}"
+            problem.model << constr
+          end
+        end
+      end
+    end
+
+    class TimeDependPresentIndexesOnceUsedConstraints < Constraint
+      def self.apply(problem)
+        problem.indexes.select do |index|
+          used_expr = MIPPeR::LinExpr.new
+          (0...problem.timesteps).each do |ts|
+            if problem.query_vars.keys.include? index
+              problem.query_vars[index].each do |_, vars|
+                used_expr += vars[ts] * 1.0
+              end
+            end
+            problem.prepare_vars[index].each do |ms_query, vars|
+              next if ts >= problem.timesteps - 1
+              next if index == ms_query.index
+              used_expr += vars[ts] * 1.0
+            end
+          end
+          (0...problem.timesteps).each do |ts|
+            constr = MIPPeR::Constraint.new used_expr + problem.index_vars[index][ts] * -1.0, :>=,
+                                            0, "i_once_used_constr_#{index.key}"
+            problem.model << constr
+          end
+        end
       end
     end
   end

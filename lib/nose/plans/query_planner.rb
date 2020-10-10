@@ -393,7 +393,7 @@ module NoSE
         @index_step_size_threshold = index_step_size_threshold
       end
 
-            # Find possible query plans for a query starting at the given step
+      # Find possible query plans for a query starting at the given step
       # @return [void]
       def find_plans_for_step(step, indexes_by_joins, prune: true, prune_slow: true)
         return if step.state.answered?
@@ -418,6 +418,8 @@ module NoSE
         end
       end
 
+      private
+
       # if the query plan joins many CFs, the query plan would be too slow
       def is_apparently_slow_plan?(step, child_step)
         current = step
@@ -432,21 +434,21 @@ module NoSE
       end
     end
 
+    class MigrateSupportSimpleQueryPlanner < PrunedQueryPlanner
+      def find_steps_for_state(parent, state, indexes_by_joins)
+        find_indexed_steps parent, state, indexes_by_joins
+      end
+    end
+
     # this planner only look for IndexLookupStep
     # prune some indexes based on some roles
-    class PreparingQueryPlanner < PrunedQueryPlanner
+    class PreparingQueryPlanner < MigrateSupportSimpleQueryPlanner
 
       def initialize(model, indexes, cost_model, target_index,  index_step_size_threshold)
         @target_index = target_index
         indexes = remove_indexes_similar_to_target indexes, target_index
 
         super(model, indexes, cost_model, index_step_size_threshold)
-      end
-
-      # Get a list of possible next steps for a query in the given state
-      # @return [Array<PlanStep>]
-      def find_steps_for_state(parent, state, indexes_by_joins)
-        find_indexed_steps parent, state, indexes_by_joins
       end
 
       def find_plans_for_query(query)

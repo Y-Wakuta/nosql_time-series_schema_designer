@@ -166,7 +166,7 @@ module NoSE
         # Get lookup values from the query for the first step
         def initial_results(conditions)
           [Hash[conditions.map do |field_id, condition|
-            fail if condition.value.nil?
+            fail 'no condition given' if condition.value.nil?
             [field_id, condition.value]
           end]]
         end
@@ -280,7 +280,7 @@ module NoSE
         end
       end
 
-      class AggregateStatementStep < StatementStep
+      class AggregationStatementStep < StatementStep
         def initialize(_client, _fields, _conditions,
                        step, _next_step, _prev_step)
           @step = step
@@ -308,9 +308,19 @@ module NoSE
             @step.groupby.each do |groupby_field|
               row[groupby_field] = group.map{|r| r[groupby_field.id]}.first
             end
-            fail if (group.first.keys - row.keys.map(&:id)).size > 0
+            _conditions.each do |field_name, condition|
+              next unless condition.operator == "=".to_sym
+              condition_field_values = group.map{|g| g[field_name]}
+              fail "condition value must be uniq" if condition.operator == "=".to_sym and \
+                                                     condition_field_values.size > 1 and \
+                                                     condition_field_values.uniq.size > 1
+              row[condition.field] = condition_field_values.first
+            end
 
-            Hash[k, row]
+            fail 'all of selected fields should be aggregated' unless \
+                                row.keys.map(&:id).to_set > @step.state.query.select.map(&:id).to_set
+
+            row
           end
         end
       end

@@ -5,7 +5,7 @@ module NoSE
   class Query < Statement
     include StatementConditions
 
-    attr_reader :select, :counts, :sums, :avgs, :maxes, :order, :groupby, :limit
+    attr_reader :select, :counts, :sums, :avgs, :maxes, :order, :groupby, :limit, :params
 
     def initialize(params, text, group: nil, label: nil)
       super params, text, group: group, label: label
@@ -31,11 +31,6 @@ module NoSE
         if @conditions.empty? || @conditions.values.all?(&:is_range)
 
       @limit = params[:limit]
-    end
-
-    def populate_conditions(params)
-      super params
-      @eq_fields += params[:groupby] unless params[:groupby].to_a.empty?
     end
 
     # Build a new query from a provided parse tree
@@ -277,6 +272,26 @@ module NoSE
       query = MigrateSupportQuery.new(params, nil, group: "PrepareQuery")
       query.set_text
       query
+    end
+  end
+
+  class MigrateSupportSimplifiedQuery < MigrateSupportQuery
+    def self.simple_query(query, index)
+      param = Marshal.load(Marshal.dump(query.params))
+      param[:order] = []
+      param[:select][:count] = Set.new
+      param[:select][:sum] = Set.new
+      param[:select][:avg] = Set.new
+      param[:select][:max] = Set.new
+      param[:groupby] = Set.new
+      param[:index] = index
+
+      # extract only eq-conditions
+      param[:conditions]= param[:conditions].select{|_, v| v.operator == "=".to_sym }
+
+      q = MigrateSupportSimplifiedQuery.new(param, "",)
+      q.set_text
+      q
     end
   end
 end

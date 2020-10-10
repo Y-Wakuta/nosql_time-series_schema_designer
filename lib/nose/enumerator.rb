@@ -36,17 +36,17 @@ module NoSE
       range = get_query_range query
       eq = get_query_eq query
 
-      #Parallel.flat_map(query.graph.subgraphs, in_processes: 5) do |graph|
-      query.graph.subgraphs.flat_map do |graph|
-        indexes_for_graph graph, query.select, query.counts, query.sums, query.maxes, query.avgs, eq, range, query.groupby
+      Parallel.flat_map(query.graph.subgraphs, in_processes: 5) do |graph|
+        #query.graph.subgraphs.flat_map do |graph|
+        indexes_for_graph graph, query.select, eq, range
       end.uniq << query.materialize_view
     end
 
     def indexes_for_queries(queries, additional_indexes)
-      #Parallel.map(queries, in_processes: 5) do |query|
-      queries.map do |query|
+      Parallel.flat_map(queries, in_processes: [Etc.nprocessors - 5, 10].min()) do |query|
+        #indexes = queries.flat_map do |query|
         indexes_for_query(query).to_a
-      end.inject(additional_indexes, &:+)
+      end.uniq + additional_indexes
     end
 
     # Produce all possible indices for a given workload
@@ -87,16 +87,18 @@ module NoSE
       # since other updates will be managed automatically by index maintenance
       indexes = indexes.map(&:to_id_graph).uniq if by_id_graph
 
-      # Collect all possible support queries
-      queries = indexes.flat_map do |index|
+      queries = support_queries indexes
+      indexes_for_queries queries, []
+    end
+
+    # Collect all possible support queries
+    def support_queries(indexes)
+      # Enumerate indexes for each support query
+      Parallel.flat_map(indexes, in_processes: [Etc.nprocessors - 4, 10].min()) do |index|
         @workload.updates.flat_map do |update|
           update.support_queries(index)
         end
-      end
-
-      # Enumerate indexes for each support query
-      queries.uniq!
-      indexes_for_queries queries, []
+      end.uniq
     end
 
     private
@@ -155,8 +157,8 @@ module NoSE
 
     def indexes_for_choices(graph, choices, order_choices)
       return [] if choices.size == 0
-      #Parallel.flat_map(choices, in_processes: 6) do |index, extra|
-      choices.flat_map do |index, extra|
+      Parallel.flat_map(choices, in_processes: 6) do |index, extra|
+        #choices.flat_map do |index, extra|
         indexes = []
 
         order_choices.each do |order|
@@ -165,8 +167,8 @@ module NoSE
               (index + order)
 
           # Partition into the ordering portion
-          #indexes += Parallel.flat_map(index.partitions, in_threads: 5) do |index_prefix, order_prefix|
-          indexes += index.partitions.each do |index_prefix, order_prefix|
+          indexes += Parallel.flat_map(index.partitions, in_threads: 5) do |index_prefix, order_prefix|
+            #indexes += index.partitions.each do |index_prefix, order_prefix|
             hash_fields = index_prefix.take_while do |field|
               field.parent == index.first.parent
             end
@@ -185,7 +187,7 @@ module NoSE
 
     # Get all possible indices which jump a given piece of a query graph
     # @return [Array<Index>]
-    def indexes_for_graph(graph, select, count, sum, max, avg, eq, range, group_by)
+    def indexes_for_graph(graph, select, eq, range)
       eq_choices = eq_choices graph, eq
       range_fields = graph.entities.map { |entity| range[entity] }.reduce(&:+)
       range_fields.uniq!

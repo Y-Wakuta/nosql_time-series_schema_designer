@@ -48,15 +48,27 @@ module NoSE
       def solve(previous_type = nil)
         return unless @status.nil?
 
+        log_model 'Model'
+        puts @objective_type
         puts "model variables: " + @model.variables.size.to_s
         puts "model constraints: " + @model.constraints.size.to_s
         # Run the optimization
+        starting = Time.now
         @model.optimize
+        ending = Time.now
+        puts "optimization time: #{ending - starting}"
+
         @status = model.status
         fail NoSolutionException, @status if @status != :optimized
 
         # Store the objective value
         @objective_value = @obj_var.value
+
+        if @objective_type == Objective::COST
+          puts "======================="
+          puts @objective_value
+          puts "======================="
+        end
 
         validate_model
 
@@ -143,10 +155,10 @@ module NoSE
         ratio = constraint_coefficients.max() / constraint_coefficients.select{|cr| cr > 0}.min()
 
         # ref: https://www.gurobi.com/documentation/9.0/refman/num_does_my_model_have_num.html
-        warn "Warning: the ratio of the largest to the smallest coefficient too large #{ratio} > 10e+9" if ratio > 10e+9
+        warn "Warning: the ratio of the largest to the smallest coefficient too large #{ratio} > 10e+9, objective: #{@objective_type}" if ratio > 10e+9
 
         # ref: https://www.gurobi.com/documentation/9.0/refman/num_recommended_ranges_for.html
-        warn "Warning: the objective value may be too large #{@obj_var.value} > 10e+4" if @obj_var.value > 10e+4
+        warn "Warning: the objective value may be too large #{@obj_var.value} > 10e+4, objective: #{@objective_type}" if @obj_var.value > 10e+4
       end
 
       # Pin the current objective value and set a new objective
@@ -171,9 +183,9 @@ module NoSE
       # @return [void]
       def log_model(type)
         @logger.debug do
-          tmpfile = Tempfile.new ['model', '.mps']
+          tmpfile = Tempfile.new ['model', '.lp']
           ObjectSpace.undefine_finalizer tmpfile
-          @model.write_mps tmpfile.path
+          @model.write_lp tmpfile.path
           "#{type} written to #{tmpfile.path}"
         end
       end
