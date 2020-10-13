@@ -611,6 +611,7 @@ module NoSE
     class TimeDependWorkloadRepresenter < BasicWorkloadRepresenter
       collection :weights, exec_context: :decorator
       property :is_static
+      property :timesteps
 
       def workload_weights
         represented.instance_variable_get(:@time_depend_statement_weights)
@@ -649,6 +650,7 @@ module NoSE
             statement_weights[statement][mix] = weight
           end
         end
+        workload.timesteps = fragment['timesteps']
         fragment['statements'].each do |statement|
           workload.add_statement statement, statement_weights[statement],
                                  group: fragment['group']

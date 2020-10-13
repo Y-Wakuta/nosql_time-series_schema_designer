@@ -321,6 +321,14 @@ module NoSE
       def support_query_cost(query, planner)
         _costs, tree = query_cost planner, query, [1] * @workload.timesteps
 
+        # validate support query tree
+        tree.each do |plan|
+          if plan.steps.map{|s| s.index.all_fields}.reduce(&:+) < query.index.all_fields
+            lacked_fields = plan.steps.map{|s| s.index.all_fields}.reduce(&:+) - query.select
+            fail "ms_support query does not get required fields : " + lacked_fields.inspect
+          end
+        end
+
         # calculate cost
         _costs = _costs.map do |index, (step, costs)|
           # query execution cost already considers record width.

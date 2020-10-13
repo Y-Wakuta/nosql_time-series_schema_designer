@@ -289,6 +289,8 @@ module NoSE
       # extract only eq-conditions
       param[:conditions]= param[:conditions].select{|_, v| v.operator == "=".to_sym }
 
+      # only select the required fields for the index
+      param[:select][:fields] = (index.all_fields - param[:conditions].values.flat_map(&:field))
       q = MigrateSupportSimplifiedQuery.new(param, "",)
       q.set_text
       q
