@@ -46,8 +46,8 @@ module NoSE
             problem.model << constr
 
             constr_upper = MIPPeR::Constraint.new(problem.migrate_vars[index][ts] * 1.0 +
-                                                problem.index_vars[index][ts] * -1.0,
-                                            :<=, 0)
+                                                      problem.index_vars[index][ts] * -1.0,
+                                                  :<=, 0)
             problem.model << constr_upper
           end
         end
@@ -175,7 +175,7 @@ module NoSE
 
             # TODO: even if index_var and next_timestep_migrate_var are 0, constraint can take 1
             constr_next_timestep = MIPPeR::Constraint.new constraint + next_timestep_migrate_var * -1.0,
-                                                         :==, 0, name
+                                                          :==, 0, name
             problem.model << constr_next_timestep
           end
         end
@@ -195,7 +195,7 @@ module NoSE
           problem.migrate_prepare_plans.each do |index, query_trees|
             plan_expr = MIPPeR::LinExpr.new
             query_trees.keys.each do |query|
-                plan_expr.add problem.prepare_tree_vars[index][query][ts]
+              plan_expr.add problem.prepare_tree_vars[index][query][ts]
             end
             constr = MIPPeR::Constraint.new plan_expr + problem.migrate_vars[index][ts + 1] * -1.0,
                                             :==,  0, "prepare_tree_constr_#{index.key}"

@@ -253,7 +253,7 @@ module NoSE
         if tree.root.children.empty?
           tree = QueryPlanTree.new state, @cost_model
           find_plans_for_step tree.root, indexes_by_joins, prune: false
-          fail NoPlanException, "#{query.inspect} #{tree.inspect}"
+          fail NoPlanException, "#{query.class} #{query.inspect} #{tree.inspect}"
         end
 
         @logger.debug { "Plans for #{query.inspect}: #{tree.inspect}" }
@@ -446,17 +446,13 @@ module NoSE
 
       def initialize(model, indexes, cost_model, target_index,  index_step_size_threshold)
         @target_index = target_index
-        indexes = remove_indexes_similar_to_target indexes, target_index
+        #indexes = remove_indexes_similar_to_target indexes, target_index
 
         super(model, indexes, cost_model, index_step_size_threshold)
       end
 
       def find_plans_for_query(query)
         tree = super(query)
-        #if tree.to_a.size == 1
-        #  fail if tree.first.steps.size != 1
-        #  fail if tree.first.steps.first.index != @target_index
-        #end
         fail 'migration support plan should include itself' unless tree.any? do |plan|
           plan.indexes.size == 1 and plan.indexes.first == @target_index
         end

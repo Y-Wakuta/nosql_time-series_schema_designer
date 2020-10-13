@@ -54,7 +54,7 @@ module NoSE
       # Produce the DDL necessary for column families for the given indexes
       # and optionally execute them against the server
       def create_indexes(indexes, execute = false, skip_existing = false,
-                                     drop_existing = false)
+                         drop_existing = false)
         indexes.map do |index|
           recreate_index(index, execute, skip_existing, drop_existing)
         end
@@ -71,18 +71,18 @@ module NoSE
 
         ids = []
         batches = client.batch do |batch|
-            chunk.each do |row|
-              index_row = index_row(row, fields)
-              ids << (index.hash_fields.to_a + index.order_fields).map do |field|
-                index_row[fields.index field]
-              end
-              batch.add prepared, arguments: index_row
+          chunk.each do |row|
+            index_row = index_row(row, fields)
+            ids << (index.hash_fields.to_a + index.order_fields).map do |field|
+              index_row[fields.index field]
             end
+            batch.add prepared, arguments: index_row
           end
+        end
         begin
           client.execute(batches)
         rescue => e
-          puts "===========+==========" + e
+          STDERR.puts "===========+==========" + e
           throw e
         end
 
@@ -98,7 +98,7 @@ module NoSE
         results.to_a.each_slice(chunk_size) do |result_chunk|
           index_insert_chunk index, result_chunk
           inserted_size += result_chunk.size
-          puts "inserted chunk #{index.key}:  #{inserted_size} / #{results.size}"
+          STDERR.puts "inserted chunk #{index.key}:  #{inserted_size} / #{results.size}"
         end
       end
 
@@ -229,7 +229,7 @@ module NoSE
         when [Fields::DateField]
           :date
         when [Fields::IDField],
-             [Fields::ForeignKeyField]
+            [Fields::ForeignKeyField]
           :uuid
         end
       end
@@ -455,7 +455,7 @@ module NoSE
 
             new_result.concat rows
             break if new_results.last_page? ||
-                     (!@step.limit.nil? && result.length >= @step.limit)
+                (!@step.limit.nil? && result.length >= @step.limit)
             new_results = new_results.next_page
             @logger.debug "Fetched #{result.length} results"
           end
