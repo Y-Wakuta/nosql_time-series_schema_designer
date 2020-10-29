@@ -34,7 +34,7 @@ module NoSE
           query_var.each do |query, time_var|
             time_var.each do |ts, var|
               next unless var.value
-              puts "prepare_vars is 1 for #{index.key}, ms_q: #{query.index.key}, migrate_vars: #{@problem.migrate_vars[query.index][ts + 1].value}, #{ts} -> #{ts + 1}"
+              STDERR.puts "prepare_vars is 1 for #{index.key}, ms_q: #{query.index.key}, migrate_vars: #{@problem.migrate_vars[query.index][ts + 1].value}, #{ts} -> #{ts + 1}"
 
               # the index of migrate support query is newly created
               next unless problem.migrate_vars[query.index][ts + 1].value
@@ -43,6 +43,13 @@ module NoSE
               @query_indexes[query][ts] = Set.new if @query_indexes[query][ts].nil?
               @query_indexes[query][ts].add index
             end
+          end
+        end
+
+        @problem.migrate_vars.each do |index, m_vars|
+          m_vars.each do |ts, var|
+            next unless var.value
+            STDERR.puts "migrate_vars, index : #{index.key} #{index.size}, ts: #{ts}"
           end
         end
       end
@@ -297,10 +304,9 @@ module NoSE
                                     .uniq.to_set
           if @indexes[ts].to_set > (current_used_indexes + indexes_for_upseart)
             puts "== unused indexes: "
-            (@indexes[ts].to_set - (current_used_indexes + indexes_for_upseart)).each do |i|
-              puts "#{ts} -- #{i.key} : #{i.hash_str}"
+            (@indexes[ts].to_set - (current_used_indexes + indexes_for_upseart)).sort_by{|i| i.key}.each do |i|
+              puts "#{ts} -- #{i.key} : #{i.hash_str}, index.size: #{i.size}"
             end
-            fail InvalidResultsException
           end
         end
       end
@@ -333,8 +339,13 @@ module NoSE
             @workload.statement_weights[plan_each_timestep.query][ts] * plan_each_timestep.cost
           end.inject(&:+)
         end
-        update_cost = @update_plans.reduce 0 do |sum, plan|
-          sum + @workload.statement_weights[plan.statement] * plan.cost
+        update_cost = @update_plans.reduce 0 do |sum, (_, all_ts_plans)|
+          all_ts_plans.each_with_index do |plans, ts|
+            plans.each do |plan|
+              sum += @workload.statement_weights[plan.statement][ts] * plan.cost
+            end
+          end
+          sum
         end
         cost = query_cost + update_cost
 
