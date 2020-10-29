@@ -228,11 +228,12 @@ module NoSE
       # @return [String]
       def index_cql(index)
         ddl = "CREATE COLUMNFAMILY \"#{index.key}\" (" \
-          "#{field_names index.all_fields, true}, " \
+          "#{field_names index.all_fields, true}, \"value_hash\" #{:text.to_s}, " \
           "PRIMARY KEY((#{field_names index.hash_fields})"
 
         cluster_key = index.order_fields
         ddl += ", #{field_names cluster_key}" unless cluster_key.empty?
+        ddl += ", value_hash"
         ddl += '));'
 
         ddl
@@ -316,6 +317,9 @@ module NoSE
               value
             end
 
+            extra_str = @index.extra.sort_by { |e| e.id}.map{|e| result[e.id]}.join(',')
+            values << Zlib.crc32(extra_str).to_s
+
             begin
               @client.execute(@prepared, arguments: values)
             rescue ArgumentError => e
@@ -336,8 +340,8 @@ module NoSE
         # The CQL used to insert the fields into the index
         def insert_cql
           insert = "INSERT INTO #{@index.key} ("
-          insert += @fields.map { |f| "\"#{f}\"" }.join(', ')
-          insert << ') VALUES (' << (['?'] * @fields.length).join(', ') + ')'
+          insert += (@fields.map { |f| "\"#{f}\"" }.join(', ') + ", value_hash ")
+          insert << ') VALUES (' << (['?'] * (@fields.length + 1)).join(', ') + ')'
 
           insert
         end
