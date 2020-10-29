@@ -64,10 +64,11 @@ module NoSE
         fail 'Space constraint not supported when grouping by ID graph' \
           if problem.data[:by_id_graph]
 
+        size_gcd = problem.get_index_size_gcd
         spaces = problem.total_size_each_timestep
         spaces.each do |space|
           constr = MIPPeR::Constraint.new space, :<=,
-                                          problem.data[:max_space] * 1.0,
+                                          (problem.data[:max_space] / size_gcd) * 1.0,
                                           'max_space'
           problem.model << constr
         end
@@ -205,26 +206,15 @@ module NoSE
       end
     end
 
-    class TimeDependPresentIndexesOnceUsedConstraints < Constraint
+    class TimeDependIndexCreatedAtUsedTimeStepConstraints < Constraint
       def self.apply(problem)
-        problem.indexes.select do |index|
-          used_expr = MIPPeR::LinExpr.new
-          (0...problem.timesteps).each do |ts|
-            if problem.query_vars.keys.include? index
-              problem.query_vars[index].each do |_, vars|
-                used_expr += vars[ts] * 1.0
-              end
+          problem.query_vars.each do |index, q_vars|
+            q_vars.each do |_, q_var|
+              (1...problem.timesteps).each do |ts|
+                constr = MIPPeR::Constraint.new q_var[ts] * 1.0 + problem.migrate_vars[index][ts] * -1.0, :>=,
+                                                0, "index_created_at_used_ts_#{index.key}"
+                problem.model << constr
             end
-            problem.prepare_vars[index].each do |ms_query, vars|
-              next if ts >= problem.timesteps - 1
-              next if index == ms_query.index
-              used_expr += vars[ts] * 1.0
-            end
-          end
-          (0...problem.timesteps).each do |ts|
-            constr = MIPPeR::Constraint.new used_expr + problem.index_vars[index][ts] * -1.0, :>=,
-                                            0, "i_once_used_constr_#{index.key}"
-            problem.model << constr
           end
         end
       end
