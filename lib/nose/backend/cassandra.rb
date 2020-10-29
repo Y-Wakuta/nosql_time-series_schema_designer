@@ -2,6 +2,7 @@
 
 require 'cassandra'
 require 'zlib'
+require 'tmpdir'
 
 module NoSE
   module Backend
@@ -91,11 +92,11 @@ module NoSE
 
       def index_insert(index, results)
         STDERR.puts "load data to index: \e[35m#{index.key}: #{index.hash_str} \e[0m"
-        results = results.to_a
         fail "no data will be loaded on #{index.key}" if results.size == 0
-        chunk_size = 15000
+        puts "insert through ruby driver: #{index.key}, #{results.size.to_s}"
+        chunk_size = 3000
         inserted_size = 0
-        results.to_a.each_slice(chunk_size) do |result_chunk|
+        Parallel.each(results.to_a.each_slice(chunk_size), in_threads: 10) do |result_chunk|
           index_insert_chunk index, result_chunk
           inserted_size += result_chunk.size
           STDERR.puts "inserted chunk #{index.key}:  #{inserted_size} / #{results.size}"
@@ -136,11 +137,12 @@ module NoSE
       end
 
       def clear_keyspace
-        puts "clearing keyspace: #{@keyspace}"
+        STDERR.puts "clearing keyspace: #{@keyspace}"
         client()
         @cluster.keyspace(@keyspace).tables.map(&:name).each do |index_key|
           client.execute("DROP TABLE #{index_key}")
         end
+        `docker exec cassandra_migrate nodetool clearsnapshot`
       end
 
       # Sample a number of values from the given index
@@ -154,6 +156,44 @@ module NoSE
         # fail if rows.any? { |row| row.values.any?(&:nil?) }
 
         rows
+      end
+
+      def add_value_hash(index, results)
+        results.each do |r|
+          extra_str = index.extra.sort_by { |e| e.id}.map{|e| r[e.id]}.join(',')
+          r["value_hash"] = Zlib.crc32(extra_str)
+        end
+        results
+      end
+
+      def load_index_by_COPY(index, results)
+        results = add_value_hash index, results
+
+        starting = Time.now.utc
+        fields = index.all_fields.to_a
+        columns = fields.map(&:id)
+        columns << "value_hash"
+
+        Dir.mktmpdir do |dir|
+          file_name = "#{dir}/#{index.key}.csv"
+          g = File.open(file_name, "w") do |f|
+            f.puts(columns.join('|').to_s)
+            results.each do |r|
+              csv_row = index_row(r, fields)
+              csv_row << r["value_hash"]
+              f.puts(csv_row.join('|'))
+            end
+            f
+          end
+          STDERR.puts "insert through csv: #{index.key}, #{file_name}, #{results.size.to_s}"
+          ENV['CQLSH_NO_BUNDLED'] = 'true'
+          %x(cqlsh --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e "COPY #{index.key} (#{columns.join(',').to_s}) FROM '#{file_name}' WITH DELIMITER='|' AND HEADER=TRUE")
+          STDERR.puts `cqlsh --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e "SELECT COUNT(1) FROM #{index.key}"`
+          g.close
+        end
+        GC.start
+        ending = Time.now.utc
+        STDERR.puts "loading through csv time: #{ending - starting} for #{results.size.to_s} records"
       end
 
       private
