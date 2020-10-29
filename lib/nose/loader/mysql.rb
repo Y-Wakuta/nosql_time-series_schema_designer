@@ -146,7 +146,9 @@ module NoSE
         # Construct the join condition
         tables = index_sql_tables index
 
-        query = "SELECT #{select.join ', '} FROM #{tables}"
+        # if all field have the same value, the value will distinguished.
+        # Therefore reduce the number of records here
+        query = "SELECT DISTINCT #{select.join ', '} FROM #{tables}"
         query += " LIMIT #{limit}" unless limit.nil?
 
         @logger.debug query
