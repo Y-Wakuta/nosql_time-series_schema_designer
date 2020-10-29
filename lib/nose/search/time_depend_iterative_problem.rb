@@ -14,15 +14,13 @@ module NoSE
   module Search
     # A representation of a search problem as an ILP
     class TimeDependIterativeProblem < TimeDependProblem
-      attr_accessor :ts_indexes, :ts_query_indexes, :start_ts, :middle_ts, :end_ts
+      attr_accessor :ts_indexes, :start_ts, :middle_ts, :end_ts
 
-      def initialize(queries, workload, data, ts_indexes,
-                     ts_query_indexes, objective = nil)
+      def initialize(queries, workload, data, ts_indexes, objective = nil)
         @start_ts = start_ts
         @middle_ts = middle_ts
         @end_ts = end_ts
         @ts_indexes = ts_indexes
-        @ts_query_indexes = ts_query_indexes
         super(queries, workload, data, objective)
       end
 

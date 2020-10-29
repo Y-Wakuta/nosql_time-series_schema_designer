@@ -317,8 +317,11 @@ module NoSE
               row[condition.field] = condition_field_values.first
             end
 
-            fail 'all of selected fields should be aggregated' unless \
-                                row.keys.map(&:id).to_set > @step.state.query.select.map(&:id).to_set
+            unless row.keys.map(&:id).to_set >= @step.state.query.select.map(&:id).to_set
+              puts "result fields " + row.keys.inspect
+              puts "selected fields " + @step.state.query.select.map(&:id).inspect
+              fail 'all selected fields should be aggregated'
+            end
 
             row
           end

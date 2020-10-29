@@ -6,7 +6,6 @@ module NoSE
       def self.apply(problem)
         return unless (problem.ts_indexes.has_key?(problem.start_ts) and problem.ts_indexes.has_key?(problem.end_ts))
 
-        #tss = [problem.start_ts, problem.middle_ts, problem.end_ts]
         tss = [problem.start_ts, problem.end_ts]
         tss.each do |ts|
           problem.ts_indexes[ts].each do |idx|
@@ -21,8 +20,9 @@ module NoSE
 
     class TimeDependIndexWholeFixConstraints < Constraint
       def self.apply(problem)
-        problem.ts_indexes.each do |ts, chosen_indexes|
-          (problem.indexes.to_set - chosen_indexes.to_set).each do |un_chosen_idxes|
+        chosen_indexes = problem.ts_indexes.values.reduce(&:+)
+        (problem.indexes.to_set - chosen_indexes.to_set).each do |un_chosen_idxes|
+          (0...problem.timesteps).each do |ts|
             constr = MIPPeR::Constraint.new problem.index_vars[un_chosen_idxes][ts] * 1.0,
                                             :==, 0, name
             problem.model << constr

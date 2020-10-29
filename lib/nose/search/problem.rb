@@ -49,14 +49,14 @@ module NoSE
         return unless @status.nil?
 
         log_model 'Model'
-        puts @objective_type
-        puts "model variables: " + @model.variables.size.to_s
-        puts "model constraints: " + @model.constraints.size.to_s
+        @model.update
+        STDERR.puts "model variables: " + @model.variables.size.to_s
+        STDERR.puts "model constraints: " + @model.constraints.size.to_s
         # Run the optimization
         starting = Time.now
         @model.optimize
         ending = Time.now
-        puts "optimization time: #{ending - starting}"
+        STDERR.puts "optimization time: #{ending - starting}"
 
         @status = model.status
         fail NoSolutionException, @status if @status != :optimized
@@ -65,9 +65,9 @@ module NoSE
         @objective_value = @obj_var.value
 
         if @objective_type == Objective::COST
-          puts "======================="
-          puts @objective_value
-          puts "======================="
+          STDERR.puts "======================="
+          STDERR.puts @objective_value
+          STDERR.puts "======================="
         end
 
         validate_model

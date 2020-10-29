@@ -20,7 +20,7 @@ module NoSE
     # Searches for the optimal indices for a given workload
     class Search
       def initialize(workload, cost_model, objective = Objective::COST,
-                     by_id_graph = false, is_pruned = false)
+                     by_id_graph = false, is_pruned = true)
         @logger = Logging.logger['nose::search']
         @workload = workload
         @cost_model = cost_model
