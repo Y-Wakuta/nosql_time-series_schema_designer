@@ -265,24 +265,17 @@ module NoSE
       end
 
       def get_migrate_preparing_plans(trees, indexes)
+        index_related_tree_hash = {}
+        indexes.each {|qi| index_related_tree_hash[qi] = Set.new}
+        trees.select{|t| t.query.instance_of? Query}.each do |t|
+          t.flat_map(&:indexes).uniq.each {|i| index_related_tree_hash[i].add(t)}
+        end
 
-        # create new migrate_prepare_plan
-        migrate_plans = Parallel.map(indexes.uniq, in_processes: Etc.nprocessors - 2) do |base_index|
+        ## create new migrate_prepare_plan
+        migrate_plans = Parallel.map(indexes.uniq, in_processes: Etc.nprocessors / 2) do |base_index|
 
-          #useable_indexes = indexes
           useable_indexes = indexes.reject{|oi| is_similar_index?(base_index, oi)}
           useable_indexes << base_index
-          #puts "basic index size: #{indexes.size}, useable_index size: #{useable_indexes.size}"
-
-          # tmp ====
-          #puts "look for similar index"
-          #puts base_index.hash_str
-          #indexes.each do |other_index|
-          #  if is_similar_index? base_index, other_index
-          #    puts "  " + other_index.hash_str
-          #  end
-          #end
-          # tmp ====
 
           m_plan = {base_index => {}}
           planner = Plans::PreparingQueryPlanner.new @workload, useable_indexes, @cost_model, base_index,  2
@@ -290,15 +283,14 @@ module NoSE
           m_plan[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
 
           # convert existing other trees into migrate_prepare_tree
-          #related_trees = trees.select{|t| t.query.instance_of? Query}.select{|t| t.flat_map{|p| p.indexes}.include? base_index}
-          related_trees = trees.select{|t| t.flat_map{|p| p.indexes}.include? base_index}
+          related_trees = index_related_tree_hash[base_index]
           related_trees.each do |rtree|
             simple_query = MigrateSupportSimplifiedQuery.simple_query rtree.query, base_index
             planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, indexes.reject{|i| i==base_index}, @cost_model,  2
             begin
               m_plan[base_index][simple_query] = support_query_cost simple_query, planner
             rescue Plans::NoPlanException => e
-              puts "#{e.inspect} for #{base_index.key}"
+              #puts "#{e.inspect} for #{base_index.key}"
               next
             end
           end
