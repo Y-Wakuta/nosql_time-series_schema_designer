@@ -170,23 +170,29 @@ module NoSE
       # Get the size of all indexes in the workload
       # @return [Array]
       def total_size_each_timestep
-        calculate_index_normalized_sizes
+        normarlized_size_hash = calculate_index_normalized_sizes
         # TODO: Update for indexes grouped by ID path
         (0...@timesteps).map do |ts|
           @indexes.map do |index|
             # calculating total_size with 'normalized' size reduce the objective value and gives more precise result.
-            @index_vars[index][ts] * (index.normalized_size * 1.0)
+            @index_vars[index][ts] * (normarlized_size_hash[index] * 1.0)
           end.reduce(&:+)
         end
+      end
+
+      def get_index_size_gcd
+        @indexes.map(&:size).inject(&:gcd)
       end
 
       # This method simply divides each index size by gcd.
       # General normalized that maps values to 0 to 1 produces, float value and increase computation costs
       def calculate_index_normalized_sizes
-        size_gcd = @indexes.map(&:size).inject(&:gcd)
+        size_gcd = get_index_size_gcd
+        normalized_size_hash = {}
         @indexes.each do |index|
-          index.normalized_size = index.size / size_gcd
+          normalized_size_hash[index] = index.size / size_gcd
         end
+        normalized_size_hash
       end
 
       # Get the size of all indexes in the workload
@@ -262,6 +268,8 @@ module NoSE
       # add variable for whether to create CF at the timestep
       # @return [void]
       def add_cf_creation_variables
+        STDERR.puts "whole indexes size is : #{@indexes.size.to_s}"
+        STDERR.puts "indexes used for query is : #{@trees.select{|t| t.query.instance_of? Query}.flat_map{|t| t.flat_map(&:indexes)}.uniq.size.to_s}"
         @migrate_vars = {}
         @indexes.each do |index|
           @migrate_vars[index] = {} if @migrate_vars[index].nil?
@@ -355,7 +363,7 @@ module NoSE
             TimeDependCreationConstraints,
             TimeDependPrepareConstraints,
             TimeDependPrepareTreeConstraints,
-            TimeDependPresentIndexesOnceUsedConstraints
+            TimeDependIndexCreatedAtUsedTimeStepConstraints
         ]
 
         Parallel.each(constraints, in_threads: 7) { |constraint| constraint.apply self }

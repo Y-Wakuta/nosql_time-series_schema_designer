@@ -8,6 +8,7 @@ rescue LoadError
   require 'mysql'
 end
 require 'etc'
+require 'digest'
 
 module NoSE
   module Loader
@@ -26,7 +27,8 @@ module NoSE
         indexes.map!(&:to_id_graph).uniq! if @backend.by_id_graph
 
         # XXX Assuming backend is thread-safe
-        Parallel.each(indexes, in_threads: [Etc.nprocessors / 2, 5].max()) do |index|
+        #Parallel.each(indexes, in_threads: 2) do |index|
+        indexes.each do |index|
           load_index index, config, show_progress, limit, skip_existing
         end
       end
@@ -82,19 +84,25 @@ module NoSE
         @logger.info index.inspect if show_progress
 
         sql, fields = index_sql index, limit
+        starting = Time.now.utc
         results = if @query_options
                     begin
-                      puts sql
+                      STDERR.puts sql
                       client.query(sql, **@query_options)
                     rescue => e
-                      puts index.inspect
+                      STDERR.puts index.inspect
                       throw e
                     end
                   else
                     client.query(sql).map { |row| hash_from_row row, fields }
                   end
+        ending = Time.now.utc
+        puts "query time: #{ending - starting} for #{index.key}"
 
-        @backend.index_insert(index, results)
+        results = results.to_a
+        @backend.load_index_by_COPY(index, results)
+
+        #@backend.index_insert(index, results)
       end
 
       # Construct a hash from the given row returned by the client
@@ -146,7 +154,9 @@ module NoSE
         # Construct the join condition
         tables = index_sql_tables index
 
-        query = "SELECT #{select.join ', '} FROM #{tables}"
+        # if all field have the same value, the value will distinguished.
+        # Therefore reduce the number of records here
+        query = "SELECT DISTINCT #{select.join ', '} FROM #{tables}"
         query += " LIMIT #{limit}" unless limit.nil?
 
         @logger.debug query

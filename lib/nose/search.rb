@@ -20,7 +20,7 @@ module NoSE
     # Searches for the optimal indices for a given workload
     class Search
       def initialize(workload, cost_model, objective = Objective::COST,
-                     by_id_graph = false, is_pruned = false)
+                     by_id_graph = false, is_pruned = true)
         @logger = Logging.logger['nose::search']
         @workload = workload
         @cost_model = cost_model
@@ -41,7 +41,7 @@ module NoSE
         return if indexes.empty?
         STDERR.puts("set basic query plans")
 
-        indexes = pruning_tree_by_cost indexes
+        indexes = pruning_indexes_by_plan_cost indexes
         # Get the costs of all queries and updates
         query_weights = combine_query_weights indexes
         costs, trees = query_costs query_weights, indexes
@@ -64,7 +64,10 @@ module NoSE
         if @workload.is_a? TimeDependWorkload
           STDERR.puts("set migration query plans")
 
+          starting = Time.now.utc
           migrate_prepare_plans = get_migrate_preparing_plans(trees, indexes)
+          ending = Time.now.utc
+          STDERR.puts "prepare plan enumeration time: " + (ending - starting).to_s
           costs.merge!(migrate_prepare_plans.values.flat_map{|v| v.values}.map{|v| v[:costs]}.reduce(&:merge))
 
           solver_params[:migrate_prepare_plans] = migrate_prepare_plans
@@ -76,29 +79,28 @@ module NoSE
 
       private
 
-      def pruning_tree_by_cost(indexes)
+      def pruning_indexes_by_plan_cost(indexes)
         query_weights = combine_query_weights indexes
         _, trees = query_costs query_weights, indexes
-        puts "index size before cost-based pruning: #{indexes.size}"
+        before_index_size = indexes.size
         planner = @is_pruned ?
                       Plans::PrunedQueryPlanner.new(@workload, indexes, @cost_model, 2) :
                       Plans::QueryPlanner.new(@workload, indexes, @cost_model)
 
-        threshold = 1
-        trees.select{|t| t.to_a.size > threshold}.each do |tree|
+        plan_num_threshold = 2
+        cost_ratio_threshold = 10_000
+        trees.select{|t| t.to_a.size >= plan_num_threshold}.each do |tree|
           before_tree_size = tree.size
-          plan_costs = tree.map(&:cost)
-          cost_threshold = 0.1 * (plan_costs.max() - plan_costs.min()) + plan_costs.min()
+          tree_max_cost_threshold = tree.map(&:cost).min * cost_ratio_threshold
           tree.each do |plan|
-            if plan.cost > cost_threshold
+            if plan.cost > tree_max_cost_threshold
               planner.prune_plan(plan.last)
             end
           end
           after_tree_size = tree.size
-          puts "pruned #{before_tree_size} -> #{after_tree_size}, #{tree.query.text}" if before_tree_size > after_tree_size
-          puts "all plan cost was the same value #{tree.query.text}" if tree.all?{|p| p.indexes == 1} and plan_costs.size > 1 and plan_costs.uniq.size == 1
+          STDERR.puts "cost-base pruned plans: #{before_tree_size} -> #{after_tree_size}, #{tree.query.text}" if before_tree_size > after_tree_size
         end
-        puts "index size after cost-based pruning: #{indexes.size}"
+        STDERR.puts "cost-base pruned indexes: #{before_index_size} -> #{trees.flat_map{|t| t.flat_map(&:indexes)}.uniq.size}"
         trees.flat_map{|t| t.flat_map(&:indexes)}.uniq
       end
 
@@ -252,7 +254,7 @@ module NoSE
                       Plans::PrunedQueryPlanner.new(@workload, indexes, @cost_model, 2) :
                       Plans::QueryPlanner.new(@workload, indexes, @cost_model)
 
-        results = Parallel.map(query_weights, in_processes: 6) do |query, weight|
+        results = Parallel.map(query_weights, in_processes: Etc.nprocessors - 4) do |query, weight|
           query_cost planner, query, weight
         end
         costs = Hash[query_weights.each_key.map.with_index do |query, q|
@@ -263,24 +265,17 @@ module NoSE
       end
 
       def get_migrate_preparing_plans(trees, indexes)
+        index_related_tree_hash = {}
+        indexes.each {|qi| index_related_tree_hash[qi] = Set.new}
+        trees.select{|t| t.query.instance_of? Query}.each do |t|
+          t.flat_map(&:indexes).uniq.each {|i| index_related_tree_hash[i].add(t)}
+        end
 
-        # create new migrate_prepare_plan
-        migrate_plans = Parallel.map(indexes.uniq, in_processes: Etc.nprocessors - 2) do |base_index|
+        ## create new migrate_prepare_plan
+        migrate_plans = Parallel.map(indexes.uniq, in_processes: Etc.nprocessors / 2) do |base_index|
 
-          #useable_indexes = indexes
           useable_indexes = indexes.reject{|oi| is_similar_index?(base_index, oi)}
           useable_indexes << base_index
-          #puts "basic index size: #{indexes.size}, useable_index size: #{useable_indexes.size}"
-
-          # tmp ====
-          #puts "look for similar index"
-          #puts base_index.hash_str
-          #indexes.each do |other_index|
-          #  if is_similar_index? base_index, other_index
-          #    puts "  " + other_index.hash_str
-          #  end
-          #end
-          # tmp ====
 
           m_plan = {base_index => {}}
           planner = Plans::PreparingQueryPlanner.new @workload, useable_indexes, @cost_model, base_index,  2
@@ -288,15 +283,14 @@ module NoSE
           m_plan[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
 
           # convert existing other trees into migrate_prepare_tree
-          #related_trees = trees.select{|t| t.query.instance_of? Query}.select{|t| t.flat_map{|p| p.indexes}.include? base_index}
-          related_trees = trees.select{|t| t.flat_map{|p| p.indexes}.include? base_index}
+          related_trees = index_related_tree_hash[base_index]
           related_trees.each do |rtree|
             simple_query = MigrateSupportSimplifiedQuery.simple_query rtree.query, base_index
             planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, indexes.reject{|i| i==base_index}, @cost_model,  2
             begin
               m_plan[base_index][simple_query] = support_query_cost simple_query, planner
             rescue Plans::NoPlanException => e
-              puts "#{e.inspect} for #{base_index.key}"
+              #puts "#{e.inspect} for #{base_index.key}"
               next
             end
           end
@@ -359,17 +353,6 @@ module NoSE
         end
 
         [query_costs, tree]
-      end
-
-      def is_same_cost(cost1, cost2)
-        if cost1.is_a?(Array) and cost2.is_a?(Array)
-          cost1.each_with_index do |c1,i|
-            return false unless (cost2[i] - c1).abs < 0.001
-          end
-          return true
-        else
-          return (cost1 - cost2).abs < 0.001
-        end
       end
 
       # Store the costs and indexes for this plan in a nested hash
@@ -449,6 +432,27 @@ module NoSE
           current = current.parent
         end
         fail
+      end
+
+      def is_same_cost(cost1, cost2)
+        if cost1.is_a?(Array) and cost2.is_a?(Array)
+          cost1.each_with_index do |c1,i|
+            return false unless (cost2[i] - c1).abs < 0.001
+          end
+          return true
+        else
+          return (cost1 - cost2).abs < 0.001
+        end
+      end
+
+      def is_larger_cost(cost1, cost2)
+        if cost1.is_a?(Array) and cost2.is_a?(Array)
+          cost1.each_with_index do |c1,i|
+            return false unless c1 < cost2[i]
+          end
+        else
+          return cost1 < cost2
+        end
       end
     end
   end

@@ -114,6 +114,7 @@ module NoSE
       TimeDependWorkload.new do
         TimeSteps ts
         DefaultMix :default
+        Interval 60
 
         Entity 'Foo' do
           ID 'Id'
@@ -134,6 +135,30 @@ module NoSE
                     .map{|_, weights| weights}
         expect(weights.first.size).to eq freq_array.size
       end
+    end
+
+    it 'allows to re-set interval' do
+      q = query
+      fa = freq_array
+      ts = time_steps
+      td_workload_200interval = TimeDependWorkload.new do
+        TimeSteps ts
+        DefaultMix :default
+        Interval 200
+
+        Entity 'Foo' do
+          ID 'Id'
+          String 'Bar'
+        end
+
+        Group 'Test1', 0.5, default: fa do
+          Q q
+        end
+      end
+
+      td_workload_float_array.reset_interval 200
+      expect(td_workload_float_array.statement_weights).to eq(td_workload_200interval.statement_weights)
+      expect(td_workload_float_array.interval).to eq(td_workload_200interval.interval)
     end
 
     let(:td_workload_workload_ratio) {

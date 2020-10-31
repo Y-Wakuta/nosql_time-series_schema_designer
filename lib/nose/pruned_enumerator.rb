@@ -36,7 +36,6 @@ module NoSE
         indexes = get_used_indexes(queries, indexes)
       end
 
-
       puts "index size after pruning: " + indexes.size.to_s
 
       indexes.uniq
@@ -114,8 +113,7 @@ module NoSE
       range = get_query_range query
       eq = get_query_eq query
 
-      #indexes = Parallel.flat_map(query.graph.subgraphs, in_processes: 7) do |graph|
-      indexes = query.graph.subgraphs.flat_map do |graph|
+      indexes = Parallel.flat_map(query.graph.subgraphs, in_processes: Etc.nprocessors - 5) do |graph|
         indexes_for_graph graph, query.select, eq, range, entity_fields, extra_fields
       end.uniq << query.materialize_view
 
@@ -131,9 +129,10 @@ module NoSE
       indexes = indexes.map(&:to_id_graph).uniq if by_id_graph
 
       queries = support_queries indexes
-      support_indexes = IndexEnumerator.new(@workload).indexes_for_queries queries, []
+      puts "support queries: " + queries.size.to_s
+      support_indexes = indexes_for_queries queries, []
       STDERR.puts "end enumerating support indexes"
-      get_used_indexes queries, support_indexes.uniq
+      support_indexes
     end
 
     private

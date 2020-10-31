@@ -110,6 +110,20 @@ module NoSE
       end
     end
 
+    def reset_interval(new_interval)
+      new_td_statement_weights = Marshal.load(Marshal.dump(@time_depend_statement_weights))
+      @time_depend_statement_weights.each do |mix, statements|
+        statements.each do |statement, frequencies|
+          new_td_statement_weights[mix][statement] = frequencies.map{|f| (f.to_f / @interval.to_f) * new_interval}
+        end
+      end
+
+      @time_depend_statement_weights = new_td_statement_weights
+      sync_statement_weights
+
+      @interval = new_interval
+    end
+
     private
 
     def average_array(values)
