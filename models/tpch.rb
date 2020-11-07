@@ -13,24 +13,25 @@ NoSE::Model.new do
     String 'p_type'
     Integer 'p_size'
     String 'p_container'
-    Integer 'p_retailprice'
+    Float 'p_retailprice'
     Integer 'p_comment'
   end) * 2000_000
 
   (Entity 'supplier' do
     ID 's_suppkey'
+    #Integer 's_nationkey'
     String 's_name'
     String 's_address'
     String 's_phone'
-    Integer 's_acctbal'
+    Float 's_acctbal'
     String 's_comment'
   end) * 10_000
 
   (Entity 'partsupp' do
     ID 'ps_partkey'
-    ID 'ps_suppkey'
+    #ID 'ps_suppkey'
     Integer 'ps_availqty'
-    Integer 'ps_supplycost'
+    Float 'ps_supplycost'
     String 'ps_comment'
   end) * 800_000
 
@@ -39,15 +40,17 @@ NoSE::Model.new do
     String 'c_name'
     String 'c_address'
     String 'c_phone'
-    Integer 'c_acctbal'
+    Float 'c_acctbal'
+    #Integer 'c_nationkey'
     String 'c_mktsegment'
     String 'c_comment'
   end) * 150_000
 
   (Entity 'orders' do
     ID 'o_orderkey'
+    #Integer 'o_custkey'
     String 'o_orderstatus'
-    Integer 'o_totalprice'
+    Float 'o_totalprice'
     Date 'o_orderdate'
     String 'o_orderpriority'
     String 'o_clerk'
@@ -57,15 +60,16 @@ NoSE::Model.new do
   end) * 1_500_000
 
   (Entity 'lineitem' do
-    ID 'l_orderkey'
-    Integer 'l_linenumber'
-    Integer 'l_quantity'
-    Integer 'l_extendedprice'
-    Integer 'l_discount'
-    Integer 'l_suppkey'
-    Integer 'l_tax'
+    #Integer 'l_orderkey'
+    #Integer 'l_suppkey'
+    #Integer 'l_partkey'
+    ID 'l_linenumber'
+    Float 'l_quantity'
+    Float 'l_extendedprice'
+    Float 'l_discount'
+    Float 'l_tax'
     String 'l_returnflag'
-    Integer 'l_linestatus'
+    String 'l_linestatus'
     Date 'l_shipdate'
     Date 'l_commitdate'
     Date 'l_receiptdate'
@@ -77,6 +81,7 @@ NoSE::Model.new do
 
   (Entity 'nation' do
     ID 'n_nationkey'
+    #Integer 'n_regionkey'
     String 'n_name'
     String 'n_comment'
   end) * 25
@@ -87,31 +92,34 @@ NoSE::Model.new do
     String 'r_comment'
   end) * 5
 
-  HasOne 'to_nation',       'from_supplier',
+  HasOne 's_nationkey',       'from_supplier',
          'supplier'      => 'nation'
 
-  HasOne 'to_nation',       'from_customer',
+  HasOne 'c_nationkey',       'from_customer',
          'customer'      => 'nation'
 
-  HasOne 'to_supplier',       'from_customer',
-         'customer'      => 'supplier'
+  #HasOne '',       'n_nationkey',
+  #       'customer'      => 'supplier'
 
-  HasOne 'to_supplier', 'from_partsupp',
+  HasOne 'ps_suppkey', 'from_partsupp',
          'partsupp' => 'supplier'
 
-  HasOne 'to_region', 'from_nation',
+  HasOne 'n_regionkey', 'from_nation',
          'nation'  =>  'region'
 
-  HasOne 'to_customer',       'from_orders',
+  HasOne 'o_custkey',       'from_orders',
          'orders'      => 'customer'
 
-  HasOne 'to_orders',       'from_lineitem',
+  HasOne 'l_orderkey',       'from_lineitem',
          'lineitem'      => 'orders'
 
-  HasOne 'to_partsupp', 'from_lineitem',
+  HasOne 'l_partkey', 'from_lineitem',
          'lineitem' => 'partsupp'
 
-  HasOne 'to_part', 'from_partsupp',
+  HasOne 'l_suppkey', 'from_lineitem',
+         'lineitem' => 'partsupp'
+
+  HasOne 'ps_partkey', 'from_partsupp',
          'partsupp' => 'part'
 
 end
