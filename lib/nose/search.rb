@@ -41,7 +41,6 @@ module NoSE
         return if indexes.empty?
         STDERR.puts("set basic query plans")
 
-        indexes = pruning_indexes_by_plan_cost indexes
         # Get the costs of all queries and updates
         query_weights = combine_query_weights indexes
         costs, trees = query_costs query_weights, indexes
@@ -77,8 +76,6 @@ module NoSE
                       update_plans
       end
 
-      private
-
       def pruning_indexes_by_plan_cost(indexes)
         query_weights = combine_query_weights indexes
         _, trees = query_costs query_weights, indexes
@@ -103,6 +100,8 @@ module NoSE
         STDERR.puts "cost-base pruned indexes: #{before_index_size} -> #{trees.flat_map{|t| t.flat_map(&:indexes)}.uniq.size}"
         trees.flat_map{|t| t.flat_map(&:indexes)}.uniq
       end
+
+      private
 
       # Combine the weights of queries and statements
       # @return [void]
@@ -253,6 +252,7 @@ module NoSE
         planner = @is_pruned ?
                       Plans::PrunedQueryPlanner.new(@workload, indexes, @cost_model, 2) :
                       Plans::QueryPlanner.new(@workload, indexes, @cost_model)
+        STDERR.puts "#{planner.class.to_s} is used"
 
         results = Parallel.map(query_weights, in_processes: Etc.nprocessors - 4) do |query, weight|
           query_cost planner, query, weight
@@ -264,12 +264,8 @@ module NoSE
         [costs, results.map(&:last)]
       end
 
-      def get_migrate_preparing_plans(trees, indexes)
-        index_related_tree_hash = {}
-        indexes.each {|qi| index_related_tree_hash[qi] = Set.new}
-        trees.select{|t| t.query.instance_of? Query}.each do |t|
-          t.flat_map(&:indexes).uniq.each {|i| index_related_tree_hash[i].add(t)}
-        end
+      def get_migrate_preparing_plans(query_trees, indexes)
+        index_related_tree_hash = get_related_query_tree(query_trees, indexes)
 
         ## create new migrate_prepare_plan
         migrate_plans = Parallel.map(indexes.uniq, in_processes: Etc.nprocessors / 2) do |base_index|
@@ -283,8 +279,7 @@ module NoSE
           m_plan[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
 
           # convert existing other trees into migrate_prepare_tree
-          related_trees = index_related_tree_hash[base_index]
-          related_trees.each do |rtree|
+          index_related_tree_hash[base_index].each do |rtree|
             simple_query = MigrateSupportSimplifiedQuery.simple_query rtree.query, base_index
             planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, indexes.reject{|i| i==base_index}, @cost_model,  2
             begin
@@ -297,6 +292,15 @@ module NoSE
           m_plan
         end.reduce(&:merge)
         migrate_plans
+      end
+
+      def get_related_query_tree(trees, indexes)
+        related_tree_hash = {}
+        indexes.each {|qi| related_tree_hash[qi] = Set.new}
+        trees.select{|t| t.query.instance_of? Query}.each do |t|
+          t.flat_map(&:indexes).uniq.each {|i| related_tree_hash[i].add(t)}
+        end
+        related_tree_hash
       end
 
       def is_similar_index?(index, other_index)
@@ -312,9 +316,7 @@ module NoSE
         false
       end
 
-      def support_query_cost(query, planner)
-        _costs, tree = query_cost planner, query, [1] * @workload.timesteps
-
+      def support_query_cost_4_costs_tree(query, costs, tree)
         # validate support query tree
         tree.each do |plan|
           if plan.steps.map{|s| s.index.all_fields}.reduce(&:+) < query.index.all_fields
@@ -324,21 +326,24 @@ module NoSE
         end
 
         # calculate cost
-        _costs = _costs.map do |index, (step, costs)|
+        costs = costs.map do |index, (step, costs)|
           # query execution cost already considers record width.
           # Therefore the cost is multiplied by index.entries not by index.size
           {index =>  [step, costs.map{|cost| @workload.migrate_support_coeff * cost * index.entries}]}
         end.reduce(&:merge)
 
-        costs = Hash[query, _costs]
+        costs = Hash[query, costs]
         {:costs => costs, :tree => tree}
       end
 
-      # Get the cost for indices for an individual query
-      def query_cost(planner, query, weight)
-        query_costs = {}
+      def support_query_cost(query, planner)
+        _costs, tree = query_cost planner, query, [1] * @workload.timesteps
 
-        tree = planner.find_plans_for_query(query)
+        support_query_cost_4_costs_tree query, _costs, tree
+      end
+
+      def query_cost_4_tree(query, weight, tree)
+        query_costs = {}
         tree.each do |plan|
           steps_by_index = []
           plan.each do |step|
@@ -353,6 +358,12 @@ module NoSE
         end
 
         [query_costs, tree]
+      end
+
+      # Get the cost for indices for an individual query
+      def query_cost(planner, query, weight)
+        tree = planner.find_plans_for_query(query)
+        query_cost_4_tree query, weight, tree
       end
 
       # Store the costs and indexes for this plan in a nested hash
@@ -415,7 +426,7 @@ module NoSE
               #puts
               #p tree
 
-              fail
+              #fail
             end
           else
             # We either found a new plan or something cheaper

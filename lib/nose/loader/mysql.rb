@@ -97,7 +97,7 @@ module NoSE
                     client.query(sql).map { |row| hash_from_row row, fields }
                   end
         ending = Time.now.utc
-        puts "query time: #{ending - starting} for #{index.key}"
+        STDERR.puts "query time: #{ending - starting} for #{index.key}"
 
         results = results.to_a
         @backend.load_index_by_COPY(index, results)
