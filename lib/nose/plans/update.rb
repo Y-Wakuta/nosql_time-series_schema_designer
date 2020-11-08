@@ -48,7 +48,7 @@ module NoSE
       private
 
       def index_creation_time
-        @index.size * (ENV['INDEX_CREATION_TIME_COEFF'].to_f || 1.0e-08) # Hyper Parameter
+        @index.size * (ENV['INDEX_CREATION_TIME_COEFF'] || 1.0e-06).to_f # Hyper Parameter
       end
     end
 

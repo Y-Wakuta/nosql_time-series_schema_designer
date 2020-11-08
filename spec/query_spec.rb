@@ -24,7 +24,7 @@ module NoSE
     it 'simplifies query' do
       query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, count(Tweet.Timestamp) FROM Tweet WHERE ' \
                                 'Tweet.Body = ? AND Tweet.Retweets > ? GROUP BY Tweet.Retweets', workload.model
-      simplified_query = MigrateSupportSimplifiedQuery.simple_query query, nil
+      simplified_query = MigrateSupportSimplifiedQuery.simple_query query, query.materialize_view
       deserialized_query = Statement.parse simplified_query.text, workload.model
       expected_query = Statement.parse 'SELECT Tweet.TweetId, Tweet.Retweets, Tweet.Timestamp FROM Tweet WHERE ' \
                                 'Tweet.Body = ?', workload.model

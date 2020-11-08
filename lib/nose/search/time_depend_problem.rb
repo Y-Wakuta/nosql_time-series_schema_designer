@@ -338,7 +338,7 @@ module NoSE
               @sort_costs[query][index][ts] ||= sort_step.cost
               q = @queries.index query
 
-              name = "s#{q}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+              name = "sort_q#{q}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
               sort_var = MIPPeR::Variable.new 0, 1, 0, :binary, name
               @sort_vars[query][index][ts] ||= sort_var
               @model << sort_var
