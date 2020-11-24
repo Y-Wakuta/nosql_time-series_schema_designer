@@ -142,20 +142,23 @@ module NoSE
         @cluster.keyspace(@keyspace).tables.map(&:name).each do |index_key|
           client.execute("DROP TABLE #{index_key}")
         end
-        `docker exec cassandra_migrate nodetool clearsnapshot`
+
+        # this works only for localhost
+        #puts `docker exec cassandra_migrate nodetool clearsnapshot`
       end
 
       # Sample a number of values from the given index
       def index_sample(index, count = nil)
+        record_pool_magnification = 100
         field_list = index.all_fields.map { |f| "\"#{f.id}\"" }
         query = "SELECT #{field_list.join ', '} " \
-                "FROM \"#{index.key}\" #{("LIMIT " + count.to_s) unless count.nil?}"
+                        "FROM \"#{index.key}\" #{("LIMIT " + (count * record_pool_magnification).to_s) unless count.nil?}"
         rows = client.execute(query).rows
 
         # XXX Ignore null values for now
         # fail if rows.any? { |row| row.values.any?(&:nil?) }
 
-        rows
+        count.nil? ? rows : rows.to_a.sample(count)
       end
 
       def add_value_hash(index, results)

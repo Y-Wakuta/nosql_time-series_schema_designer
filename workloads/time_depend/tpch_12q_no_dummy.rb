@@ -9,16 +9,33 @@ NoSE::TimeDependWorkload.new do
   #doubled = (0...5).map{|i| 10 ** i}
   #doubled = (0...5).map{|i| 2 ** i}
 
-  def linear_freq(start_ratio, end_ratio, timesteps, current_ts)
-    (((end_ratio - start_ratio) / timesteps) * current_ts + start_ratio).round(5)
+  def linear_freq(start_ratio, end_ratio, timesteps)
+    timesteps -= 1
+    (0..timesteps).map do |current_ts|
+      (((end_ratio - start_ratio) / timesteps) * current_ts + start_ratio).round(5)
+    end
   end
 
-  linear = (0..4).map{|t| linear_freq(0.001, 0.999, 4, t)}
+  def step_freq(start_ratio, end_ratio, timesteps)
+    timesteps -= 1
+    middle_ts = timesteps / 2
+    (0..timesteps).map do |current_ts|
+      current_ts <= middle_ts ? start_ratio : end_ratio
+    end
+  end
 
-  TimeSteps linear.size
+  step = step_freq(0.001, 0.999, 6)
+  linear = linear_freq(0.001, 0.999, 5)
+
+  frequencies = step
+
+  TimeSteps frequencies.size
   Interval 7200 # specify interval in minutes
+  #Static true
+  #FirstTs true
+  #LastTs true
 
-  Group 'Upseart', default: linear do
+  Group 'Upseart', default: frequencies do
     #Q 'INSERT INTO lineitem SET l_orderkey=?, l_linenumber=?, l_quantity=?, l_extendedprice=?, l_discount=?, ' \
     #              'l_tax = ?, l_returnflag=?, l_linestatus=?, l_shipdate=?, l_commitdate=?, l_receiptdate=?, ' \
     #              'l_shipmode=?, l_comment=?, dummy=? AND CONNECT TO l_partkey(?), l_orderkey(?) -- lineitem_insert'
@@ -33,7 +50,7 @@ NoSE::TimeDependWorkload.new do
 
   end
 
-  Group 'Group1', default: linear.reverse do
+  Group 'Group1', default: frequencies.reverse do
     # === Q1 ===
     #   select
     #     l_returnflag,
@@ -434,15 +451,16 @@ NoSE::TimeDependWorkload.new do
     #      )
     #   order by
     #      value desc;
-    #    Q 'SELECT partsupp.ps_partkey, sum(partsupp.ps_supplycost), sum(partsupp.ps_availqty) ' \
-#      'FROM partsupp.ps_suppkey.s_nationkey '\
-#      'WHERE s_nationkey.n_name = ? AND partsupp.ps_supplycost = ? AND partsupp.ps_availqty = ? '\
-#      'ORDER BY partsupp.ps_supplycost, partsupp.ps_availqty ' \
-#      'GROUP BY partsupp.ps_partkey -- Q11_outer'
-#
-#    Q 'SELECT sum(partsupp.ps_supplycost), sum(partsupp.ps_availqty) '\
-#      'FROM partsupp.ps_suppkey.s_nationkey '\
-#      'WHERE s_nationkey.n_name = ? -- Q11_inner'
+    #Q 'SELECT partsupp.ps_partkey, sum(partsupp.ps_supplycost), sum(partsupp.ps_availqty) ' \
+    Q 'SELECT sum(partsupp.ps_supplycost), sum(partsupp.ps_availqty) ' \
+      'FROM partsupp.ps_suppkey.s_nationkey '\
+      'WHERE s_nationkey.n_name = ? AND partsupp.ps_supplycost = ? AND partsupp.ps_availqty = ? '\
+      'ORDER BY partsupp.ps_supplycost, partsupp.ps_availqty ' \
+      'GROUP BY partsupp.ps_partkey -- Q11_outer'
+
+    Q 'SELECT sum(partsupp.ps_supplycost), sum(partsupp.ps_availqty) '\
+      'FROM partsupp.ps_suppkey.s_nationkey '\
+      'WHERE s_nationkey.n_name = ? -- Q11_inner'
 #    # === Q12 ===
 #    #   select
 #    #       l_shipmode,
@@ -472,13 +490,13 @@ NoSE::TimeDependWorkload.new do
 #    #      l_shipmode
 #    #   order by
 #    #      l_shipmode;
-#    Q 'SELECT lineitem.l_shipmode, sum(l_orderkey.o_orderpriority) '\
-#      'FROM lineitem.l_orderkey '\
-#      'WHERE lineitem.l_shipmode = ? AND lineitem.l_commitdate < ? ' \
-#          'AND lineitem.l_commitdate > ? AND lineitem.l_shipdate < ? ' \
-#          'AND lineitem.l_receiptdate > ? AND lineitem.l_receiptdate >= ? AND lineitem.l_receiptdate < ? ' \
-#      'ORDER BY lineitem.l_shipmode ' \
-#      'GROUP BY lineitem.l_shipmode -- Q12'
+    Q 'SELECT lineitem.l_shipmode, sum(l_orderkey.o_orderpriority) '\
+      'FROM lineitem.l_orderkey '\
+      'WHERE lineitem.l_shipmode = ? AND lineitem.l_commitdate < ? ' \
+          'AND lineitem.l_commitdate > ? AND lineitem.l_shipdate < ? ' \
+          'AND lineitem.l_receiptdate > ? AND lineitem.l_receiptdate >= ? AND lineitem.l_receiptdate < ? ' \
+      'ORDER BY lineitem.l_shipmode ' \
+      'GROUP BY lineitem.l_shipmode -- Q12'
 #
 #    # === Q13 ===
 #    #select
