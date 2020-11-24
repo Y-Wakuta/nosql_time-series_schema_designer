@@ -177,22 +177,40 @@ module NoSE
         columns = fields.map(&:id)
         columns << "value_hash"
 
-        Dir.mktmpdir do |dir|
-          file_name = "#{dir}/#{index.key}.csv"
-          g = File.open(file_name, "w") do |f|
-            f.puts(columns.join('|').to_s)
-            results.each do |r|
-              csv_row = index_row(r, fields)
-              csv_row << r["value_hash"]
-              f.puts(csv_row.join('|'))
+        STDERR.puts "== start inserting : #{index.key}, #{results.size.to_s}"
+        results.each_slice(2_000_000).each_with_index do |results_chunk, idx|
+          Dir.mktmpdir do |dir|
+            file_name = "#{dir}/#{index.key}_#{idx}.csv"
+            g = File.open(file_name, "w") do |f|
+              f.puts(columns.join('|').to_s)
+              results_chunk.each do |r|
+                csv_row = index_row(r, fields)
+                csv_row << r["value_hash"]
+                csv_row = csv_row.map{|s| s.is_a?(String) ? s.dump : s} # escape special characters like newline
+                f.puts(csv_row.join('|'))
+              end
+              f
             end
-            f
+            STDERR.puts "insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
+            ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
+            inserting_try = 0
+            begin
+              ret = system("cqlsh --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e \"COPY #{index.key} (#{columns.join(',').to_s}) FROM '#{file_name}' WITH DELIMITER='|' AND HEADER=TRUE\" > /dev/null")
+              fail "loading error detected: #{index.key}" unless ret
+            rescue
+              sleep 30
+              if inserting_try < 5
+                ret = system("cqlsh --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e \"TRUNCATE #{index.key}")
+                if ret
+                  puts "truncate succeeded"
+                  puts "retry inserting"
+                  retry
+                end
+              end
+            end
+
+            g.close
           end
-          STDERR.puts "insert through csv: #{index.key}, #{file_name}, #{results.size.to_s}"
-          ENV['CQLSH_NO_BUNDLED'] = 'true'
-          %x(cqlsh --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e "COPY #{index.key} (#{columns.join(',').to_s}) FROM '#{file_name}' WITH DELIMITER='|' AND HEADER=TRUE")
-          STDERR.puts `cqlsh --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e "SELECT COUNT(1) FROM #{index.key}"`
-          g.close
         end
         GC.start
         ending = Time.now.utc
