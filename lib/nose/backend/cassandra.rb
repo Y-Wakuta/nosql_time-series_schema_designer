@@ -17,6 +17,19 @@ module NoSE
         @port = config[:port]
         @keyspace = config[:keyspace]
         @generator = Cassandra::Uuid::Generator.new
+
+        @@value_place_holder = {
+          :string => "_",
+          :date => Time.at(0),
+          :numeric => (-1.0e+5).to_i,
+          :uuid => Cassandra::Uuid.new("cd9747a1-b59c-4aca-a12e-65915bcd2768")
+        }
+      end
+
+      def remove_null_place_holder_row(rows)
+        rows.to_a.select do |row|
+          not row.values.all?{|f| @@value_place_holder.values.include? f}
+        end
       end
 
       # Generate a random UUID
@@ -120,6 +133,7 @@ module NoSE
       # Check if the given index is empty
       def index_empty?(index)
         query = "SELECT count(*) FROM \"#{index.key}\" LIMIT 1"
+        client()
         client.execute(query).first.values.first.zero?
       end
 
@@ -169,9 +183,10 @@ module NoSE
         results
       end
 
-      def load_index_by_COPY(index, results)
+      def format_result(index, results)
         results = add_value_hash index, results
 
+      def load_index_by_COPY(index, results)
         starting = Time.now.utc
         fields = index.all_fields.to_a
         columns = fields.map(&:id)
@@ -217,32 +232,49 @@ module NoSE
         STDERR.puts "loading through csv time: #{ending - starting} for #{results.size.to_s} records"
       end
 
-      private
+      def convert_id_2_uuid(value)
+        case value
+         when Numeric
+           Cassandra::Uuid.new value.to_i
+         when String
+           Cassandra::Uuid.new value
+         when nil
+           #Cassandra::Uuid::Generator.new.uuid
+           nil
+         else
+           value
+         end
+      end
+
+      def create_empty_record(index)
+        row = {}
+        index.all_fields.each do |f|
+          row[f.id] = convert_nil_2_place_holder f
+        end
+        row
+      end
 
       # Produce an array of fields in the correct order for a CQL insert
       # @return [Array]
       def index_row(row, fields)
         fields.map do |field|
           value = row[field.id]
-          if field.is_a?(Fields::IDField)
-            value = case value
-                    when Numeric
-                      Cassandra::Uuid.new value.to_i
-                    when String
-                      Cassandra::Uuid.new value
-                    when nil
-                      Cassandra::Uuid::Generator.new.uuid
-                    else
-                      value
-                    end
-          end
-
-          if value.instance_of?(BigDecimal)
-            value = value.to_f
-          end
-
+          value = convert_id_2_uuid value if field.is_a?(Fields::IDField)
+          value = value.to_f if value.instance_of?(BigDecimal)
+          value = convert_nil_2_place_holder(field) if value.nil?
           value
         end
+      end
+
+      private
+
+      def convert_nil_2_place_holder(field)
+        return @@value_place_holder[:string] if field.instance_of?(NoSE::Fields::StringField)
+        return @@value_place_holder[:numeric].to_i if field.is_a?(NoSE::Fields::IntegerField)
+        return @@value_place_holder[:numeric].to_f if field.is_a?(NoSE::Fields::FloatField)
+        return @@value_place_holder[:date] if field.instance_of?(NoSE::Fields::DateField)
+        return @@value_place_holder[:uuid] if field.instance_of?(NoSE::Fields::IDField)
+        fail
       end
 
       # Produce the CQL to create the definition for a given index
@@ -289,7 +321,7 @@ module NoSE
         when [Fields::StringField]
           :text
         when [Fields::DateField]
-          :date
+          :timestamp
         when [Fields::IDField],
             [Fields::ForeignKeyField]
           :uuid
