@@ -222,51 +222,61 @@ module NoSE
 
       def format_result(index, results)
         results = add_value_hash index, results
+        fields = index.all_fields.to_a
+        fail 'all record has empty field' if remove_null_place_holder_row(results).empty?
+        results.map do |r|
+          csv_row = index_row(r, fields)
+          csv_row << r["value_hash"]
+          csv_row = csv_row.map{|s| s.is_a?(String) ? s.dump : s} # escape special characters like newline
+          csv_row
+        end
+      end
 
       def load_index_by_COPY(index, results)
         starting = Time.now.utc
         fields = index.all_fields.to_a
         columns = fields.map(&:id)
         columns << "value_hash"
+        formatted_result = format_result index, results
 
-        STDERR.puts "== start inserting : #{index.key}, #{results.size.to_s}"
-        results.each_slice(2_000_000).each_with_index do |results_chunk, idx|
-          Dir.mktmpdir do |dir|
-            file_name = "#{dir}/#{index.key}_#{idx}.csv"
-            g = File.open(file_name, "w") do |f|
-              f.puts(columns.join('|').to_s)
-              results_chunk.each do |r|
-                csv_row = index_row(r, fields)
-                csv_row << r["value_hash"]
-                csv_row = csv_row.map{|s| s.is_a?(String) ? s.dump : s} # escape special characters like newline
-                f.puts(csv_row.join('|'))
+        fail 'no data given to load on cassandra' if formatted_result.size == 0
+        inserting_try = 0
+        begin
+          #formatted_result.each_slice(2_000_000).each_with_index do |results_chunk, idx|
+          Parallel.each_with_index(formatted_result.each_slice(1_000_000), in_processes: 5) do |results_chunk, idx|
+            Dir.mktmpdir do |dir|
+              file_name = "#{dir}/#{index.key}_#{idx}.csv"
+              g = File.open(file_name, "w") do |f|
+                f.puts(columns.join('|').to_s)
+                results_chunk.each {|row| f.puts(row.join('|'))}
+                f
               end
-              f
+              STDERR.puts "insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
+              ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
+                ret = system("cqlsh --connect-timeout=200 --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e \"COPY #{index.key} (#{columns.join(',').to_s}) FROM '#{file_name}' WITH DELIMITER='|' AND HEADER=TRUE\" > /dev/null")
+                fail "loading error detected: #{index.key}" unless ret
+              g.close
             end
-            STDERR.puts "insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
-            ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
-            inserting_try = 0
-            begin
-              ret = system("cqlsh --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e \"COPY #{index.key} (#{columns.join(',').to_s}) FROM '#{file_name}' WITH DELIMITER='|' AND HEADER=TRUE\" > /dev/null")
-              fail "loading error detected: #{index.key}" unless ret
-            rescue
-              sleep 30
-              if inserting_try < 5
-                ret = system("cqlsh --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e \"TRUNCATE #{index.key}")
-                if ret
-                  puts "truncate succeeded"
-                  puts "retry inserting"
-                  retry
-                end
-              end
+          end
+        rescue
+          STDERR.puts "loading error detected for #{index.key}"
+          sleep 30
+          all_retries = 10
+          if inserting_try < all_retries
+            STDERR.puts "once truncate record of #{index.key}"
+            ret = system("cqlsh --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e \"TRUNCATE #{index.key}\"")
+            if ret
+              STDERR.puts "truncate succeeded"
+              STDERR.puts "retry inserting #{inserting_try} / #{all_retries}"
+              inserting_try += 1
+              retry
             end
-
-            g.close
+            retry
           end
         end
         GC.start
         ending = Time.now.utc
-        STDERR.puts "loading through csv time: #{ending - starting} for #{results.size.to_s} records"
+        STDERR.puts "loading through csv time: #{ending - starting} for #{results.size.to_s} records on #{index.key}"
       end
 
       def convert_id_2_uuid(value)
@@ -341,7 +351,6 @@ module NoSE
 
       # Get a Cassandra client, connecting if not done already
       def client
-        return @client unless @client.nil?
         @cluster = Cassandra.cluster hosts: @hosts, port: @port,
                                      timeout: nil
         @client = @cluster.connect @keyspace
