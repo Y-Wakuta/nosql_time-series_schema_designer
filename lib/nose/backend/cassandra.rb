@@ -165,18 +165,8 @@ module NoSE
       def index_sample(index, count = nil)
         record_pool_magnification = 100
         field_list = index.all_fields.map { |f| "\"#{f.id}\"" }
-        query = "SELECT #{field_list.join ', '} " \
-                       "FROM \"#{index.key}\""
-                      #"FROM \"#{index.key}\" #{("LIMIT " + (count * record_pool_magnification).to_s) unless count.nil?}"
-
-        rows = []
-        result = client.execute(query, page_size: 100_000)
-        loop do
-          rows += remove_null_place_holder_row(result.to_a)
-
-          break if result.last_page? or (not count.nil? and rows.size >= count * record_pool_magnification)
-          result = result.next_page
-        end
+        query = "SELECT #{field_list.join ', '} FROM \"#{index.key}\""
+        rows = query_index query
 
         # XXX Ignore null values for now
         # fail if rows.any? { |row| row.values.any?(&:nil?) }
@@ -195,9 +185,12 @@ module NoSE
       def index_records(index, required_fields)
         field_list = (index.all_fields.to_set & required_fields.to_set).to_a.map { |f| "\"#{f.id}\"" }
         #field_list = (field_list.to_set & required_fields.map{|f| "\"#{f.id}\""}).to_a
-        query = "SELECT #{field_list.join ', '} " \
-                       "FROM \"#{index.key}\""
+        query = "SELECT #{field_list.join ', '} FROM \"#{index.key}\""
 
+        query_index query
+      end
+
+      def query_index(query)
         query_tries = 10
         begin
           rows = []
