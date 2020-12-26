@@ -166,13 +166,57 @@ module NoSE
         record_pool_magnification = 100
         field_list = index.all_fields.map { |f| "\"#{f.id}\"" }
         query = "SELECT #{field_list.join ', '} " \
-                        "FROM \"#{index.key}\" #{("LIMIT " + (count * record_pool_magnification).to_s) unless count.nil?}"
-        rows = client.execute(query).rows
+                       "FROM \"#{index.key}\""
+                      #"FROM \"#{index.key}\" #{("LIMIT " + (count * record_pool_magnification).to_s) unless count.nil?}"
+
+        rows = []
+        result = client.execute(query, page_size: 100_000)
+        loop do
+          rows += remove_null_place_holder_row(result.to_a)
+
+          break if result.last_page? or (not count.nil? and rows.size >= count * record_pool_magnification)
+          result = result.next_page
+        end
 
         # XXX Ignore null values for now
         # fail if rows.any? { |row| row.values.any?(&:nil?) }
 
-        count.nil? ? rows : rows.to_a.sample(count)
+        return rows if count.nil?
+        if rows.size == 0
+          fail "collected record for #{index.key} was empty: #{index.hash_str}"
+        end
+
+        r = Object::Random.new(100)
+        (0...(record_pool_magnification * count)).map{|_| r.rand(rows.size)}.uniq.map do |i|
+          rows[i]
+        end.compact.take(count)
+      end
+
+      def index_records(index, required_fields)
+        field_list = (index.all_fields.to_set & required_fields.to_set).to_a.map { |f| "\"#{f.id}\"" }
+        #field_list = (field_list.to_set & required_fields.map{|f| "\"#{f.id}\""}).to_a
+        query = "SELECT #{field_list.join ', '} " \
+                       "FROM \"#{index.key}\""
+
+        query_tries = 10
+        begin
+          rows = []
+          result = client.execute(query, page_size: 100_000)
+          loop do
+            rows += remove_null_place_holder_row(result.to_a)
+
+            break if result.last_page?
+            result = result.next_page
+          end
+        rescue
+          STDERR.puts "query error detected for #{index.key}"
+          sleep 30
+          all_retries = 10
+          if query_tries < all_retries
+            retry
+          end
+        end
+        rows
       end
 
       def add_value_hash(index, results)
