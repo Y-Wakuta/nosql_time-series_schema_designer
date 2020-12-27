@@ -248,11 +248,11 @@ module NoSE
     # @return[Array<Statement>]
     def self.migrate_support_query_for_index(index)
       # Get all fields which need to be selected by support queries
-      select = index.all_fields - index.hash_fields - index.order_fields
+      select = index.all_fields - index.hash_fields
       select = index.hash_fields + index.order_fields if select.empty?
 
       # Build conditions by traversing the foreign keys
-      conditions = (index.hash_fields + index.order_fields).map do |c|
+      conditions = index.hash_fields.map do |c|
         next unless index.graph.entities.include? c.parent
 
         Condition.new c, '='.to_sym, nil
