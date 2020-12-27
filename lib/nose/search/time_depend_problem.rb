@@ -368,6 +368,7 @@ module NoSE
             TimeDependCreationConstraints,
             TimeDependPrepareConstraints,
             TimeDependPrepareTreeConstraints,
+            TimeDependIndexesWithoutPreparePlanNotMigrated,
             TimeDependIndexCreatedAtUsedTimeStepConstraints
         ]
 

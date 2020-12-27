@@ -270,11 +270,10 @@ module NoSE
       end
 
       def get_migrate_preparing_plans(query_trees, indexes)
-        index_related_tree_hash = get_related_query_tree(query_trees, indexes)
-
-        ## create new migrate_prepare_plan
-        migrate_plans = Parallel.map(indexes.uniq, in_processes: Etc.nprocessors / 2) do |base_index|
-
+        query_indexes = query_trees.select{|t| t.query.instance_of? Query}.flat_map{|t| t.flat_map(&:indexes)}.uniq
+        index_related_tree_hash = get_related_query_tree(query_trees, query_indexes)
+        # create new migrate_prepare_plan
+        migrate_plans = Parallel.map(query_indexes.uniq, in_processes: Parallel.processor_count / 2) do |base_index|
           useable_indexes = indexes.reject{|oi| is_similar_index?(base_index, oi)}
           useable_indexes << base_index
 
