@@ -254,7 +254,7 @@ module NoSE
                       Plans::QueryPlanner.new(@workload, indexes, @cost_model)
         STDERR.puts "#{planner.class.to_s} is used"
 
-        results = Parallel.map(query_weights, in_processes: Etc.nprocessors - 4) do |query, weight|
+        results = Parallel.map(query_weights, in_processes: [Parallel.processor_count - 4, 0].max()) do |query, weight|
           query_cost planner, query, weight
         end
         costs = Hash[query_weights.each_key.map.with_index do |query, q|

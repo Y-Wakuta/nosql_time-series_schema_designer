@@ -71,7 +71,7 @@ module NoSE
         index_related_tree_hash = get_related_query_tree(query_trees.values, indexes)
 
         ## create new migrate_prepare_plan
-        migrate_plans = Parallel.map(indexes.uniq, in_processes: Etc.nprocessors / 2) do |base_index|
+        migrate_plans = Parallel.map(indexes.uniq, in_processes: Parallel.processor_count / 2) do |base_index|
 
           useable_indexes = indexes.reject{|oi| is_similar_index?(base_index, oi)}
           useable_indexes << base_index
@@ -102,7 +102,7 @@ module NoSE
         index_related_tree_hash = get_related_query_tree(query_trees, indexes)
 
         ## create new migrate_prepare_plan
-        migrate_plans = Parallel.map(indexes.uniq, in_processes: Etc.nprocessors / 2) do |base_index|
+        migrate_plans = Parallel.map(indexes.uniq, in_processes: Parallel.processor_count / 2) do |base_index|
 
           m_plan = {base_index => {}}
           migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
@@ -135,7 +135,7 @@ module NoSE
       # Get the cost of using each index for each query in a workload
       def query_costs_by_trees(query_weights, trees)
 
-        results = Parallel.map(query_weights, in_processes: Etc.nprocessors - 4) do |query, weight|
+        results = Parallel.map(query_weights, in_processes: Parallel.processor_count - 4) do |query, weight|
           query_cost_4_tree query, weight, trees.select{|q, t| q == query}.values.first
         end
         costs = Hash[query_weights.each_key.map.with_index do |query, q|

@@ -95,7 +95,9 @@ module NoSE
 
     def get_trees(queries, indexes)
       planner = Plans::PrunedQueryPlanner.new @workload.model, indexes, @cost_model, @index_steps_threshold
-      Parallel.map(queries, in_processes: [Etc.nprocessors - 5, 10].min()) do |query|
+      #planner = Plans::QueryPlanner.new @workload.model, indexes, @cost_model
+      Parallel.map(queries, in_processes: [Parallel.processor_count - 5, 0].max()) do |query|
+        #queries.map do |query|
         planner.find_plans_for_query(query)
       end
     end
