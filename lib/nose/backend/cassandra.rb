@@ -190,48 +190,6 @@ module NoSE
         query_index query
       end
 
-      def query_index(query)
-        query_tries = 10
-        begin
-          rows = []
-          result = client.execute(query, page_size: 100_000)
-          loop do
-            rows += remove_null_place_holder_row(result.to_a)
-
-            break if result.last_page?
-            result = result.next_page
-          end
-        rescue
-          STDERR.puts "query error detected for #{index.key}"
-          sleep 30
-          all_retries = 10
-          if query_tries < all_retries
-            retry
-          end
-        end
-        rows
-      end
-
-      def add_value_hash(index, results)
-        results.each do |r|
-          extra_str = index.extra.sort_by { |e| e.id}.map{|e| r[e.id]}.join(',')
-          r["value_hash"] = Zlib.crc32(extra_str)
-        end
-        results
-      end
-
-      def format_result(index, results)
-        results = add_value_hash index, results
-        fields = index.all_fields.to_a
-        fail 'all record has empty field' if remove_null_place_holder_row(results).empty?
-        results.map do |r|
-          csv_row = index_row(r, fields)
-          csv_row << r["value_hash"]
-          csv_row = csv_row.map{|s| s.is_a?(String) ? s.dump : s} # escape special characters like newline
-          csv_row
-        end
-      end
-
       def load_index_by_COPY(index, results)
         starting = Time.now.utc
         fields = index.all_fields.to_a
@@ -279,6 +237,50 @@ module NoSE
         STDERR.puts "loading through csv time: #{ending - starting} for #{results.size.to_s} records on #{index.key}"
       end
 
+      private
+
+      def query_index(query)
+        query_tries = 10
+        begin
+          rows = []
+          result = client.execute(query, page_size: 100_000)
+          loop do
+            rows += remove_null_place_holder_row(result.to_a)
+
+            break if result.last_page?
+            result = result.next_page
+          end
+        rescue
+          STDERR.puts "query error detected for #{index.key}"
+          sleep 30
+          all_retries = 10
+          if query_tries < all_retries
+            retry
+          end
+        end
+        rows
+      end
+
+      def add_value_hash(index, results)
+        results.each do |r|
+          extra_str = index.extra.sort_by { |e| e.id}.map{|e| r[e.id]}.join(',')
+          r["value_hash"] = Zlib.crc32(extra_str)
+        end
+        results
+      end
+
+      def format_result(index, results)
+        results = add_value_hash index, results
+        fields = index.all_fields.to_a
+        fail 'all record has empty field' if remove_null_place_holder_row(results).empty?
+        results.map do |r|
+          csv_row = index_row(r, fields)
+          csv_row << r["value_hash"]
+          csv_row = csv_row.map{|s| s.is_a?(String) ? s.dump : s} # escape special characters like newline
+          csv_row
+        end
+      end
+
       def convert_id_2_uuid(value)
         case value
          when Numeric
@@ -312,8 +314,6 @@ module NoSE
           value
         end
       end
-
-      private
 
       def convert_nil_2_place_holder(field)
         return @@value_place_holder[:string] if field.instance_of?(NoSE::Fields::StringField)
@@ -380,7 +380,12 @@ module NoSE
           super
 
           @fields = fields.map(&:id) & index.all_fields.map(&:id)
-          @prepared = client.prepare insert_cql
+          begin
+            @prepared = client.prepare insert_cql
+          rescue Exception => e
+            puts e
+            throw e
+          end
           @generator = Cassandra::Uuid::Generator.new
         end
 
@@ -526,7 +531,7 @@ module NoSE
           cql += cql_order_by
 
           # Add an optional limit
-          cql << " LIMIT #{@step.limit}" unless @step.limit.nil?
+          cql += " LIMIT #{@step.limit}" unless @step.limit.nil?
 
           cql
         end
