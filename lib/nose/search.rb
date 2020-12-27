@@ -63,11 +63,16 @@ module NoSE
         if @workload.is_a? TimeDependWorkload
           STDERR.puts("set migration query plans")
 
-          starting = Time.now.utc
-          migrate_prepare_plans = get_migrate_preparing_plans(trees, indexes)
-          ending = Time.now.utc
-          STDERR.puts "prepare plan enumeration time: " + (ending - starting).to_s
-          costs.merge!(migrate_prepare_plans.values.flat_map{|v| v.values}.map{|v| v[:costs]}.reduce(&:merge))
+          if @workload.is_static or @workload.is_first_ts or @workload.is_last_ts
+            STDERR.puts "Since the workload is static, not enumerating the migrate prepare plans"
+            migrate_prepare_plans = {}
+          else
+            starting = Time.now.utc
+            migrate_prepare_plans = get_migrate_preparing_plans(trees, indexes)
+            ending = Time.now.utc
+            STDERR.puts "prepare plan enumeration time: " + (ending - starting).to_s
+            costs.merge!(migrate_prepare_plans.values.flat_map{|v| v.values}.map{|v| v[:costs]}.reduce(&:merge))
+          end
 
           solver_params[:migrate_prepare_plans] = migrate_prepare_plans
         end

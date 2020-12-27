@@ -16,7 +16,7 @@ module NoSE
     class TimeDependProblem < Problem
       attr_reader :timesteps, :migrate_vars, :prepare_vars, :trees,
                   :creation_coeff, :migrate_support_coeff,
-                  :migrate_prepare_plans, :prepare_tree_vars
+                  :migrate_prepare_plans, :prepare_tree_vars, :is_static
 
       def initialize(queries, workload, data, objective = Objective::COST)
         fail if workload.timesteps.nil?
@@ -30,6 +30,7 @@ module NoSE
         queries += migrate_support_queries
         @include_migration_cost = workload.include_migration_cost
         @MIGRATE_COST_DUMMY_CONST = 0.00001 # multiple migrate cost by this value to ignore
+        @is_static = workload.is_static or workload.is_first_ts or workload.is_last_ts
 
         super(queries, workload.updates, data, objective)
       end
@@ -201,14 +202,18 @@ module NoSE
         total_size_each_timestep.reduce(&:+)
       end
 
+      def add_migration_variables
+        add_cf_creation_variables
+        add_cf_prepare_variables
+        add_cf_prepare_tree_variables
+      end
+
       # Initialize query and index variables
       # @return [void]
       def add_variables
         add_query_index_variable
         add_index_variable
-        add_cf_creation_variables
-        add_cf_prepare_variables
-        add_cf_prepare_tree_variables
+        add_migration_variables
       end
 
       def add_query_index_variable

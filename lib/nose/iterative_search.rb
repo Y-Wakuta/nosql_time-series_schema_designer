@@ -147,7 +147,7 @@ module NoSE
         solver_params[:update_costs] = update_costs
         solver_params[:prepare_update_costs] = prepare_update_costs
 
-        if @workload.is_a? TimeDependWorkload
+        if @workload.is_a? TimeDependWorkload and not solver_params[:migrate_prepare_plans].empty?
           costs.merge!(solver_params[:migrate_prepare_plans].values
                            .flat_map{|v| v.values}
                            .map{|v| v[:costs]}
