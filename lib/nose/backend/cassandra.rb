@@ -118,16 +118,7 @@ module NoSE
 
       def get_all_data(index)
         query = "SELECT * FROM \"#{index.key}\" ALLOW FILTERING"
-        merge_to_one_hash(client.execute(query))
-      end
-
-      def merge_to_one_hash(rows)
-        res = {}
-        rows.first.keys.each {|k| res[k] = []}
-        rows.each do |row|
-          row.each { |k, v| res[k] << v }
-        end
-        res
+        client.execute(query).to_a
       end
 
       # Check if the given index is empty
@@ -237,6 +228,26 @@ module NoSE
         STDERR.puts "loading through csv time: #{ending - starting} for #{results.size.to_s} records on #{index.key}"
       end
 
+      # Produce an array of fields in the correct order for a CQL insert
+      # @return [Array]
+      def index_row(row, fields)
+        fields.map do |field|
+          value = row[field.id]
+          value = convert_id_2_uuid value if field.is_a?(Fields::IDField)
+          value = value.to_f if value.instance_of?(BigDecimal)
+          value = convert_nil_2_place_holder(field) if value.nil?
+          value
+        end
+      end
+
+      def create_empty_record(index)
+        row = {}
+        index.all_fields.each do |f|
+          row[f.id] = convert_nil_2_place_holder f
+        end
+        row
+      end
+
       private
 
       def query_index(query)
@@ -293,26 +304,6 @@ module NoSE
          else
            value
          end
-      end
-
-      def create_empty_record(index)
-        row = {}
-        index.all_fields.each do |f|
-          row[f.id] = convert_nil_2_place_holder f
-        end
-        row
-      end
-
-      # Produce an array of fields in the correct order for a CQL insert
-      # @return [Array]
-      def index_row(row, fields)
-        fields.map do |field|
-          value = row[field.id]
-          value = convert_id_2_uuid value if field.is_a?(Fields::IDField)
-          value = value.to_f if value.instance_of?(BigDecimal)
-          value = convert_nil_2_place_holder(field) if value.nil?
-          value
-        end
       end
 
       def convert_nil_2_place_holder(field)
