@@ -612,6 +612,7 @@ module NoSE
       collection :weights, exec_context: :decorator
       property :is_static
       property :timesteps
+      property :interval
 
       def workload_weights
         represented.instance_variable_get(:@time_depend_statement_weights)

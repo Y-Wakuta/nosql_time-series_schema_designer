@@ -80,8 +80,10 @@ module NoSE
           if problem.data[:by_id_graph]
 
         size_gcd = problem.get_index_size_gcd
+        puts "index size gcd : " + size_gcd.to_s
         spaces = problem.total_size_each_timestep
         spaces.each do |space|
+          puts "index size constraint : " + (problem.data[:max_space] / size_gcd).to_s
           constr = MIPPeR::Constraint.new space, :<=,
                                           (problem.data[:max_space] / size_gcd) * 1.0,
                                           'max_space'
