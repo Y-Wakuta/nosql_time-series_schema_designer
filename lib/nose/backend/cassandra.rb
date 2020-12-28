@@ -251,7 +251,7 @@ module NoSE
       private
 
       def query_index(query)
-        query_tries = 10
+        query_tries = 0
         begin
           rows = []
           result = client.execute(query, page_size: 100_000)
@@ -262,10 +262,11 @@ module NoSE
             result = result.next_page
           end
         rescue
-          STDERR.puts "query error detected for #{index.key}"
+          STDERR.puts "query error detected for #{query.to_s}"
           sleep 30
           all_retries = 10
           if query_tries < all_retries
+            query_tries += 1
             retry
           end
         end

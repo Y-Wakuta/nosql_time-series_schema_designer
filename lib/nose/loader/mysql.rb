@@ -33,17 +33,6 @@ module NoSE
         end
       end
 
-      def load_dummy(indexes, config, show_progress = false, limit = nil,
-               skip_existing = true)
-        indexes.map!(&:to_id_graph).uniq! if @backend.by_id_graph
-
-        # XXX Assuming backend is thread-safe
-        #Parallel.each(indexes, in_threads: 2) do |index|
-        indexes.each do |index|
-          load_index_dummy index, config, show_progress, limit, skip_existing
-        end
-      end
-
       # Read all tables in the database and construct a workload object
       def workload(config)
         client = new_client config
@@ -61,6 +50,21 @@ module NoSE
         end
 
         workload
+      end
+
+      def query_for_index(index, limit, config)
+        client = new_client config
+        sql, fields = index_sql index, limit: limit, reverse_entities: false
+        results = execute_sql client, sql, fields, index
+
+        reversed_sql, fields = index_sql index, limit: limit, reverse_entities: true
+        unless sql == reversed_sql
+          reversed_result = execute_sql client, reversed_sql, fields, index
+          results += reversed_result
+          results.uniq!
+        end
+
+        results
       end
 
       private
@@ -96,24 +100,9 @@ module NoSE
          end.to_a
       end
 
-      def query_for_index(client, index, limit)
-        sql, fields = index_sql index, limit: limit, reverse_entities: false
-        results = execute_sql client, sql, fields, index
-
-        reversed_sql, fields = index_sql index, limit: limit, reverse_entities: true
-        unless sql == reversed_sql
-          reversed_result = execute_sql client, reversed_sql, fields, index
-          results += reversed_result
-          results.uniq!
-        end
-
-        results
-      end
-
       # Load a single index into the backend
       # @return [void]
       def load_index(index, config, show_progress, limit, skip_existing)
-        client = new_client config
 
         # Skip this index if it's not empty
         if skip_existing && !@backend.index_empty?(index)
@@ -122,95 +111,9 @@ module NoSE
         end
         @logger.info index.inspect if show_progress
 
-        results = query_for_index client, index, limit
+        results = query_for_index index, limit, config
         @backend.load_index_by_COPY(index, results)
         #@backend.index_insert(index, results)
-      end
-
-      def load_index_dummy(index, config, show_progress, limit, skip_existing)
-        client = new_client config
-
-        @logger.info index.inspect if show_progress
-        raw_results = query_for_index client, index, limit
-
-        results_on_mysql = raw_results.map do |row|
-          row.each do |f, v|
-            current = index.all_fields.find{|field| field.id == f}
-            if current.is_a?(NoSE::Fields::DateField)
-              row[f] = v.to_time unless v.nil?
-            end
-            row[f] = @backend.index_row(row, [current]).first
-          end
-          row
-        end
-        results_on_backend = @backend.index_records(index, index.all_fields)
-        results_on_backend.each {|r| r.delete('value_hash')}
-        compare_two_results(index, results_on_mysql, results_on_backend)
-      end
-
-      def compare_two_results(index, left_hash, right_hash)
-        fail 'result field does not match' unless left_hash.first.keys.to_set == right_hash.first.keys.to_set
-
-        left_hash.first.keys.each do |field_name|
-          left_values = left_hash.map{|lh| lh[field_name]}
-          right_values = right_hash.map{|rh| rh[field_name]}
-          if compare_values left_values.compact, right_values
-            STDERR.puts "    #{field_name} in #{index.key} matches"
-          else
-            if compare_approximately_values left_values, right_values
-              STDERR.puts "    === #{field_name} in #{index.key} approximately match #{left_values.size} <-> #{right_values.size}==="
-              if left_values.size > right_values.size
-                STDERR.puts "      left_values is larger than right_values : #{left_values.difference(right_values).map(&:to_s)}"
-              else
-                STDERR.puts "      right_values is larger than left_values : #{right_values.difference(left_values).map(&:to_s)}"
-              end
-            else
-              # this possibly happen if there are INSERT or UPDATE
-              STDERR.puts "    === #{field_name} in #{index.key} does not match ==="
-              STDERR.puts "      #{left_values.size}: #{left_values.map(&:to_s).sort.take(10)}"
-              STDERR.puts "      #{right_values.size}: #{right_values.map(&:to_s).sort.take(10)}"
-              STDERR.puts "    ==========================================="
-            end
-          end
-        end
-      end
-
-      def compare_values(left_values, right_values)
-        target_class = left_values.first.class
-        if target_class == Cassandra::Uuid
-          left_values = left_values.map(&:to_s).sort
-          right_values = right_values.map(&:to_s).sort
-          return left_values == right_values
-        end
-
-        left_values.sort!
-        right_values.sort!
-
-        if target_class == Float
-          return left_values.sort.zip(right_values.sort).map{|l, r| l - r}.all?{|i| i.abs < 0.001}
-        elsif target_class == Time
-          # TODO: fix: due to difference of timezone, the datetime value changes at each insertion and query. In this case, at least the time difference of all records are same
-
-          return left_values.zip(right_values).map{|l, r| l - r}.uniq.size == 1
-        end
-        return left_values == right_values
-      end
-
-      def compare_approximately_values(left_values, right_values)
-        return false if (left_values.size - right_values.size).abs > left_values.size * 0.1
-        if left_values.first.class == Float
-          difference = left_values.reject{|lv| right_values.any?{|rv| (lv - rv).abs < 0.01}}
-          return false if difference.size > left_values.size * 0.1
-          difference = right_values.reject{|lv| left_values.any?{|rv| (lv - rv).abs < 0.01}}
-          return false if difference.size > left_values.size * 0.1
-          return true
-        end
-
-        difference = left_values.difference(right_values)
-        return false if difference.size > left_values.size * 0.1
-        difference = right_values.difference(left_values)
-        return false if difference.size > right_values.size * 0.1
-        true
       end
 
       # Construct a hash from the given row returned by the client
