@@ -3,13 +3,39 @@ module NoSE
   module Migrator
     class Migrator
 
-      def initialize(backend, loader)
+      def initialize(backend, loader, loader_config, does_validate)
         @backend = backend
         @loader = loader
+        @loader_config = loader_config
+        @validator = MigrateValidator.new(@backend, @loader, @loader_config)
+        @does_validate = does_validate
+        @worker = nil
+        @thread = nil
+      end
+
+      def migrate(result, timestep)
+        migration_plans = result.migrate_plans.select{|mp| mp.start_time == timestep}
+
+        #Parallel.each(migration_plans, in_threads: 10) do |migration_plan|
+        migration_plans.each do |migration_plan|
+          prepare_next_indexes(migration_plan)
+        end
+      end
+
+      def migrate_async(result, timestep)
+        @worker = NoSE::Worker.new {|_| migrate(result, timestep)}
+        [@worker].map(&:run).each(&:join)
+        @thread = @worker.execute
+        @thread.join
+        #[migration_worker, thread]
+      end
+
+      def stop
+        @worker.stop
       end
 
       # @param [MigratePlan, Backend]
-      def prepare_next_indexes(migrate_plan, options)
+      def prepare_next_indexes(migrate_plan)
         STDERR.puts "\e[36m migrate from: \e[0m"
         migrate_plan.obsolete_plan&.map{|step| STDERR.puts '  ' + step.inspect}
         STDERR.puts "\e[36m to: \e[0m"
@@ -26,13 +52,13 @@ module NoSE
 
           STDERR.puts "===== creating index: #{target_index.key} for the migration"
           unless @backend.index_exists?(target_index)
-            STDERR.puts @backend.create_index(target_index, !options[:dry_run], options[:skip_existing])
+            STDERR.puts @backend.create_index(target_index, true, false)
           end
           STDERR.puts "collected data size for #{target_index.key} is #{obsolete_data.size}"
           @backend.load_index_by_COPY(target_index, obsolete_data)
           STDERR.puts "===== creation done: #{target_index.key} for the migration"
 
-          MigrateValidator.new(@backend, @loader).validate(target_index, options) #if ENV['BENCH_MODE'] == 'debug'
+          @validator.validate(target_index) if @does_validate
         end
       end
 
@@ -61,10 +87,10 @@ module NoSE
         starting = Time.now
         # create hash for right values
         right_values.each do |right_value|
-          next if @backend.remove_null_place_holder_row([right_value]).empty?
+          next if Backend::CassandraBackend.remove_all_null_place_holder_row([right_value]).empty?
 
           key_fields = overlap_fields.select{|f| f.is_a? NoSE::Fields::IDField}.map{|fi| right_value.slice(fi.id)}
-          next if @backend.remove_null_place_holder_row(key_fields).empty?
+          next if Backend::CassandraBackend.remove_all_null_place_holder_row(key_fields).empty?
 
           key_fields = overlap_fields.select{|f| f.is_a? NoSE::Fields::IDField}.map{|fi| right_value[fi.id].to_s}.join(',')
           key_fields = Zlib.crc32(key_fields)
@@ -74,7 +100,7 @@ module NoSE
             right_index_hash[key_fields] = [right_value]
           end
         end
-        puts "left outer join hash creation done: #{Time.now - starting}"
+        #puts "left outer join hash creation done: #{Time.now - starting}"
 
         results = []
         # iterate for left value to look for checking does related record exist
@@ -89,7 +115,7 @@ module NoSE
             results << left_value.merge(@backend.create_empty_record(right_index))
           end
         end.compact
-        puts "hash join done #{Time.now - starting}"
+        #puts "hash join done #{Time.now - starting}"
         results
       end
 
@@ -98,8 +124,8 @@ module NoSE
 
         result = []
         index_values.each_cons(2) do |former_index_value, next_index_value|
-          puts "former index #{former_index_value[0].key} has #{former_index_value[1].size} records"
-          puts "next index #{next_index_value[0].key} has #{next_index_value[1].size} records"
+          #puts "former index #{former_index_value[0].key} has #{former_index_value[1].size} records"
+          #puts "next index #{next_index_value[0].key} has #{next_index_value[1].size} records"
           result += left_outer_join(former_index_value[0], former_index_value[1], next_index_value[0], next_index_value[1])
           result += left_outer_join(next_index_value[0], next_index_value[1], former_index_value[0], former_index_value[1])
           result.uniq!
@@ -120,34 +146,23 @@ module NoSE
     end
 
     class MigrateValidator
-      def initialize(backend, loader)
+      def initialize(backend, loader, loader_config)
         @backend = backend
         @loader = loader
-        @logger = Logging.logger['nose::migrator::migratevalidator']
+        @loader_config = loader_config
       end
 
-      def validate(new_index, options)
-        STDERR.puts "validating migration process for #{new_index.key}"
-        load_dummy [new_index], options[:loader], options[:progress],
-                   options[:limit], options[:skip_nonempty]
+      def validate(index)
+        STDERR.puts "validating migration process for #{index.key}"
+        results_on_mysql = data_on_mysql index
+        results_on_cassandra = data_on_cassandra index
+        compare_two_results(index, results_on_mysql, results_on_cassandra)
       end
 
       private
 
-      def load_dummy(indexes, config, show_progress = false, limit = nil,
-                     skip_existing = true)
-        indexes.map!(&:to_id_graph).uniq! if @backend.by_id_graph
-
-        # XXX Assuming backend is thread-safe
-        indexes.each do |index|
-          load_index_dummy index, config, show_progress, limit, skip_existing
-        end
-      end
-
-
-      def load_index_dummy(index, config, show_progress, limit, skip_existing)
-        @logger.info index.inspect if show_progress
-        raw_results = @loader.query_for_index index, limit, config
+      def data_on_mysql(index)
+        raw_results = @loader.query_for_index index, nil, @loader_config
 
         results_on_mysql = raw_results.map do |row|
           row.each do |f, v|
@@ -159,9 +174,13 @@ module NoSE
           end
           row
         end
+        results_on_mysql
+      end
+
+      def data_on_cassandra(index)
         results_on_backend = @backend.index_records(index, index.all_fields)
         results_on_backend.each {|r| r.delete('value_hash')}
-        compare_two_results(index, results_on_mysql, results_on_backend)
+        results_on_backend
       end
 
       def compare_two_results(index, left_hash, right_hash)
@@ -179,11 +198,11 @@ module NoSE
               if left_values.first.class == Float
                 if left_values.size > right_values.size
                   STDERR.puts "      left_values is larger than right_values : #{
-                    left_values.sort.zip(right_values.sort).select{|l, r| (l - r).abs < 0.001}.map{|l, r| l}
+                    left_values.sort.zip(right_values.sort).select{|l, r| (l - r).abs < 0.001}.map{|l, r| l}.take(100)
                   }"
                 else
                   STDERR.puts "      right_values is larger than left_values : #{
-                    left_values.sort.zip(right_values.sort).select{|l, r| (l - r).abs < 0.001}.map{|l, r| r}
+                    left_values.sort.zip(right_values.sort).select{|l, r| (l - r).abs < 0.001}.map{|l, r| r}.take(100)
                   }"
                 end
               else

@@ -26,9 +26,15 @@ module NoSE
         }
       end
 
-      def remove_null_place_holder_row(rows)
+      def self.remove_all_null_place_holder_row(rows)
         rows.to_a.select do |row|
           not row.values.all?{|f| @@value_place_holder.values.include? f}
+        end
+      end
+
+      def self.remove_any_null_place_holder_row(rows)
+        rows.to_a.select do |row|
+          not row.values.any?{|f| @@value_place_holder.values.include? f}
         end
       end
 
@@ -157,7 +163,7 @@ module NoSE
         record_pool_magnification = 100
         field_list = index.all_fields.map { |f| "\"#{f.id}\"" }
         query = "SELECT #{field_list.join ', '} FROM \"#{index.key}\""
-        rows = query_index query
+        rows = query_index_limit_for_sample query, count
 
         # XXX Ignore null values for now
         # fail if rows.any? { |row| row.values.any?(&:nil?) }
@@ -192,7 +198,7 @@ module NoSE
         inserting_try = 0
         begin
           #formatted_result.each_slice(2_000_000).each_with_index do |results_chunk, idx|
-          Parallel.each_with_index(formatted_result.each_slice(1_000_000), in_processes: 5) do |results_chunk, idx|
+          Parallel.each_with_index(formatted_result.each_slice(2_000_000), in_processes: 10) do |results_chunk, idx|
             Dir.mktmpdir do |dir|
               file_name = "#{dir}/#{index.key}_#{idx}.csv"
               g = File.open(file_name, "w") do |f|
@@ -200,23 +206,23 @@ module NoSE
                 results_chunk.each {|row| f.puts(row.join('|'))}
                 f
               end
-              STDERR.puts "insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
+              STDERR.puts "  insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
               ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
-                ret = system("cqlsh --connect-timeout=200 --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e \"COPY #{index.key} (#{columns.join(',').to_s}) FROM '#{file_name}' WITH DELIMITER='|' AND HEADER=TRUE\" > /dev/null")
-                fail "loading error detected: #{index.key}" unless ret
+                ret = system("cqlsh --connect-timeout=2000 --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e \"COPY #{index.key} (#{columns.join(',').to_s}) FROM '#{file_name}' WITH DELIMITER='|' AND HEADER=TRUE\" > /dev/null")
+                fail "  loading error detected: #{index.key}" unless ret
               g.close
             end
           end
         rescue
-          STDERR.puts "loading error detected for #{index.key}"
+          STDERR.puts "  loading error detected for #{index.key}"
           sleep 30
           all_retries = 10
           if inserting_try < all_retries
-            STDERR.puts "once truncate record of #{index.key}"
+            STDERR.puts "  once truncate record of #{index.key}"
             ret = system("cqlsh --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e \"TRUNCATE #{index.key}\"")
             if ret
-              STDERR.puts "truncate succeeded"
-              STDERR.puts "retry inserting #{inserting_try} / #{all_retries}"
+              STDERR.puts "  truncate succeeded"
+              STDERR.puts "  retry inserting #{inserting_try} / #{all_retries}"
               inserting_try += 1
               retry
             end
@@ -250,15 +256,15 @@ module NoSE
 
       private
 
-      def query_index(query)
+      def query_index_limit_for_sample(query, limit)
         query_tries = 0
         begin
           rows = []
           result = client.execute(query, page_size: 100_000)
           loop do
-            rows += remove_null_place_holder_row(result.to_a)
+            rows += CassandraBackend.remove_any_null_place_holder_row(result.to_a)
 
-            break if result.last_page?
+            break if result.last_page? or rows.size > limit * 100
             result = result.next_page
           end
         rescue
@@ -269,6 +275,30 @@ module NoSE
             query_tries += 1
             retry
           end
+        end
+        rows.sample(limit)
+      end
+
+      def query_index(query)
+        query_tries = 0
+        begin
+          rows = []
+          result = client.execute(query, page_size: 100_000)
+          loop do
+            rows += CassandraBackend.remove_all_null_place_holder_row(result.to_a)
+
+            break if result.last_page?
+            result = result.next_page
+          end
+        rescue Exception => e
+          STDERR.puts "query error detected for #{query.to_s}"
+          sleep 30
+          all_retries = 10
+          if query_tries < all_retries
+            query_tries += 1
+            retry
+          end
+          throw e
         end
         rows
       end
@@ -284,7 +314,7 @@ module NoSE
       def format_result(index, results)
         results = add_value_hash index, results
         fields = index.all_fields.to_a
-        fail 'all record has empty field' if remove_null_place_holder_row(results).empty?
+        fail 'all record has empty field' if CassandraBackend.remove_all_null_place_holder_row(results).empty?
         results.map do |r|
           csv_row = index_row(r, fields)
           csv_row << r["value_hash"]

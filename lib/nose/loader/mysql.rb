@@ -28,7 +28,7 @@ module NoSE
 
         # XXX Assuming backend is thread-safe
         #indexes.each do |index|
-        Parallel.each(indexes, in_processes: Parallel.processor_count / 5) do |index|
+        Parallel.each(indexes, in_processes: Parallel.processor_count / 10) do |index|
           load_index index, config, show_progress, limit, skip_existing
         end
       end
