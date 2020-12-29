@@ -547,7 +547,7 @@ module NoSE
         # Produce the select CQL statement for a provided set of fields
         # @return [String]
         def select_cql(select, conditions)
-          select = expand_selected_fields select
+          select = expand_selected_fields select, @next_next_step
           cql = "SELECT #{select.map { |f| "\"#{f.id}\"" }.join ', '} FROM " \
                 "\"#{@step.index.key}\" WHERE #{cql_where_clause conditions}"
           cql += cql_order_by
@@ -641,6 +641,7 @@ module NoSE
             rescue => e
               puts e
               puts condition.field.id
+              throw e
             end
             if condition.field.is_a?(Fields::IDField)
               Cassandra::Uuid.new(value.to_i)

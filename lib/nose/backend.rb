@@ -189,7 +189,7 @@ module NoSE
         end
 
         # Decide which fields should be selected
-        def expand_selected_fields(select)
+        def expand_selected_fields(select, next_next_step)
           # We just pick whatever is contained in the index that is either
           # mentioned in the query or required for the next lookup
           # TODO: Potentially try query.all_fields for those not required
@@ -198,6 +198,13 @@ module NoSE
           select += @next_step.index.hash_fields \
             unless @next_step.nil? ||
                    !@next_step.is_a?(Plans::IndexLookupPlanStep)
+
+          if !@next_step.is_a?(Plans::IndexLookupPlanStep) \
+              and !next_next_step.nil? \
+              and next_next_step.is_a?(Plans::IndexLookupPlanStep)
+            select += next_next_step.index.hash_fields
+          end
+
           select &= @step.index.all_fields
 
           select
@@ -365,8 +372,16 @@ module NoSE
           subclass_step_name = step_class.name.sub \
             'NoSE::Backend::Backend', self.class.name
           step_class = Object.const_get subclass_step_name
-          step_class.new client, fields, conditions,
-                         step, next_step, prev_step
+          if step_class == NoSE::Backend::CassandraBackend::IndexLookupStatementStep \
+              and steps.index(next_step) + 2 < steps.size
+            #and steps[steps.index(next_step) + 1].is_a?(NoSE::Backend::CassandraBackend::IndexLookupStatementStep)
+            next_next_step = steps[steps.index(next_step) + 1]
+            step_class.new client, fields, conditions,
+                           step, next_step, prev_step, next_next_step
+          else
+            step_class.new client, fields, conditions,
+                           step, next_step, prev_step
+          end
         end
       end
 
