@@ -197,6 +197,27 @@ module NoSE
         query_index query
       end
 
+      def output_2_csv(index, results, dir)
+        fields = index.all_fields.to_a
+        columns = fields.map(&:id)
+        columns << "value_hash"
+        formatted_result = format_result index, results
+        file_name = nil
+
+        fail 'no data given to load on cassandra' if formatted_result.size == 0
+        begin
+          formatted_result.each_slice(500_000).each_with_index do |results_chunk, idx|
+            file_name = "#{dir}/#{index.key}_#{idx}.csv"
+            File.open(file_name, "w") do |f|
+              f.puts(columns.join('|').to_s)
+              results_chunk.each {|row| f.puts(row.join('|'))}
+              f
+            end
+          end
+        end
+        file_name
+      end
+
       def load_index_by_COPY(index, results)
         starting = Time.now.utc
         fields = index.all_fields.to_a
