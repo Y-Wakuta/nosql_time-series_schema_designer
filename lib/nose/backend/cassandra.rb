@@ -19,10 +19,10 @@ module NoSE
         @generator = Cassandra::Uuid::Generator.new
 
         @@value_place_holder = {
-          :string => "_",
-          :date => Time.at(0),
-          :numeric => (-1.0e+5).to_i,
-          :uuid => Cassandra::Uuid.new("cd9747a1-b59c-4aca-a12e-65915bcd2768")
+            :string => "_",
+            :date => Time.at(0),
+            :numeric => (-1.0e+5).to_i,
+            :uuid => Cassandra::Uuid.new("cd9747a1-b59c-4aca-a12e-65915bcd2768")
         }
       end
 
@@ -36,6 +36,21 @@ module NoSE
         rows.to_a.select do |row|
           not row.values.any?{|f| @@value_place_holder.values.include? f}
         end
+      end
+
+      def self.remove_any_null_row(rows)
+        rows.to_a.select do |row|
+          not row.values.any?{|v| v.nil?}
+        end
+      end
+
+      def self.convert_nil_2_place_holder(field)
+        return @@value_place_holder[:string] if field.instance_of?(NoSE::Fields::StringField)
+        return @@value_place_holder[:numeric].to_i if field.is_a?(NoSE::Fields::IntegerField)
+        return @@value_place_holder[:numeric].to_f if field.is_a?(NoSE::Fields::FloatField)
+        return @@value_place_holder[:date] if field.instance_of?(NoSE::Fields::DateField)
+        return @@value_place_holder[:uuid] if field.instance_of?(NoSE::Fields::IDField)
+        fail
       end
 
       # Generate a random UUID
@@ -122,11 +137,6 @@ module NoSE
         end
       end
 
-      def get_all_data(index)
-        query = "SELECT * FROM \"#{index.key}\" ALLOW FILTERING"
-        client.execute(query).to_a
-      end
-
       # Check if the given index is empty
       def index_empty?(index)
         query = "SELECT count(*) FROM \"#{index.key}\" LIMIT 1"
@@ -196,9 +206,11 @@ module NoSE
 
         fail 'no data given to load on cassandra' if formatted_result.size == 0
         inserting_try = 0
+        host_name = ""
         begin
-          #formatted_result.each_slice(2_000_000).each_with_index do |results_chunk, idx|
-          Parallel.each_with_index(formatted_result.each_slice(2_000_000), in_processes: 10) do |results_chunk, idx|
+          formatted_result.each_slice(500_000).each_with_index do |results_chunk, idx|
+            host_name = @hosts.sample(1).first
+            #Parallel.each_with_index(formatted_result.each_slice(2_000_000), in_processes: 2) do |results_chunk, idx|
             Dir.mktmpdir do |dir|
               file_name = "#{dir}/#{index.key}_#{idx}.csv"
               g = File.open(file_name, "w") do |f|
@@ -208,22 +220,80 @@ module NoSE
               end
               STDERR.puts "  insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
               ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
-                ret = system("cqlsh --connect-timeout=2000 --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e \"COPY #{index.key} (#{columns.join(',').to_s}) FROM '#{file_name}' WITH DELIMITER='|' AND HEADER=TRUE\" > /dev/null")
-                fail "  loading error detected: #{index.key}" unless ret
+              ret = system("cqlsh --connect-timeout=30000 --request-timeout=30000 #{host_name} -k #{@keyspace} "\
+                           "-e \"COPY #{index.key} (#{columns.join(',').to_s}) "\
+                           "FROM '#{file_name}' WITH DELIMITER='|' AND HEADER=TRUE\" > /dev/null")
+              fail "  loading error detected: #{index.key}" unless ret
               g.close
+              sleep 100
             end
           end
         rescue
           STDERR.puts "  loading error detected for #{index.key}"
-          sleep 30
+          sleep 30 if results.size > 100_000
           all_retries = 10
           if inserting_try < all_retries
             STDERR.puts "  once truncate record of #{index.key}"
-            ret = system("cqlsh --request-timeout=10000 #{@hosts.first} -k #{@keyspace} -e \"TRUNCATE #{index.key}\"")
+            ret = system("cqlsh --request-timeout=10000 #{host_name} -k #{@keyspace} -e \"TRUNCATE #{index.key}\"")
             if ret
               STDERR.puts "  truncate succeeded"
               STDERR.puts "  retry inserting #{inserting_try} / #{all_retries}"
               inserting_try += 1
+              sleep 30
+              retry
+            end
+            retry
+          end
+        end
+        GC.start
+        ending = Time.now.utc
+        STDERR.puts "loading through csv time: #{ending - starting} for #{results.size.to_s} records on #{index.key}"
+      end
+
+      def load_index_by_cassandra_loader(index, results)
+        starting = Time.now.utc
+        fields = index.all_fields.to_a
+        columns = fields.map(&:id)
+        columns << "value_hash"
+        formatted_result = format_result index, results
+
+        fail 'no data given to load on cassandra' if formatted_result.size == 0
+        inserting_try = 0
+        host_name = ""
+        begin
+          Parallel.each_with_index(formatted_result.each_slice(1_000_000), in_processes: 3) do |results_chunk, idx|
+            #formatted_result.each_slice(10_000_000).each_with_index do |results_chunk, idx|
+            host_name = @hosts.sample(1).first
+            Dir.mktmpdir do |dir|
+              file_name = "#{dir}/#{index.key}_#{idx}.csv"
+              g = File.open(file_name, "w") do |f|
+                f.puts(columns.join('|').to_s)
+                results_chunk.each {|row| f.puts(row.join('|'))}
+                f
+              end
+              STDERR.puts "  insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
+              ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
+              ret = system("./cassandra-loader -badDir /tmp/ -queryTimeout 20 -numRetries 5 -batchSize 20 " \
+                           "-dateFormat \"yyyy-MM-dd\" -skipRows 1 -delim \"|\" -f #{file_name} -host #{host_name} " \
+                           "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\"")
+
+              fail "  loading error detected: #{index.key}" unless ret
+              g.close
+              sleep 100
+            end
+          end
+        rescue
+          STDERR.puts "  loading error detected for #{index.key}"
+          sleep 30 if results.size > 100_000
+          all_retries = 10
+          if inserting_try < all_retries
+            STDERR.puts "  once truncate record of #{index.key}"
+            ret = system("cqlsh --request-timeout=10000 #{host_name} -k #{@keyspace} -e \"TRUNCATE #{index.key}\"")
+            if ret
+              STDERR.puts "  truncate succeeded"
+              STDERR.puts "  retry inserting #{inserting_try} / #{all_retries}"
+              inserting_try += 1
+              sleep 30
               retry
             end
             retry
@@ -241,7 +311,7 @@ module NoSE
           value = row[field.id]
           value = convert_id_2_uuid value if field.is_a?(Fields::IDField)
           value = value.to_f if value.instance_of?(BigDecimal)
-          value = convert_nil_2_place_holder(field) if value.nil?
+          value = CassandraBackend.convert_nil_2_place_holder(field) if value.nil?
           value
         end
       end
@@ -283,7 +353,7 @@ module NoSE
         query_tries = 0
         begin
           rows = []
-          result = client.execute(query, page_size: 100_000)
+          result = client.execute(query, page_size: 50_000)
           loop do
             rows += CassandraBackend.remove_all_null_place_holder_row(result.to_a)
 
@@ -291,9 +361,9 @@ module NoSE
             result = result.next_page
           end
         rescue Exception => e
-          STDERR.puts "query error detected for #{query.to_s}"
-          sleep 30
           all_retries = 10
+          STDERR.puts "query error detected for fetching all record on #{query.to_s}: attempt #{query_tries} / #{all_retries}"
+          sleep 30
           if query_tries < all_retries
             query_tries += 1
             retry
@@ -325,40 +395,16 @@ module NoSE
 
       def convert_id_2_uuid(value)
         case value
-         when Numeric
-           Cassandra::Uuid.new value.to_i
-         when String
-           Cassandra::Uuid.new value
-         when nil
-           #Cassandra::Uuid::Generator.new.uuid
-           nil
-         else
-           value
-         end
-      end
-
-      def convert_nil_2_place_holder(field)
-        return @@value_place_holder[:string] if field.instance_of?(NoSE::Fields::StringField)
-        return @@value_place_holder[:numeric].to_i if field.is_a?(NoSE::Fields::IntegerField)
-        return @@value_place_holder[:numeric].to_f if field.is_a?(NoSE::Fields::FloatField)
-        return @@value_place_holder[:date] if field.instance_of?(NoSE::Fields::DateField)
-        return @@value_place_holder[:uuid] if field.instance_of?(NoSE::Fields::IDField)
-        fail
-      end
-
-      # Produce the CQL to create the definition for a given index
-      # @return [String]
-      def index_cql(index)
-        ddl = "CREATE COLUMNFAMILY \"#{index.key}\" (" \
-          "#{field_names index.all_fields, true}, \"value_hash\" #{:text.to_s}, " \
-          "PRIMARY KEY((#{field_names index.hash_fields})"
-
-        cluster_key = index.order_fields
-        ddl += ", #{field_names cluster_key}" unless cluster_key.empty?
-        ddl += ", value_hash"
-        ddl += '));'
-
-        ddl
+        when Numeric
+          Cassandra::Uuid.new value.to_i
+        when String
+          Cassandra::Uuid.new value
+        when nil
+          #Cassandra::Uuid::Generator.new.uuid
+          nil
+        else
+          value
+        end
       end
 
       # Get a comma-separated list of field names with optional types
@@ -461,8 +507,6 @@ module NoSE
           end
         end
 
-        private
-
         # The CQL used to insert the fields into the index
         def insert_cql
           insert = "INSERT INTO #{@index.key} ("
@@ -472,6 +516,8 @@ module NoSE
           insert
         end
       end
+
+      private
 
       # Delete data from an index on the backend
       class DeleteStatementStep < Backend::DeleteStatementStep
@@ -514,10 +560,10 @@ module NoSE
       # A query step to look up data from a particular column family
       class IndexLookupStatementStep < Backend::IndexLookupStatementStep
         # rubocop:disable Metrics/ParameterLists
-        def initialize(client, select, conditions, step, next_step, prev_step, next_next_step = nil)
+        def initialize(client, select, conditions, step, next_step, prev_step, later_indexlookup_steps = [])
           super(client, select, conditions, step, next_step, prev_step)
 
-          @next_next_step = next_next_step
+          @later_indexlookup_steps = later_indexlookup_steps
 
           @logger = Logging.logger['nose::backend::cassandra::indexlookupstep']
 
@@ -547,7 +593,7 @@ module NoSE
         # Produce the select CQL statement for a provided set of fields
         # @return [String]
         def select_cql(select, conditions)
-          select = expand_selected_fields select, @next_next_step
+          select = expand_selected_fields select, @later_indexlookup_steps
           cql = "SELECT #{select.map { |f| "\"#{f.id}\"" }.join ', '} FROM " \
                 "\"#{@step.index.key}\" WHERE #{cql_where_clause conditions}"
           cql += cql_order_by
