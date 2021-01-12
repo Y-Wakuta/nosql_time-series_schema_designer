@@ -139,7 +139,7 @@ module NoSE
       def search_result(query_weights, indexes, solver_params, trees,
                         update_plans)
         # Solve the LP using MIPPeR
-        STDERR.puts "start optimization"
+        STDERR.puts "start optimization : #{Time.now}"
         result = solve_mipper query_weights.keys, indexes, update_plans, **solver_params
 
         setup_result result, solver_params, update_plans
@@ -273,24 +273,30 @@ module NoSE
         query_indexes = query_trees.select{|t| t.query.instance_of? Query}.flat_map{|t| t.flat_map(&:indexes)}.uniq
         index_related_tree_hash = get_related_query_tree(query_trees, query_indexes)
         # create new migrate_prepare_plan
-        migrate_plans = Parallel.map(query_indexes.uniq, in_processes: Parallel.processor_count / 2) do |base_index|
-          useable_indexes = indexes.reject{|oi| is_similar_index?(base_index, oi)}
-          useable_indexes << base_index
+        migrate_plans = Parallel.map(query_indexes, in_processes: [Parallel.processor_count / 2, Parallel.processor_count - 5].max()) do |base_index|
+          useable_indexes = indexes
+                                .reject{|i| i == base_index}
+                                .reject{|oi| is_similar_index?(base_index, oi)}
+                                .reject{|oi| (oi.graph.entities & base_index.graph.entities).empty?}
+          puts "indexes: #{indexes.size}  ->  #{useable_indexes.size}"
 
           m_plan = {base_index => {}}
           planner = Plans::PreparingQueryPlanner.new @workload, useable_indexes, @cost_model, base_index,  2
           migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
-          m_plan[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
+          begin
+            m_plan[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
+          rescue Plans::NoPlanException => e
+            #puts "#{e.inspect} for #{base_index.key}"
+          end
 
           # convert existing other trees into migrate_prepare_tree
+          planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, useable_indexes, @cost_model, 2
           index_related_tree_hash[base_index].each do |rtree|
             simple_query = MigrateSupportSimplifiedQuery.simple_query rtree.query, base_index
-            planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, indexes.reject{|i| i==base_index}, @cost_model,  2
             begin
               m_plan[base_index][simple_query] = support_query_cost simple_query, planner
             rescue Plans::NoPlanException => e
               #puts "#{e.inspect} for #{base_index.key}"
-              next
             end
           end
           m_plan
@@ -308,14 +314,26 @@ module NoSE
       end
 
       def is_similar_index?(index, other_index)
-        # e.g. `[f1, f2][f3, f4] -> [f5, f6]`
+        # e.g. index `[f1, f2][f3, f4] -> [f5, f6]`
 
-        # similar: `[f1, f2][f3] -> [f4, f5, f6]`
-        return true if index.hash_fields == other_index.hash_fields and index.all_fields == other_index.all_fields
+        # in the case all fields in the column family is same
+        return true if other_index.all_fields.to_set == index.all_fields.to_set
 
-        # similar: `[f1, f2][f3] -> [f4, f5, f6, f7, f8]`
-        return true if index.hash_fields == other_index.hash_fields and \
-          other_index.all_fields > index.all_fields and other_index.all_fields.size - index.all_fields.size < 3
+        # if the key fields are same, small field difference can be allowed
+        return true if other_index.key_fields == index.key_fields and \
+                       other_index.extra >= index.extra and \
+                       (other_index.extra - index.extra).size < 2
+
+        # #return true if index.hash_fields > other_index.hash_fields and \
+        # #      (index.hash_fields + index.order_fields.to_set) \
+        # #        <= (other_index.hash_fields + other_index.order_fields.to_set)
+        # return true if other_index.key_fields.to_set >= index.key_fields.to_set and \
+        #                (other_index.all_fields - index.all_fields).size < 3
+
+        # # similar: other_index `[f1][f2, f3] -> [f4, f5, f6]`
+        # # similar: other_index `[f1][f2, f3] -> [f4, f5, f6, f7, f8]`
+        # return true if index.hash_fields >= other_index.hash_fields and \
+        #                index.order_fields.to_set >= index.hash_fields - other_index.hash_fields
 
         false
       end
