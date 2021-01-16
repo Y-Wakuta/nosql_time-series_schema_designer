@@ -49,8 +49,8 @@ module NoSE
         return @@value_place_holder[:numeric].to_i if field.is_a?(NoSE::Fields::IntegerField)
         return @@value_place_holder[:numeric].to_f if field.is_a?(NoSE::Fields::FloatField)
         return @@value_place_holder[:date] if field.instance_of?(NoSE::Fields::DateField)
-        return @@value_place_holder[:uuid] if field.instance_of?(NoSE::Fields::IDField)
-        fail
+        return @@value_place_holder[:uuid] if field.instance_of?(NoSE::Fields::IDField) or field.instance_of?(NoSE::Fields::ForeignKeyField)
+        fail "#{field.inspect}, #{field.class} is still not supported"
       end
 
       # Generate a random UUID
