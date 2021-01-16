@@ -630,7 +630,17 @@ module NoSE
           #
           #         SELECT * FROM cf WHERE id=? AND col1=? ORDER by col1, col2
           return '' if @step.order_by.empty?
-          ' ORDER BY ' + @step.order_by.map { |f| "\"#{f.id}\"" }.join(', ')
+          order_by_fields = @step.order_by
+          unless @step.index.order_fields.take(@step.order_by.size) == @step.order_by
+            fail 'order by fields are not included in order_fields'  \
+              unless @step.index.order_fields.to_set >= @step.order_by.to_set
+
+            order_by_fields = @step.order_by.to_set + @step.eq_filter.to_set - @step.index.hash_fields.to_set
+            order_by_fields = order_by_fields.to_a.sort_by { |obf| @step.index.order_fields.find_index(obf)}
+            fail 'order by fields and eq_filter does not match order_fields' \
+              unless @step.index.order_fields.take(order_by_fields.size) == order_by_fields
+          end
+          ' ORDER BY ' + order_by_fields.map { |f| "\"#{f.id}\"" }.join(', ')
         end
 
         def cql_group_by
