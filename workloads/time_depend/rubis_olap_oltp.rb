@@ -24,14 +24,14 @@ NoSE::TimeDependWorkload.new do
   end
 
   linear = linear_freq(0.001, 0.999, 10)
-  #step = step_freq(0.001, 0.999, 6)
-  step = step_freq(0.01, 0.99, 6)
+  step = step_freq(0.001, 0.999, 10)
+  #step = step_freq(0.01, 0.99, 6)
 
   frequencies = step
 
   timestep = frequencies.size
   TimeSteps timestep
-  Interval 3600
+  Interval 7200
   #Static true
   #FirstTs true
   #LastTs true
@@ -39,16 +39,6 @@ NoSE::TimeDependWorkload.new do
   # =========================================================
   # OLAP > ==================================================
   # =========================================================
-
-  Group 'BrowseCategories', browsing: frequencies.map{|l| l * 4.44},
-        bidding: frequencies.map{|l| l * 7.65},
-        write_medium: frequencies.map{|l| l * 7.65},
-        write_heavy: frequencies.map{|l| l * 7.65} do
-    Q 'SELECT users.nickname, users.password FROM users WHERE users.id = ? -- 1'
-    # XXX Must have at least one equality predicate
-    Q 'SELECT categories.id, categories.name FROM categories WHERE ' \
-      'categories.dummy = 1 -- 2'
-  end
 
     Group 'ViewBidHistory', browsing: frequencies.map{|l| l * 2.38},
                           bidding: frequencies.map{|l| l * 1.54},
@@ -125,6 +115,17 @@ NoSE::TimeDependWorkload.new do
   # =========================================================
   # OLTP > ==================================================
   # =========================================================
+
+  Group 'BrowseCategories', browsing: frequencies.reverse.map{|l| l * 4.44},
+        bidding: frequencies.reverse.map{|l| l * 7.65},
+        write_medium: frequencies.reverse.map{|l| l * 7.65},
+        write_heavy: frequencies.reverse.map{|l| l * 7.65} do
+    Q 'SELECT users.nickname, users.password FROM users WHERE users.id = ? -- 1'
+    # XXX Must have at least one equality predicate
+    Q 'SELECT categories.id, categories.name FROM categories WHERE ' \
+      'categories.dummy = 1 -- 2'
+  end
+
 
   Group 'RegisterItem', bidding: frequencies.reverse.map{|l| l * 0.53},
                         write_medium: frequencies.reverse.map{|l| l * 0.53 * 10},

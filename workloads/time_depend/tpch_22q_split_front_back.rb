@@ -149,6 +149,12 @@ NoSE::TimeDependWorkload.new do
        'WHERE ps_partkey.p_brand = ? AND ps_partkey.p_type = ? AND ps_partkey.p_size = ? AND supplier.s_suppkey = ? ' \
        'ORDER BY ps_partkey.p_brand, ps_partkey.p_type, ps_partkey.p_size ' \
        'GROUP BY ps_partkey.p_brand, ps_partkey.p_type, ps_partkey.p_size -- Q16_outer'
+    #Q 'SELECT part.p_brand, part.p_type, part.p_size, count(ps_suppkey.s_suppkey) ' \
+    #  'FROM part.from_partsupp.ps_suppkey ' \
+    #  'WHERE part.p_brand = ? AND part.p_type = ? AND part.p_size = ? AND ps_suppkey.s_suppkey = ? ' \
+    #  'ORDER BY part.p_brand, part.p_type, part.p_size ' \
+    #  'GROUP BY part.p_brand, part.p_type, part.p_size -- Q16_outer'
+
     #
     #    # with ID field orderby
     #    #Q 'SELECT ps_partkey.p_brand, ps_partkey.p_type, ps_partkey.p_size, count(partsupp.ps_suppkey) ' \
@@ -220,7 +226,7 @@ NoSE::TimeDependWorkload.new do
       'FROM lineitem.l_orderkey.o_custkey ' \
       'WHERE l_orderkey.o_orderkey = ? ' \
       'ORDER BY l_orderkey.o_totalprice, l_orderkey.o_orderdate ' \
-      'GROUP BY o_custkey.c_custkey, l_orderkey.o_orderkey -- Q18_outer'
+      'GROUP BY o_custkey.c_name, o_custkey.c_custkey, l_orderkey.o_orderkey, l_orderkey.o_orderdate, l_orderkey.o_totalprice -- Q18_outer'
     #
     #    # == Q19 ==
     #    #select
@@ -262,6 +268,11 @@ NoSE::TimeDependWorkload.new do
       'FROM lineitem.l_partkey.ps_partkey ' \
       'WHERE ps_partkey.p_brand = ? AND ps_partkey.p_container = ? AND lineitem.l_quantity > ? ' \
       'AND ps_partkey.p_size > ? AND lineitem.l_shipdate = ? AND lineitem.l_shipinstruct = ? -- Q19'
+    # Q 'SELECT sum(from_lineitem.l_extendedprice), sum(from_lineitem.l_discount) ' \
+    #  'FROM part.from_partsupp.from_lineitem ' \
+    #  'WHERE part.p_brand = ? AND part.p_container = ? AND from_lineitem.l_quantity > ? ' \
+    #  'AND part.p_size > ? AND from_lineitem.l_shipdate = ? AND from_lineitem.l_shipinstruct = ? -- Q19'
+
     #
     #    # == Q20 ==
     #    # select
@@ -348,14 +359,13 @@ NoSE::TimeDependWorkload.new do
     #    # order by
     #    #   numwait desc,
     #    #   s_name;
-    #Q 'SELECT lineitem.* FROM lineitem ' \
-    #  'WHERE lineitem.dummy = ? AND lineitem.l_receiptdate > ? AND lineitem.l_commitdate < ? -- Q21_inner'
-    Q 'SELECT from_supplier.s_name, count(l_orderkey.o_orderkey) ' \
-      'FROM lineitem.l_orderkey.o_custkey.c_nationkey.from_supplier ' \
-      'WHERE l_orderkey.o_orderstatus = ? AND lineitem.l_receiptdate > ? AND lineitem.l_commitdate < ? ' \
+    # inner queries are ignored since they did not use eq_predicate
+    Q 'SELECT supplier.s_name, count(l_orderkey.o_orderkey) ' \
+      'FROM supplier.from_partsupp.from_lineitem.l_orderkey.o_custkey.c_nationkey ' \
+      'WHERE l_orderkey.o_orderstatus = ? AND from_lineitem.l_receiptdate > ? AND from_lineitem.l_commitdate < ? ' \
         'AND l_orderkey.o_orderkey = ? AND c_nationkey.n_name = ? ' \
-      'ORDER BY from_supplier.s_name ' \
-      'GROUP BY from_supplier.s_name -- Q21_outer'
+      'ORDER BY supplier.s_name ' \
+      'GROUP BY supplier.s_name -- Q21'
     #
     #    # == Q22 ==
     #    # select
