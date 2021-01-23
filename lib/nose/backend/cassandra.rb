@@ -3,6 +3,7 @@
 require 'cassandra'
 require 'zlib'
 require 'tmpdir'
+require 'date'
 
 module NoSE
   module Backend
@@ -95,13 +96,18 @@ module NoSE
         end
       end
 
+      def insert_cql(index)
+        fields = index.all_fields.to_a
+        "INSERT INTO \"#{index.key}\" (" \
+                   "#{field_names fields}" \
+                   ") VALUES (#{(['?'] * fields.length).join ', '})"
+      end
+
       # Insert a chunk of rows into an index
       # @return [Array<Array<Cassandra::Uuid>>]
       def index_insert_chunk(index, chunk)
         fields = index.all_fields.to_a
-        prepared = "INSERT INTO \"#{index.key}\" (" \
-                   "#{field_names fields}" \
-                   ") VALUES (#{(['?'] * fields.length).join ', '})"
+        prepared = insert_cql index
         prepared = client.prepare prepared
 
         ids = []
@@ -279,7 +285,6 @@ module NoSE
 
               fail "  loading error detected: #{index.key}" unless ret
               g.close
-              sleep 100
             end
           end
         rescue
@@ -319,9 +324,24 @@ module NoSE
       def create_empty_record(index)
         row = {}
         index.all_fields.each do |f|
-          row[f.id] = convert_nil_2_place_holder f
+          row[f.id] = CassandraBackend.convert_nil_2_place_holder f
         end
         row
+      end
+
+      # Produce the CQL to create the definition for a given index
+      # @return [String]
+      def index_cql(index)
+        ddl = "CREATE COLUMNFAMILY \"#{index.key}\" (" \
+          "#{field_names index.all_fields, true}, \"value_hash\" #{:text.to_s}, " \
+          "PRIMARY KEY((#{field_names index.hash_fields})"
+
+        cluster_key = index.order_fields
+        ddl += ", #{field_names cluster_key}" unless cluster_key.empty?
+        ddl += ", value_hash"
+        ddl += '));'
+
+        ddl
       end
 
       private
@@ -330,15 +350,16 @@ module NoSE
         query_tries = 0
         begin
           rows = []
-          result = client.execute(query, page_size: 100_000)
+          result = client.execute(query, page_size: limit * 100 * 3)
           loop do
-            rows += CassandraBackend.remove_any_null_place_holder_row(result.to_a)
+            tmp_rows = CassandraBackend.remove_any_null_place_holder_row(result.to_a)
+            rows = CassandraBackend.remove_any_null_row(tmp_rows)
 
             break if result.last_page? or rows.size > limit * 100
             result = result.next_page
           end
         rescue
-          STDERR.puts "query error detected for #{query.to_s}"
+          STDERR.puts "query error detected for sampling #{query.to_s}"
           sleep 30
           all_retries = 10
           if query_tries < all_retries
@@ -353,11 +374,12 @@ module NoSE
         query_tries = 0
         begin
           rows = []
-          result = client.execute(query, page_size: 50_000)
+          result = client.execute(query, page_size: 20_000)
           loop do
             rows += CassandraBackend.remove_all_null_place_holder_row(result.to_a)
 
             break if result.last_page?
+            STDERR.puts "queried #{rows.size} rows: #{Time.now}"
             result = result.next_page
           end
         rescue Exception => e
@@ -385,7 +407,7 @@ module NoSE
         results = add_value_hash index, results
         fields = index.all_fields.to_a
         fail 'all record has empty field' if CassandraBackend.remove_all_null_place_holder_row(results).empty?
-        results.map do |r|
+        Parallel.map(results, in_processes: 10) do |r|
           csv_row = index_row(r, fields)
           csv_row << r["value_hash"]
           csv_row = csv_row.map{|s| s.is_a?(String) ? s.dump : s} # escape special characters like newline
@@ -448,10 +470,16 @@ module NoSE
           super
 
           @fields = fields.map(&:id) & index.all_fields.map(&:id)
+          unless (index.key_fields.map(&:id).to_set - @fields.to_set).empty?
+            STDERR.puts "some keys are missing for insert #{(index.key_fields).map(&:id).to_set - @fields.to_set}. added index.key_fields"
+            @fields |= index.key_fields.map(&:id)
+          end
+
           begin
             @prepared = client.prepare insert_cql
           rescue Exception => e
             puts e
+            puts insert_cql
             throw e
           end
           @generator = Cassandra::Uuid::Generator.new
@@ -460,14 +488,21 @@ module NoSE
         # Insert each row into the index
         def process(results)
           results.each do |result|
-            fields = @index.all_fields.select { |field| result.key? field.id }
+            fields_in_result = @index.all_fields.select { |field| result.key? field.id }
+            unless (@index.key_fields - fields_in_result).empty?
+              fields_in_result += @index.key_fields.to_a
+              fields_in_result.uniq!
+            end
 
             # sort fields according to the Insert
-            fields.sort_by!{|field| @prepared.cql.index(field.id)} if @prepared.is_a? Cassandra::Statements::Prepared
+            fields_in_result.sort_by!{|field| @prepared.cql.index(field.id)} if @prepared.is_a? Cassandra::Statements::Prepared
 
-            values = fields.map do |field|
+            values = fields_in_result.map do |field|
+              # if the result does not have the field, replace the field with place holder
+              # This is required since the upsert modified cfs if any entity is overlapped
+              next CassandraBackend.convert_nil_2_place_holder field unless result.has_key? field.id
+
               value = result[field.id]
-
               # If this is an ID, generate or construct a UUID object
               if field.is_a?(Fields::IDField)
                 value = if value.nil?
@@ -480,12 +515,7 @@ module NoSE
               # XXX Useful to test that we never insert null values
               # fail if value.nil?
 
-              if value.instance_of?(BigDecimal)
-                value = value.to_f
-              elsif value.instance_of?(Time)
-                value = value.to_datetime
-              end
-
+              value = value.to_f if value.instance_of?(BigDecimal)
               value
             end
 
@@ -495,7 +525,9 @@ module NoSE
             begin
               @client.execute(@prepared, arguments: values)
             rescue ArgumentError => e
-              puts "Possible cause for this problem is too small number of records in mysql"
+              STDERR.puts e.inspect
+              STDERR.puts "Possible cause for this problem is too small number of "  +
+                              "records in mysql and some support query gets empty result. target index was #{@index.key} : #{@index.hash_str}"
               throw e
             rescue Cassandra::Errors::InvalidError
               # We hit a value which does not actually need to be
@@ -573,6 +605,8 @@ module NoSE
             @prepared = client.prepare cql
           rescue => e
             puts e
+            puts cql
+            puts step.index.hash_str
             throw e
           end
         end
@@ -583,6 +617,8 @@ module NoSE
           results = initial_results(conditions) if results.nil?
           condition_list = result_conditions conditions, results
           new_result = fetch_all_queries condition_list, results, query_conditions
+          new_result = CassandraBackend.remove_any_null_place_holder_row(new_result)
+          fail "no result given" if new_result.size == 0 and not @step.children.empty?
 
           # Limit the size of the results in case we fetched multiple keys
           new_result[0..(@step.limit.nil? ? -1 : @step.limit)]

@@ -77,7 +77,7 @@ module NoSE
           useable_indexes << base_index
 
           m_plan = {base_index => {}}
-          planner = Plans::PreparingQueryPlanner.new @workload, useable_indexes, @cost_model, base_index,  2
+          planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, useable_indexes, @cost_model, base_index,  2
           migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
           m_plan[base_index][migrate_support_query] = support_query_cost(migrate_support_query, planner)[:tree]
 

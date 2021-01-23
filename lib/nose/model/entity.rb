@@ -75,7 +75,10 @@ module NoSE
     # @return [Field]
     def [](field_name)
       field = @fields[field_name] || @foreign_keys[field_name]
-      fail FieldNotFound if field.nil?
+      if field.nil?
+        STDERR.puts field_name
+        fail FieldNotFound
+      end
       field
     end
 

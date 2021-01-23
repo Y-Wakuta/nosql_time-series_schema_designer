@@ -262,8 +262,18 @@ module NoSE
           end
 
           if range
-            range_check = row[range.field.id].method(range.operator)
-            select &&= range_check.call range.value
+            if row[range.field.id].nil?
+              # if range condition field is null, remove the row from the result
+              select = false
+            else
+              range_check = row[range.field.id].method(range.operator)
+              begin
+                select &&= range_check.call range.value
+              rescue Exception => e
+                puts e
+                throw e
+              end
+            end
           end
 
           select
