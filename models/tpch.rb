@@ -28,8 +28,8 @@ NoSE::Model.new do
   end) * 10_000
 
   (Entity 'partsupp' do
-    ID 'ps_partkey'
-    #ID 'ps_suppkey'
+    #ID 'ps_partkey'
+    ID 'ps_suppkey'
     Integer 'ps_availqty'
     Float 'ps_supplycost'
     String 'ps_comment'

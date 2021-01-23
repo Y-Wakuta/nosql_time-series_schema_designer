@@ -116,8 +116,9 @@ NoSE::Model.new do
   HasOne 'l_partkey', 'from_lineitem',
          'lineitem' => 'partsupp'
 
-  HasOne 'l_suppkey', 'from_lineitem',
-         'lineitem' => 'partsupp'
+  # TODO: currently entities cannot have multiple foreign keys
+  #HasOne 'l_suppkey', 'from_lineitem',
+  #       'lineitem' => 'partsupp'
 
   HasOne 'ps_partkey', 'from_partsupp',
          'partsupp' => 'part'
