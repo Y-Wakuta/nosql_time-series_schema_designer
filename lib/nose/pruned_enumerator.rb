@@ -97,7 +97,6 @@ module NoSE
       planner = Plans::PrunedQueryPlanner.new @workload.model, indexes, @cost_model, @index_steps_threshold
       #planner = Plans::QueryPlanner.new @workload.model, indexes, @cost_model
       Parallel.map(queries, in_processes: [Parallel.processor_count - 5, 0].max()) do |query|
-        #queries.map do |query|
         planner.find_plans_for_query(query)
       end
     end
@@ -119,7 +118,23 @@ module NoSE
         indexes_for_graph graph, query.select, eq, range, entity_fields, extra_fields
       end.uniq << query.materialize_view
 
-      indexes
+      ignore_cluster_key_order query, indexes
+    end
+
+    def ignore_cluster_key_order(query, indexes)
+      pruned_indexes = indexes.uniq.sort_by{|i| i.hash_str}.dup
+      indexes.each_with_index do |target_index, idx|
+        next unless target_index.key_fields.size > (query.eq_fields + query.order).size
+        indexes[(idx + 1)..-1].select{|i| target_index.hash_fields == i.hash_fields and \
+                           target_index.order_fields.to_set == i.order_fields.to_set and \
+                           target_index.extra == i.extra}.each do |other_index|
+          variable_order_fields_size = [((query.eq_fields + query.order).to_set & target_index.key_fields).size - target_index.hash_fields.size, 0].max
+          if target_index.order_fields.take(variable_order_fields_size) == other_index.order_fields.take(variable_order_fields_size)
+            pruned_indexes = pruned_indexes.reject{|pi| pi == other_index}
+          end
+        end
+      end
+      pruned_indexes
     end
 
     # Produce the indexes necessary for support queries for these indexes
