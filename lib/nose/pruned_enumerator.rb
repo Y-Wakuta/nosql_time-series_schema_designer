@@ -8,12 +8,13 @@ module NoSE
   # Produces potential indices to be used in schemas
   class PrunedIndexEnumerator < IndexEnumerator
     def initialize(workload, cost_model, is_entity_fields_shared_threshold,
-                   index_plan_step_threshold, index_plan_shared_threshold)
+                   index_plan_step_threshold, index_plan_shared_threshold, choice_limit_size: 3_000)
       @eq_threshold = 1
       @cost_model = cost_model
       @is_entity_fields_shared_threshold = is_entity_fields_shared_threshold
       @index_steps_threshold = index_plan_step_threshold
       @index_plan_shared_threshold = index_plan_shared_threshold
+      @choice_limit_size = choice_limit_size
       super(workload)
     end
 
@@ -23,9 +24,11 @@ module NoSE
       puts "entity_fields (pattern) size: " + entity_fields.size.to_s
       extra_fields = get_frequent_extra_choices queries
 
-      indexes = Parallel.flat_map(queries, in_processes: [Etc.nprocessors - 5, 10].min()) do |query|
-        #indexes = queries.flat_map do |query|
-        indexes_for_query(query, entity_fields[query], extra_fields).to_a
+      indexes = Parallel.flat_map(queries, in_processes: [Parallel.processor_count - 5, 0].max()) do |query|
+        idxs = indexes_for_query(query, entity_fields[query], extra_fields).to_a
+
+        puts query.comment + ": " + idxs.size.to_s if query.instance_of? Query
+        idxs
       end.uniq
       indexes += additional_indexes
 
@@ -168,6 +171,17 @@ module NoSE
 
       ## Generate all possible indices based on the field choices
       choices = eq_choices.product(extra_choices)
+
+      choices_limit_size = @choice_limit_size
+      if choices.size > choices_limit_size
+        STDERR.puts "pruning choices from #{choices.size.to_s} to #{choices_limit_size}"
+
+        # sort choices to always get the same reduced-choices
+        choices = choices.sort_by do |choice|
+          (choice.first.map(&:id) + choice.last.map(&:id)).join(',')
+        end.take(choices_limit_size)
+      end
+
       indexes_for_choices(graph, choices, order_choices).uniq
     end
 
