@@ -189,7 +189,7 @@ module NoSE
         end
 
         # Decide which fields should be selected
-        def expand_selected_fields(select)
+        def expand_selected_fields(select, later_indexlookup_steps)
           # We just pick whatever is contained in the index that is either
           # mentioned in the query or required for the next lookup
           # TODO: Potentially try query.all_fields for those not required
@@ -198,6 +198,14 @@ module NoSE
           select += @next_step.index.hash_fields \
             unless @next_step.nil? ||
                    !@next_step.is_a?(Plans::IndexLookupPlanStep)
+
+          if !@next_step.is_a?(Plans::IndexLookupPlanStep) \
+              and !later_indexlookup_steps.nil?
+            later_indexlookup_steps.each do |later_indexlookup_step|
+              select += later_indexlookup_step.index.hash_fields
+            end
+          end
+
           select &= @step.index.all_fields
 
           select
@@ -254,8 +262,18 @@ module NoSE
           end
 
           if range
-            range_check = row[range.field.id].method(range.operator)
-            select &&= range_check.call range.value
+            if row[range.field.id].nil?
+              # if range condition field is null, remove the row from the result
+              select = false
+            else
+              range_check = row[range.field.id].method(range.operator)
+              begin
+                select &&= range_check.call range.value
+              rescue Exception => e
+                puts e
+                throw e
+              end
+            end
           end
 
           select
@@ -365,8 +383,16 @@ module NoSE
           subclass_step_name = step_class.name.sub \
             'NoSE::Backend::Backend', self.class.name
           step_class = Object.const_get subclass_step_name
-          step_class.new client, fields, conditions,
-                         step, next_step, prev_step
+          if step_class == NoSE::Backend::CassandraBackend::IndexLookupStatementStep \
+              and steps.index(next_step) + 2 < steps.size
+            #and steps[steps.index(next_step) + 1].is_a?(NoSE::Backend::CassandraBackend::IndexLookupStatementStep)
+            later_indexlookup_steps = steps[(steps.index(next_step) + 1)..-1].select{|s| s.is_a? Plans::IndexLookupPlanStep}
+            step_class.new client, fields, conditions,
+                           step, next_step, prev_step, later_indexlookup_steps
+          else
+            step_class.new client, fields, conditions,
+                           step, next_step, prev_step
+          end
         end
       end
 

@@ -41,7 +41,6 @@ module NoSE
         return if indexes.empty?
         STDERR.puts("set basic query plans")
 
-        indexes = pruning_indexes_by_plan_cost indexes
         # Get the costs of all queries and updates
         query_weights = combine_query_weights indexes
         costs, trees = query_costs query_weights, indexes
@@ -64,11 +63,16 @@ module NoSE
         if @workload.is_a? TimeDependWorkload
           STDERR.puts("set migration query plans")
 
-          starting = Time.now.utc
-          migrate_prepare_plans = get_migrate_preparing_plans(trees, indexes)
-          ending = Time.now.utc
-          STDERR.puts "prepare plan enumeration time: " + (ending - starting).to_s
-          costs.merge!(migrate_prepare_plans.values.flat_map{|v| v.values}.map{|v| v[:costs]}.reduce(&:merge))
+          if @workload.is_static or @workload.is_first_ts or @workload.is_last_ts
+            STDERR.puts "Since the workload is static, not enumerating the migrate prepare plans"
+            migrate_prepare_plans = {}
+          else
+            starting = Time.now.utc
+            migrate_prepare_plans = get_migrate_preparing_plans(trees, indexes)
+            ending = Time.now.utc
+            STDERR.puts "prepare plan enumeration time: " + (ending - starting).to_s
+            costs.merge!(migrate_prepare_plans.values.flat_map{|v| v.values}.map{|v| v[:costs]}.reduce(&:merge))
+          end
 
           solver_params[:migrate_prepare_plans] = migrate_prepare_plans
         end
@@ -76,8 +80,6 @@ module NoSE
         search_result query_weights, indexes, solver_params, trees,
                       update_plans
       end
-
-      private
 
       def pruning_indexes_by_plan_cost(indexes)
         query_weights = combine_query_weights indexes
@@ -103,6 +105,8 @@ module NoSE
         STDERR.puts "cost-base pruned indexes: #{before_index_size} -> #{trees.flat_map{|t| t.flat_map(&:indexes)}.uniq.size}"
         trees.flat_map{|t| t.flat_map(&:indexes)}.uniq
       end
+
+      private
 
       # Combine the weights of queries and statements
       # @return [void]
@@ -135,7 +139,7 @@ module NoSE
       def search_result(query_weights, indexes, solver_params, trees,
                         update_plans)
         # Solve the LP using MIPPeR
-        STDERR.puts "start optimization"
+        STDERR.puts "start optimization : #{Time.now}"
         result = solve_mipper query_weights.keys, indexes, update_plans, **solver_params
 
         setup_result result, solver_params, update_plans
@@ -253,8 +257,9 @@ module NoSE
         planner = @is_pruned ?
                       Plans::PrunedQueryPlanner.new(@workload, indexes, @cost_model, 2) :
                       Plans::QueryPlanner.new(@workload, indexes, @cost_model)
+        STDERR.puts "#{planner.class.to_s} is used"
 
-        results = Parallel.map(query_weights, in_processes: Etc.nprocessors - 4) do |query, weight|
+        results = Parallel.map(query_weights, in_processes: [Parallel.processor_count - 4, 0].max()) do |query, weight|
           query_cost planner, query, weight
         end
         costs = Hash[query_weights.each_key.map.with_index do |query, q|
@@ -264,34 +269,34 @@ module NoSE
         [costs, results.map(&:last)]
       end
 
-      def get_migrate_preparing_plans(trees, indexes)
-        index_related_tree_hash = {}
-        indexes.each {|qi| index_related_tree_hash[qi] = Set.new}
-        trees.select{|t| t.query.instance_of? Query}.each do |t|
-          t.flat_map(&:indexes).uniq.each {|i| index_related_tree_hash[i].add(t)}
-        end
-
-        ## create new migrate_prepare_plan
-        migrate_plans = Parallel.map(indexes.uniq, in_processes: Etc.nprocessors / 2) do |base_index|
-
-          useable_indexes = indexes.reject{|oi| is_similar_index?(base_index, oi)}
-          useable_indexes << base_index
+      def get_migrate_preparing_plans(query_trees, indexes)
+        query_indexes = query_trees.select{|t| t.query.instance_of? Query}.flat_map{|t| t.flat_map(&:indexes)}.uniq
+        index_related_tree_hash = get_related_query_tree(query_trees, query_indexes)
+        # create new migrate_prepare_plan
+        migrate_plans = Parallel.map(query_indexes, in_processes: [Parallel.processor_count / 2, Parallel.processor_count - 5].max()) do |base_index|
+          useable_indexes = indexes
+                                .reject{|i| i == base_index}
+                                .reject{|oi| is_similar_index?(base_index, oi)}
+                                .reject{|oi| (oi.graph.entities & base_index.graph.entities).empty?}
+          puts "indexes: #{indexes.size}  ->  #{useable_indexes.size}"
 
           m_plan = {base_index => {}}
           planner = Plans::PreparingQueryPlanner.new @workload, useable_indexes, @cost_model, base_index,  2
           migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
-          m_plan[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
+          begin
+            m_plan[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
+          rescue Plans::NoPlanException => e
+            #puts "#{e.inspect} for #{base_index.key}"
+          end
 
           # convert existing other trees into migrate_prepare_tree
-          related_trees = index_related_tree_hash[base_index]
-          related_trees.each do |rtree|
+          planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, useable_indexes, @cost_model, 2
+          index_related_tree_hash[base_index].each do |rtree|
             simple_query = MigrateSupportSimplifiedQuery.simple_query rtree.query, base_index
-            planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, indexes.reject{|i| i==base_index}, @cost_model,  2
             begin
               m_plan[base_index][simple_query] = support_query_cost simple_query, planner
             rescue Plans::NoPlanException => e
               #puts "#{e.inspect} for #{base_index.key}"
-              next
             end
           end
           m_plan
@@ -299,22 +304,41 @@ module NoSE
         migrate_plans
       end
 
+      def get_related_query_tree(trees, indexes)
+        related_tree_hash = {}
+        indexes.each {|qi| related_tree_hash[qi] = Set.new}
+        trees.select{|t| t.query.instance_of? Query}.each do |t|
+          t.flat_map(&:indexes).uniq.each {|i| related_tree_hash[i].add(t)}
+        end
+        related_tree_hash
+      end
+
       def is_similar_index?(index, other_index)
-        # e.g. `[f1, f2][f3, f4] -> [f5, f6]`
+        # e.g. index `[f1, f2][f3, f4] -> [f5, f6]`
 
-        # similar: `[f1, f2][f3] -> [f4, f5, f6]`
-        return true if index.hash_fields == other_index.hash_fields and index.all_fields == other_index.all_fields
+        # in the case all fields in the column family is same
+        return true if other_index.all_fields.to_set == index.all_fields.to_set
 
-        # similar: `[f1, f2][f3] -> [f4, f5, f6, f7, f8]`
-        return true if index.hash_fields == other_index.hash_fields and \
-          other_index.all_fields > index.all_fields and other_index.all_fields.size - index.all_fields.size < 3
+        # if the key fields are same, small field difference can be allowed
+        return true if other_index.key_fields == index.key_fields and \
+                       other_index.extra >= index.extra and \
+                       (other_index.extra - index.extra).size < 2
+
+        # #return true if index.hash_fields > other_index.hash_fields and \
+        # #      (index.hash_fields + index.order_fields.to_set) \
+        # #        <= (other_index.hash_fields + other_index.order_fields.to_set)
+        # return true if other_index.key_fields.to_set >= index.key_fields.to_set and \
+        #                (other_index.all_fields - index.all_fields).size < 3
+
+        # # similar: other_index `[f1][f2, f3] -> [f4, f5, f6]`
+        # # similar: other_index `[f1][f2, f3] -> [f4, f5, f6, f7, f8]`
+        # return true if index.hash_fields >= other_index.hash_fields and \
+        #                index.order_fields.to_set >= index.hash_fields - other_index.hash_fields
 
         false
       end
 
-      def support_query_cost(query, planner)
-        _costs, tree = query_cost planner, query, [1] * @workload.timesteps
-
+      def support_query_cost_4_costs_tree(query, costs, tree)
         # validate support query tree
         tree.each do |plan|
           if plan.steps.map{|s| s.index.all_fields}.reduce(&:+) < query.index.all_fields
@@ -324,21 +348,24 @@ module NoSE
         end
 
         # calculate cost
-        _costs = _costs.map do |index, (step, costs)|
+        costs = costs.map do |index, (step, costs)|
           # query execution cost already considers record width.
           # Therefore the cost is multiplied by index.entries not by index.size
           {index =>  [step, costs.map{|cost| @workload.migrate_support_coeff * cost * index.entries}]}
         end.reduce(&:merge)
 
-        costs = Hash[query, _costs]
+        costs = Hash[query, costs]
         {:costs => costs, :tree => tree}
       end
 
-      # Get the cost for indices for an individual query
-      def query_cost(planner, query, weight)
-        query_costs = {}
+      def support_query_cost(query, planner)
+        _costs, tree = query_cost planner, query, [1] * @workload.timesteps
 
-        tree = planner.find_plans_for_query(query)
+        support_query_cost_4_costs_tree query, _costs, tree
+      end
+
+      def query_cost_4_tree(query, weight, tree)
+        query_costs = {}
         tree.each do |plan|
           steps_by_index = []
           plan.each do |step|
@@ -353,6 +380,12 @@ module NoSE
         end
 
         [query_costs, tree]
+      end
+
+      # Get the cost for indices for an individual query
+      def query_cost(planner, query, weight)
+        tree = planner.find_plans_for_query(query)
+        query_cost_4_tree query, weight, tree
       end
 
       # Store the costs and indexes for this plan in a nested hash
@@ -415,7 +448,7 @@ module NoSE
               #puts
               #p tree
 
-              fail
+              #fail
             end
           else
             # We either found a new plan or something cheaper

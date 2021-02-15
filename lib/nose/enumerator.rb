@@ -43,7 +43,7 @@ module NoSE
     end
 
     def indexes_for_queries(queries, additional_indexes)
-      Parallel.flat_map(queries, in_processes: [Etc.nprocessors - 5, 10].min()) do |query|
+      Parallel.flat_map(queries, in_processes: [Parallel.processor_count - 5, 0].max()) do |query|
         #indexes = queries.flat_map do |query|
         indexes_for_query(query).to_a
       end.uniq + additional_indexes
@@ -94,7 +94,8 @@ module NoSE
     # Collect all possible support queries
     def support_queries(indexes)
       # Enumerate indexes for each support query
-      Parallel.flat_map(indexes, in_processes: [Etc.nprocessors - 4, 10].min()) do |index|
+      Parallel.flat_map(indexes, in_processes: [Parallel.processor_count - 4, 0].max()) do |index|
+        #indexes.flat_map do |index|
         @workload.updates.flat_map do |update|
           update.support_queries(index)
         end
@@ -157,7 +158,7 @@ module NoSE
 
     def indexes_for_choices(graph, choices, order_choices)
       return [] if choices.size == 0
-      Parallel.flat_map(choices, in_processes: 6) do |index, extra|
+      Parallel.flat_map(choices, in_processes: Parallel.processor_count / 2) do |index, extra|
         #choices.flat_map do |index, extra|
         indexes = []
 
@@ -167,7 +168,7 @@ module NoSE
               (index + order)
 
           # Partition into the ordering portion
-          indexes += Parallel.flat_map(index.partitions, in_threads: 5) do |index_prefix, order_prefix|
+          indexes += Parallel.flat_map(index.partitions, in_threads: 10) do |index_prefix, order_prefix|
             #indexes += index.partitions.each do |index_prefix, order_prefix|
             hash_fields = index_prefix.take_while do |field|
               field.parent == index.first.parent

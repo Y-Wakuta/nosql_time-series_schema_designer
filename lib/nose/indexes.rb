@@ -43,6 +43,10 @@ module NoSE
       @key ||= "i#{Zlib.crc32 hash_str}"
     end
 
+    def key_fields
+      @hash_fields + @order_fields
+    end
+
     # Look up a field in the index based on its ID
     # @return [Fields::Field]
     def [](field_id)

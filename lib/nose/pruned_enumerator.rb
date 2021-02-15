@@ -8,12 +8,13 @@ module NoSE
   # Produces potential indices to be used in schemas
   class PrunedIndexEnumerator < IndexEnumerator
     def initialize(workload, cost_model, is_entity_fields_shared_threshold,
-                   index_plan_step_threshold, index_plan_shared_threshold)
+                   index_plan_step_threshold, index_plan_shared_threshold, choice_limit_size: 3_000)
       @eq_threshold = 1
       @cost_model = cost_model
       @is_entity_fields_shared_threshold = is_entity_fields_shared_threshold
       @index_steps_threshold = index_plan_step_threshold
       @index_plan_shared_threshold = index_plan_shared_threshold
+      @choice_limit_size = choice_limit_size
       super(workload)
     end
 
@@ -23,9 +24,11 @@ module NoSE
       puts "entity_fields (pattern) size: " + entity_fields.size.to_s
       extra_fields = get_frequent_extra_choices queries
 
-      indexes = Parallel.flat_map(queries, in_processes: [Etc.nprocessors - 5, 10].min()) do |query|
-        #indexes = queries.flat_map do |query|
-        indexes_for_query(query, entity_fields[query], extra_fields).to_a
+      indexes = Parallel.flat_map(queries, in_processes: [Parallel.processor_count - 5, 0].max()) do |query|
+        idxs = indexes_for_query(query, entity_fields[query], extra_fields).to_a
+
+        puts query.comment + ": " + idxs.size.to_s if query.instance_of? Query
+        idxs
       end.uniq
       indexes += additional_indexes
 
@@ -95,7 +98,8 @@ module NoSE
 
     def get_trees(queries, indexes)
       planner = Plans::PrunedQueryPlanner.new @workload.model, indexes, @cost_model, @index_steps_threshold
-      Parallel.map(queries, in_processes: [Etc.nprocessors - 5, 10].min()) do |query|
+      #planner = Plans::QueryPlanner.new @workload.model, indexes, @cost_model
+      Parallel.map(queries, in_processes: [Parallel.processor_count - 5, 0].max()) do |query|
         planner.find_plans_for_query(query)
       end
     end
@@ -117,7 +121,23 @@ module NoSE
         indexes_for_graph graph, query.select, eq, range, entity_fields, extra_fields
       end.uniq << query.materialize_view
 
-      indexes
+      ignore_cluster_key_order query, indexes
+    end
+
+    def ignore_cluster_key_order(query, indexes)
+      pruned_indexes = indexes.uniq.sort_by{|i| i.hash_str}.dup
+      indexes.each_with_index do |target_index, idx|
+        next unless target_index.key_fields.size > (query.eq_fields + query.order).size
+        indexes[(idx + 1)..-1].select{|i| target_index.hash_fields == i.hash_fields and \
+                           target_index.order_fields.to_set == i.order_fields.to_set and \
+                           target_index.extra == i.extra}.each do |other_index|
+          variable_order_fields_size = [((query.eq_fields + query.order).to_set & target_index.key_fields).size - target_index.hash_fields.size, 0].max
+          if target_index.order_fields.take(variable_order_fields_size) == other_index.order_fields.take(variable_order_fields_size)
+            pruned_indexes = pruned_indexes.reject{|pi| pi == other_index}
+          end
+        end
+      end
+      pruned_indexes
     end
 
     # Produce the indexes necessary for support queries for these indexes
@@ -151,6 +171,17 @@ module NoSE
 
       ## Generate all possible indices based on the field choices
       choices = eq_choices.product(extra_choices)
+
+      choices_limit_size = @choice_limit_size
+      if choices.size > choices_limit_size
+        STDERR.puts "pruning choices from #{choices.size.to_s} to #{choices_limit_size}"
+
+        # sort choices to always get the same reduced-choices
+        choices = choices.sort_by do |choice|
+          (choice.first.map(&:id) + choice.last.map(&:id)).join(',')
+        end.take(choices_limit_size)
+      end
+
       indexes_for_choices(graph, choices, order_choices).uniq
     end
 

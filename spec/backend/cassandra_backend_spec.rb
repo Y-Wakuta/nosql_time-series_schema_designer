@@ -115,13 +115,14 @@ module NoSE
           'Link_LinkId' => nil,
           'Link_URL' => 'http://www.example.com/'
         }]
+        values = backend.add_value_hash(index, values)
         backend_insert = "INSERT INTO #{index.key} (\"Link_LinkId\", " \
-                         '"Link_URL") VALUES (?, ?)'
+                         '"Link_URL", value_hash ) VALUES (?, ?, ?)'
         expect(client).to receive(:prepare).with(backend_insert) \
           .and_return(backend_insert)
         expect(client).to receive(:execute) \
           .with(backend_insert, arguments: [kind_of(Cassandra::Uuid),
-                                            'http://www.example.com/'])
+                                            'http://www.example.com/', values.first['value_hash'].to_s])
 
         step_class = CassandraBackend::InsertStatementStep
         prepared = step_class.new client, index, [link['LinkId'], link['URL']]
@@ -147,7 +148,7 @@ module NoSE
       end
     end
 
-    describe CassandraBackend::AggregateStatementStep do
+    describe CassandraBackend::AggregationStatementStep do
       include_context 'dummy Cassandra backend'
 
       it 'aggregates result rows' do
@@ -171,7 +172,7 @@ module NoSE
         def results.last_page?
           true
         end
-        step_class = CassandraBackend::AggregateStatementStep
+        step_class = CassandraBackend::AggregationStatementStep
         prepared = step_class.new client, query.all_fields, query.conditions,
                                   step, nil, step.parent
         actual = prepared.process query.conditions, results, nil

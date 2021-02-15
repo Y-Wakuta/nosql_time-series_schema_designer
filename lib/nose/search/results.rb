@@ -75,8 +75,8 @@ module NoSE
       # Validate that the results of the search are consistent
       # @return [void]
       def validate
-        validate_indexes
         validate_query_indexes @plans
+        validate_indexes
         validate_update_indexes
 
         validate_query_set

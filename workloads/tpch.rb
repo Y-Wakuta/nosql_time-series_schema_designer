@@ -12,14 +12,6 @@ NoSE::Workload.new do
                   'l_shipmode=?, l_comment=? AND CONNECT TO to_partsupp(?), to_orders(?) -- 1'
     Q 'INSERT INTO orders SET o_orderkey=?, o_orderstatus=?, o_totalprice=?, o_orderdate=?, o_orderpriority=?, '\
                   'o_clerk=?, o_shippriority=?, o_comment=? AND CONNECT TO to_customer(?) -- 4'
-    #Q 'INSERT INTO part SET p_partkey=?, p_name=?, p_mfgr=?, p_brand=?, p_type=?, p_size=?, p_container=?, ' \
-    #              'p_retailprice=?, p_comment=? -- 2'
-    #Q 'INSERT INTO partsupp SET ps_partkey=?, ps_suppkey=?, ps_availqty=?, ps_supplycost=?, ps_comment=? ' \
-    #              'AND CONNECT TO to_part(?), to_supplier(?) -- 3'
-    #Q 'INSERT INTO nation SET n_nationkey=?, n_name=?, n_comment=? AND CONNECT TO to_region(?) -- 5'
-    #Q 'INSERT INTO region SET r_regionkey=?, r_name=?, r_comment=? -- 6'
-    #Q 'INSERT INTO supplier SET s_suppkey=?, s_name=?, s_address=?, s_phone=?, s_acctbal=?, s_comment=? '\
-    #              'AND CONNECT TO from_customer(?), to_nation(?) -- 7'
   end
 
   Group 'Group1', default: 1 do
@@ -392,7 +384,7 @@ NoSE::Workload.new do
        'FROM lineitem.to_orders.to_customer.to_nation '\
        'WHERE to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? AND lineitem.l_returnflag = ? '\
        'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
-       'GROUP BY to_customer.c_custkey -- Q10'
+       'GROUP BY o_custkey.c_custkey, o_custkey.c_name, o_custkey.c_acctbal, o_custkey.c_phone, c_nationkey.n_name, o_custkey.c_address, o_custkey.c_comment -- Q10'
 
     # === Q11 ===
     #   select

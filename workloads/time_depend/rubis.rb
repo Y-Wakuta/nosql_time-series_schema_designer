@@ -9,13 +9,13 @@ NoSE::TimeDependWorkload.new do
   DefaultMix :bidding
 
   #increase = [0.1, 3, 8, 20, 30, 5, 1, 0.01, 10, 100, 50, 10, 1, 0.1, 20]
-  increase = [0.1, 3, 8, 20]
+  #increase = [0.1, 3, 8, 20]
+  increase = (0..9).map{|i| 2 **i}
   decrease = increase.reverse
 
   timestep = increase.size
   TimeSteps timestep
-  Interval 120
-  IncludeMigrationCost false
+  Interval 200
 
   #increase_func = Proc.new() {|x_coef, t, y| (0..t).map{|t_| x_coef * t_ * t_ * t_ + y}}
   #decrease_func = Proc.new() {|x_coef, t, y| (0..t).map{|t_| [-x_coef * t_ * t_ * t_ + y, 0.001].max}}

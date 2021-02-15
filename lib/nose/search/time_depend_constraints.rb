@@ -54,6 +54,21 @@ module NoSE
       end
     end
 
+    class TimeDependIndexesWithoutPreparePlanNotMigrated
+      def self.apply(problem)
+        # migrate plan and its corresponding variables are not created for Support Queries.
+        # Therefore, no cost is calculated for the migration.
+        # So, force migrates vars to be 0 that do not have to migrate plans.
+       (problem.indexes - problem.trees.select{|t| t.query.instance_of? Query}.flat_map{|t| t.flat_map(&:indexes)}.uniq)
+         .each do |support_indexes|
+         (1...problem.timesteps).each do |ts|
+            constr_upper = MIPPeR::Constraint.new(problem.migrate_vars[support_indexes][ts] * 1.0,
+                                                 :==, 0)
+            problem.model << constr_upper
+         end
+       end
+      end
+    end
 
     # The single constraint used to enforce a maximum storage cost
     class TimeDependSpaceConstraint < Constraint
@@ -65,8 +80,10 @@ module NoSE
           if problem.data[:by_id_graph]
 
         size_gcd = problem.get_index_size_gcd
+        puts "index size gcd : " + size_gcd.to_s
         spaces = problem.total_size_each_timestep
         spaces.each do |space|
+          puts "index size constraint : " + (problem.data[:max_space] / size_gcd).to_s
           constr = MIPPeR::Constraint.new space, :<=,
                                           (problem.data[:max_space] / size_gcd) * 1.0,
                                           'max_space'

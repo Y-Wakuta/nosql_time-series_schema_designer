@@ -612,6 +612,7 @@ module NoSE
       collection :weights, exec_context: :decorator
       property :is_static
       property :timesteps
+      property :interval
 
       def workload_weights
         represented.instance_variable_get(:@time_depend_statement_weights)
@@ -641,23 +642,26 @@ module NoSE
       def call(_, input:, fragment:, represented:, **)
         workload = input.represented
         workload.instance_variable_set :@model, represented.model
+        workload.timesteps = fragment['timesteps']
+        workload.interval = fragment['interval']
+        workload.is_static = fragment['is_static'] if workload.is_a? TimeDependWorkload
 
         # Add all statements to the workload
         statement_weights = Hash.new { |h, k| h[k] = {} }
         fragment['weights'].each do |mix, weights|
           mix = mix.to_sym
           weights.each do |statement, weight|
-            statement_weights[statement][mix] = weight
+            # weight is multiplied by the interval and multiplied by interval again in add_statement method.
+            # therefore, devide weight by the interval twice
+            statement_weights[statement][mix] = weight.map{|w| w.to_f / (workload.interval * workload.interval)}
           end
         end
-        workload.timesteps = fragment['timesteps']
         fragment['statements'].each do |statement|
           workload.add_statement statement, statement_weights[statement],
                                  group: fragment['group']
         end
 
         workload.mix = fragment['mix'].to_sym unless fragment['mix'].nil?
-        workload.is_static = fragment['is_static'] if workload.is_a? TimeDependWorkload
 
         workload
       end

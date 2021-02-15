@@ -377,6 +377,12 @@ module NoSE
       def longest_path
         return KeyPath.new [@nodes.first.entity.id_field] if @nodes.size == 1
 
+        longest_path = longest_key_path()
+        KeyPath.new [longest_path.first.from.entity.id_field] +
+                    longest_path.map(&:key)
+      end
+
+      def longest_key_path
         longest_path = []
         @nodes.each do |node|
           next unless leaf_entity?(node.entity)
@@ -384,9 +390,20 @@ module NoSE
           longest_path = longest_path_visit node, Set.new([node]), [],
                                             longest_path
         end
+        longest_path
+      end
 
-        KeyPath.new [longest_path.first.from.entity.id_field] +
-                    longest_path.map(&:key)
+      def entities_in_outer_join_order(is_reverse_entity)
+        entity_pairs = []
+        key_path = is_reverse_entity ? longest_key_path.reverse : longest_key_path
+        key_path.each do |e|
+          entity_pairs << (
+            e.key.relationship == :one ?
+                {from: e.to.entity, to: e.from.entity} :
+                {to: e.to.entity, from: e.from.entity}
+          )
+        end
+        entity_pairs
       end
 
       # Output an image of the query graph

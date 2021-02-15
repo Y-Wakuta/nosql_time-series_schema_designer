@@ -283,11 +283,8 @@ module NoSE
         # Filter the total number of rows by filtering on non-hash fields
         cardinality = @index.per_hash_count * @state.hash_cardinality
 
-        # if index.order_fields has any field of @state.eq,
-        # the query should be executed with those fields as equality predicates for better performance.
-        # Since cardinality based on hash_fields is already considered in @index.per_hash_count,
-        # index.hash_fields are ignored.
-        eq_fields = @eq_filter + (@index.order_fields.to_set & @state.eq.to_set) - @index.hash_fields
+        # cassandra requires all prefix order_fields to be specified to use fields in order_fields
+        eq_fields = @eq_filter - @index.hash_fields
 
         @state.cardinality = Cardinality.filter cardinality,
                                                 eq_fields,
@@ -326,7 +323,8 @@ module NoSE
 
         # Find fields which are filtered by the index
         @eq_filter = @index.hash_fields + (@state.eq & order_prefix)
-        if order_prefix.include?(@state.range)
+        if order_prefix.include?(@state.range) \
+          or @index.hash_fields.include?(@state.range) # range_filter also could be adapted to hash_fields
           @range_filter = @state.range
           @state.range = nil
         else

@@ -36,26 +36,27 @@ module NoSE
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
         result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
         update_user_plans = result.time_depend_update_plans.first.plans_all_timestep
-        target_timestep = 0
-        updated_indexes = update_user_plans[target_timestep].plans.map(&:index).to_set
-        current_indexes_used_by_users = result.time_depend_plans
-                                            .select{|tdps| tdps.query.entity.name == 'users'}
-                                            .map{|p| p.plans.fetch(target_timestep)
-                                                         .map(&:index)
-                                            }
-                                            .flatten(1)
-                                            .to_set
+        [0, 1].each do |target_timestep|
+          updated_indexes = update_user_plans[target_timestep].plans.map(&:index).to_set
+          current_indexes_used_by_users = result.time_depend_plans
+                                              .select{|tdps| tdps.query.entity.name == 'users'}
+                                              .map{|p| p.plans.fetch(target_timestep)
+                                                           .map(&:index)
+                                              }
+                                              .flatten(1)
+                                              .to_set
 
-        next_indexes_used_by_users = result.time_depend_plans
-                                         .select{|tdps| tdps.query.entity.name == 'users'}
-                                         .map{|p| p.plans.fetch(target_timestep + 1)
-                                                      .map(&:index)
-                                         }
-                                         .flatten(1)
-                                         .to_set
+          next_indexes_used_by_users = result.time_depend_plans
+                                           .select{|tdps| tdps.query.entity.name == 'users'}
+                                           .map{|p| p.plans.fetch(target_timestep + 1)
+                                                        .map(&:index)
+                                           }
+                                           .flatten(1)
+                                           .to_set
 
-        new_indexes = next_indexes_used_by_users - current_indexes_used_by_users
-        expect(updated_indexes).to include(new_indexes)
+          new_indexes = next_indexes_used_by_users - current_indexes_used_by_users
+          expect(updated_indexes >= new_indexes).to be true
+        end
       end
 
       it 'gives migration plan if we ignore migration cost even when given high migration cost' do

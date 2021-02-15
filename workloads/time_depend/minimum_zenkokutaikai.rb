@@ -1,13 +1,11 @@
 # frozen_string_literal: true
 
-ts =4
+ts = 10
 NoSE::TimeDependWorkload.new do
   TimeSteps ts
-  Interval 7200
-  Model 'rubis_card'
+  Interval 4000
+  Model 'rubis'
   #Static true
-  #FirstTs true
-  #LastTs true
 
   def step_freq(start_ratio, end_ratio, timesteps)
     timesteps -= 1
@@ -17,11 +15,11 @@ NoSE::TimeDependWorkload.new do
     end
   end
 
-  step = step_freq(0.01, 0.99, ts)
+  step = step_freq(0.1, 0.9, ts)
 
   Group 'Test1', 1.0, default: step.reverse do
     Q 'SELECT users.* FROM users WHERE users.id=? -- 1'
-    Q 'SELECT users.* FROM users WHERE users.lastname = ? -- 0'
+    Q 'SELECT users.* FROM users WHERE users.firstname = ? -- 0'
     Q 'INSERT INTO users SET id = ?, firstname=?, lastname = ?, nickname=?, password=?,email=?,rating=?,balance=?,creation_date=? -- 2'
   end
 
