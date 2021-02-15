@@ -13,7 +13,7 @@ NoSE::TimeDependWorkload.new do
     end
   end
 
-  step = step_freq(0.001, 0.999, 6)
+  step = step_freq(0.001, 0.999, 2)
 
   frequencies = step
 

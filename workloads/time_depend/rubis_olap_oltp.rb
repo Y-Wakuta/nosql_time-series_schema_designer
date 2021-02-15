@@ -23,8 +23,8 @@ NoSE::TimeDependWorkload.new do
     end
   end
 
-  linear = linear_freq(0.001, 0.999, 10)
-  step = step_freq(0.001, 0.999, 10)
+  #linear = linear_freq(0.001, 0.999, 10)
+  step = step_freq(0.001, 0.999, 20)
   #step = step_freq(0.01, 0.99, 6)
 
   frequencies = step
