@@ -393,6 +393,33 @@ module NoSE
           expect(join_plans.size).to be > 0
         end
       end
+
+      it 'fields in clustering key and ORDER BY matches' do
+        tpch_workload = Workload.new do |_| Model('tpch')
+          Group 'Group1', default: 1 do
+            Q 'SELECT ps_suppkey.s_acctbal, ps_suppkey.s_name, s_nationkey.n_name, ps_suppkey.s_phone ' \
+              'FROM part.from_partsupp.ps_suppkey.s_nationkey ' \
+              'WHERE part.p_size = ? AND part.p_type = ? '\
+              'ORDER BY ps_suppkey.s_acctbal, s_nationkey.n_name, ps_suppkey.s_name -- Q2_outer'
+          end
+        end
+
+        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model,
+                                            1, 2, 1).indexes_for_workload
+        planner = QueryPlanner.new tpch_workload.model, indexes, cost_model
+        tpch_workload.statement_weights.select{|s| s.instance_of? Query}.keys.each do |q|
+          tree = planner.find_plans_for_query(q)
+          tree.each do |plan|
+            plan.each do |step|
+              next unless step.instance_of?(Plans::IndexLookupPlanStep)
+              next if step.order_by.empty?
+              step_order_by = step.index.hash_fields.to_a + step.index.order_fields
+              expect(step_order_by.drop_while{|o| (step.eq_filter - step.order_by).include? o}.take(step.order_by.size)).to be == step.order_by
+            end
+          end
+          expect(tree.size).to be > 0
+        end
+      end
     end
 
     describe PrunedQueryPlanner do

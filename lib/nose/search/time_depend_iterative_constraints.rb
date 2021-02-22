@@ -24,7 +24,7 @@ module NoSE
         (problem.indexes.to_set - chosen_indexes.to_set).each do |un_chosen_idxes|
           (0...problem.timesteps).each do |ts|
             constr = MIPPeR::Constraint.new problem.index_vars[un_chosen_idxes][ts] * 1.0,
-                                            :==, 0, name
+                                            :==, 0, "iterative_fix_#{un_chosen_idxes.key}_#{ts}"
             problem.model << constr
           end
         end
