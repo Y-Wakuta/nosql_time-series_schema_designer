@@ -25,6 +25,7 @@ module NoSE
       # Solve the index selection problem using MIPPeR
       # @return [Results]
       def solve_mipper(queries, indexes, update_plans, data)
+        puts "solve iteratively"
         @update_plans = update_plans
         @workload_timesteps = @workload.timesteps - 1
         @base_workload = @workload
@@ -40,6 +41,7 @@ module NoSE
         problem.add_whole_step_constraints
 
         STDERR.puts "execute whole optimization"
+        STDERR.puts "measure runtime: end pruning and start whole optimization: #{DateTime.now.strftime('%Q')}"
         problem.solve
 
         problem.result
@@ -51,8 +53,10 @@ module NoSE
         middle_ts = ((end_ts - start_ts) / 2).ceil + start_ts
         STDERR.puts "-=-=start : " + start_ts.to_s + " middle: " + middle_ts.to_s + " end: "  + end_ts.to_s
 
+        STDERR.puts "start constructing TimeDependIterativeProblem: #{Time.now}"
         problem = TimeDependIterativeProblem.new(queries, workload, data,
                                                  ts_indexes, @objective)
+        STDERR.puts "end constructing TimeDependIterativeProblem: #{Time.now}"
         problem.start_ts = start_ts
         problem.middle_ts = middle_ts
         problem.end_ts = end_ts
@@ -83,7 +87,7 @@ module NoSE
               puts "oldval" + oldval.map{|v| v.key}.sort().inspect
               puts "newval" + newval.map{|v| v.key}.sort().inspect
             end
-            oldval + newval
+            oldval & newval
           end
         end
         merged
@@ -103,8 +107,8 @@ module NoSE
       end
 
       def refresh_query_costs(query_weights, trees)
-        results = Parallel.map(trees, in_processes: Etc.nprocessors - 4) do |tree|
-          refresh_query_cost tree, tree.query, query_weights[tree.query]
+        results = Parallel.map(trees, in_processes: Parallel.processor_count / 2) do |tree|
+          refresh_query_cost tree, tree.query, query_weights.select{|q, w| q == tree.query}.values.first
         end
         costs = Hash[query_weights.each_key.map.with_index do |query, q|
           [query, results[q].first]
@@ -134,6 +138,7 @@ module NoSE
 
 
       def refresh_solver_params(indexes, workload, solver_params)
+        STDERR.puts "start refreshing solver params: #{Time.now}"
         solver_params = solver_params.dup
         query_weights = refresh_query_weights solver_params[:costs].keys.select{|q| q.instance_of? SupportQuery}, workload
 
@@ -151,16 +156,20 @@ module NoSE
           costs.merge!(solver_params[:migrate_prepare_plans].values
                            .flat_map{|v| v.values}
                            .map{|v| v[:costs]}
-                           .reduce(&:merge))
+                           .reduce(&:merge) || {})
         end
+        STDERR.puts "end refreshing solver params: #{Time.now}"
         solver_params
       end
 
       def setup_fixed_hash(result, ts_indexes, tss)
         result.indexes.zip(tss) do |indexes_ts|
           ts = indexes_ts.last
-          ts_indexes[ts] = Set.new if ts_indexes[ts].nil?
-          indexes_ts.first.each {|idx| ts_indexes[ts].add(idx)}
+          if ts_indexes[ts].nil?
+            ts_indexes[ts] = indexes_ts.first
+          else
+            ts_indexes[ts] &= indexes_ts.first
+          end
         end
       end
 
