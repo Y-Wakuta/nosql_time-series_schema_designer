@@ -16,6 +16,12 @@ module NoSE
       # @return [void]
       def self.apply_query(*_args)
       end
+
+      # Enumerate constraints. This method does not add constraints to model and gives constraints in array
+      # This method is for Parallel execution
+      def self.enumerate_constraints(problem)
+        throw NotImplementedError
+      end
     end
 
     # Constraints which force indexes to be present to be used

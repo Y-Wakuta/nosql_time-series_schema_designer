@@ -176,22 +176,22 @@ module NoSE
         (0...@timesteps).map do |ts|
           @indexes.map do |index|
             # calculating total_size with 'normalized' size reduce the objective value and gives more precise result.
-            @index_vars[index][ts] * (normarlized_size_hash[index] * 1.0)
+            @index_vars[index][ts] * normarlized_size_hash[index]
           end.reduce(&:+)
         end
       end
 
-      def get_index_size_gcd
-        @indexes.map(&:size).inject(&:gcd)
+      def get_index_size_normalizer
+        (10 ** (Math.log10(@indexes.map(&:size).max).to_i - 2)).to_f
       end
 
       # This method simply divides each index size by gcd.
       # General normalized that maps values to 0 to 1 produces, float value and increase computation costs
       def calculate_index_normalized_sizes
-        size_gcd = get_index_size_gcd
+        normalizer = get_index_size_normalizer
         normalized_size_hash = {}
         @indexes.each do |index|
-          normalized_size_hash[index] = index.size / size_gcd
+          normalized_size_hash[index] = index.size / normalizer
         end
         normalized_size_hash
       end
@@ -273,14 +273,12 @@ module NoSE
       # add variable for whether to create CF at the timestep
       # @return [void]
       def add_cf_creation_variables
-        STDERR.puts "whole indexes size is : #{@indexes.size.to_s}"
-        STDERR.puts "indexes used for query is : #{@trees.select{|t| t.query.instance_of? Query}.flat_map{|t| t.flat_map(&:indexes)}.uniq.size.to_s}"
         @migrate_vars = {}
         @indexes.each do |index|
           @migrate_vars[index] = {} if @migrate_vars[index].nil?
           # we do not need migrate_vars for timestep 0
           (1...@timesteps).each do |ts|
-            name = "s#{index.key}_#{ts - 1}_to_#{ts}" if ENV['NOSE_LOG'] == 'debug'
+            name = "creation_var#{index.key}_#{ts - 1}_to_#{ts}" if ENV['NOSE_LOG'] == 'debug'
             var = MIPPeR::Variable.new 0, 1, 0, :binary, name
             @model << var
             @migrate_vars[index][ts] = var
@@ -362,18 +360,21 @@ module NoSE
       # @return [void]
       def add_constraints
         constraints = [
-            TimeDependIndexPresenceConstraints,
-            TimeDependSpaceConstraint,
-            TimeDependCompletePlanConstraints,
-            TimeDependCreationConstraints,
-            TimeDependPrepareConstraints,
-            TimeDependPrepareTreeConstraints,
-            TimeDependIndexesWithoutPreparePlanNotMigrated,
-            TimeDependIndexCreatedAtUsedTimeStepConstraints
+          TimeDependIndexPresenceConstraints,
+          TimeDependSpaceConstraint,
+          TimeDependCompletePlanConstraints,
+          TimeDependCreationConstraints,
+          TimeDependPrepareConstraints,
+          TimeDependPrepareTreeConstraints,
+          TimeDependIndexesWithoutPreparePlanNotMigrated,
+          TimeDependIndexCreatedAtUsedTimeStepConstraints,
         ]
 
-        Parallel.each(constraints, in_threads: 7) { |constraint| constraint.apply self }
+        constraints.each do |constraint|
+          constraint.apply self
+        end
 
+        @model.update
         @logger.debug do
           "Added #{@model.constraints.count} constraints to model"
         end
