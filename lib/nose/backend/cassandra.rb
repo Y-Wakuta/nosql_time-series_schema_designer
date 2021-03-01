@@ -203,59 +203,6 @@ module NoSE
         query_index query
       end
 
-      def load_index_by_COPY(index, results)
-        starting = Time.now.utc
-        fields = index.all_fields.to_a
-        columns = fields.map(&:id)
-        columns << "value_hash"
-        formatted_result = format_result index, results
-
-        fail 'no data given to load on cassandra' if formatted_result.size == 0
-        inserting_try = 0
-        host_name = ""
-        begin
-          formatted_result.each_slice(500_000).each_with_index do |results_chunk, idx|
-            host_name = @hosts.sample(1).first
-            #Parallel.each_with_index(formatted_result.each_slice(2_000_000), in_processes: 2) do |results_chunk, idx|
-            Dir.mktmpdir do |dir|
-              file_name = "#{dir}/#{index.key}_#{idx}.csv"
-              g = File.open(file_name, "w") do |f|
-                f.puts(columns.join('|').to_s)
-                results_chunk.each {|row| f.puts(row.join('|'))}
-                f
-              end
-              STDERR.puts "  insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
-              ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
-              ret = system("cqlsh --connect-timeout=30000 --request-timeout=30000 #{host_name} -k #{@keyspace} "\
-                           "-e \"COPY #{index.key} (#{columns.join(',').to_s}) "\
-                           "FROM '#{file_name}' WITH DELIMITER='|' AND HEADER=TRUE\" > /dev/null")
-              fail "  loading error detected: #{index.key}" unless ret
-              g.close
-              sleep 100
-            end
-          end
-        rescue
-          STDERR.puts "  loading error detected for #{index.key}"
-          sleep 30 if results.size > 100_000
-          all_retries = 10
-          if inserting_try < all_retries
-            STDERR.puts "  once truncate record of #{index.key}"
-            ret = system("cqlsh --request-timeout=10000 #{host_name} -k #{@keyspace} -e \"TRUNCATE #{index.key}\"")
-            if ret
-              STDERR.puts "  truncate succeeded"
-              STDERR.puts "  retry inserting #{inserting_try} / #{all_retries}"
-              inserting_try += 1
-              sleep 30
-              retry
-            end
-            retry
-          end
-        end
-        GC.start
-        ending = Time.now.utc
-        STDERR.puts "loading through csv time: #{ending - starting} for #{results.size.to_s} records on #{index.key}"
-      end
-
       def load_index_by_cassandra_loader(index, results)
         starting = Time.now.utc
         fields = index.all_fields.to_a
