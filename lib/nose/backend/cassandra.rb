@@ -256,6 +256,44 @@ module NoSE
         STDERR.puts "loading through csv time: #{ending - starting} for #{results.size.to_s} records on #{index.key}"
       end
 
+      def unload_index_by_cassandra_unloader(index)
+        starting = Time.now.utc
+        fields = index.all_fields.to_a
+        columns = fields.map(&:id)
+        columns << "value_hash"
+
+        inserting_try = 0
+        records = nil
+        Dir.mktmpdir do |dir|
+          #file_name = "#{dir}/#{index.key}.csv"
+          file_name = "/tmp/__#{index.key}.csv"
+          host_name = @hosts.sample(1).first
+          ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
+          begin
+            hoge_time = Time.now
+            ret = system("./cassandra-unloader -f stdout -dateFormat \"yyyy-MM-dd\" -delim \"|\" -host #{host_name} " \
+                         "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\" > #{file_name}")
+            STDERR.puts "  unloading time for #{index.key} was #{Time.now - hoge_time}"
+            fail "data collecting error detected: #{index.key}" unless ret
+          rescue Exception => e
+            puts e
+            STDERR.puts "  query error detected for #{index.key}"
+            #sleep 30 if results.size > 100_000
+            all_retries = 10
+            if inserting_try < all_retries
+              STDERR.puts "  retry query #{inserting_try} / #{all_retries}"
+              inserting_try += 1
+              sleep 30
+              retry
+            end
+          end
+          records = CSV.open(file_name,col_sep: "|", headers: columns).map(&:to_h)
+        end
+        ending = Time.now.utc
+        STDERR.puts "unloading through csv time: #{ending - starting} for #{records.size.to_s} records on #{index.key}"
+        records
+      end
+
       # Produce an array of fields in the correct order for a CQL insert
       # @return [Array]
       def index_row(row, fields)

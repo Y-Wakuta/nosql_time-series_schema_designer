@@ -68,7 +68,10 @@ module NoSE
           next if query_plan.nil?
 
           unless index_loaded_hash[target_index]
-            values = index_records(query_plan.indexes, target_index.all_fields)
+            STDERR.puts "start get records from cf using cassandra-unloader"
+            start_unloading = Time.now
+            values = collect_records(query_plan.indexes)
+            STDERR.puts "end get records from cf using cassandra-unloader #{target_index.key}: #{Time.now - start_unloading}"
             obsolete_data = full_outer_join(values)
 
             STDERR.puts "collected data size for #{target_index.key} is #{obsolete_data.size}: #{Time.now}"
@@ -96,6 +99,14 @@ module NoSE
         Hash[indexes.map do |index|
           STDERR.puts "start collecting data from #{index.key} for the migration: #{Time.now}"
           values = @backend.index_records(index, required_fields).to_a
+          [index, values]
+        end]
+      end
+
+      def collect_records(indexes)
+        Hash[indexes.map do |index|
+          STDERR.puts "start collecting data from #{index.key} for the migration: #{Time.now}"
+          values = @backend.unload_index_by_cassandra_unloader(index)
           [index, values]
         end]
       end
@@ -134,8 +145,8 @@ module NoSE
               results << left_value.merge(right_value)
             end
           end
-        end.compact
-        puts "hash join done #{Time.now - starting}"
+        end
+        puts "hash join done results #{results.size} #{Time.now - starting}"
         results
       end
 
@@ -149,12 +160,14 @@ module NoSE
         result = []
         index_values.each_cons(2) do |former_index_value, next_index_value|
           puts "former index #{former_index_value[0].key} has #{former_index_value[1].size} records"
+          puts "former index #{former_index_value[0].hash_str}"
           puts "next index #{next_index_value[0].key} has #{next_index_value[1].size} records"
+          puts "next index #{next_index_value[0].hash_str}"
           puts "start join #{Time.now}"
           result += left_outer_join(former_index_value[0], former_index_value[1], next_index_value[0], next_index_value[1])
           result += left_outer_join(next_index_value[0], next_index_value[1], former_index_value[0], former_index_value[1])
-          puts "join done #{Time.now}"
           result.uniq!
+          puts "join done #{result.size} #{Time.now}"
         end
         result
       end
