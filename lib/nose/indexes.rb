@@ -224,8 +224,19 @@ module NoSE
       eq = materialized_view_eq join_order.first
       order_fields = materialized_view_order(join_order.first) - eq
 
+      # add composite key to prefix of order fields.
+      composed_keys = Statement.get_composed_keys eq + order_fields
+      order_fields += composed_keys unless composed_keys.nil?
+
       Index.new(eq, order_fields,
                 all_fields - (@eq_fields + @order).to_set, graph)
+    end
+
+    def self.get_composed_keys(key_fields)
+       composite_key_fields = key_fields
+                               .select{|i| i.instance_of?(Fields::IDField) and not i.composite_keys.nil?}
+                               .flat_map(&:composite_keys)
+       composite_key_fields unless key_fields.to_set >= composite_key_fields.to_set
     end
 
     private

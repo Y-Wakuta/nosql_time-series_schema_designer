@@ -11,6 +11,13 @@ module NoSE
     class CassandraBackend < Backend
       include Subtype
 
+      @@value_place_holder = {
+          :string => "_",
+          :date => Time.at(0),
+          :numeric => (-1.0e+5).to_i,
+          :uuid => Cassandra::Uuid.new("cd9747a1-b59c-4aca-a12e-65915bcd2768")
+      }
+
       def initialize(model, indexes, plans, update_plans, config)
         super
 
@@ -18,13 +25,6 @@ module NoSE
         @port = config[:port]
         @keyspace = config[:keyspace]
         @generator = Cassandra::Uuid::Generator.new
-
-        @@value_place_holder = {
-            :string => "_",
-            :date => Time.at(0),
-            :numeric => (-1.0e+5).to_i,
-            :uuid => Cassandra::Uuid.new("cd9747a1-b59c-4aca-a12e-65915bcd2768")
-        }
       end
 
       def self.remove_all_null_place_holder_row(rows)
@@ -50,7 +50,7 @@ module NoSE
         return @@value_place_holder[:numeric].to_i if field.is_a?(NoSE::Fields::IntegerField)
         return @@value_place_holder[:numeric].to_f if field.is_a?(NoSE::Fields::FloatField)
         return @@value_place_holder[:date] if field.instance_of?(NoSE::Fields::DateField)
-        return @@value_place_holder[:uuid] if field.instance_of?(NoSE::Fields::IDField) or field.instance_of?(NoSE::Fields::ForeignKeyField)
+        return @@value_place_holder[:uuid] if field.instance_of?(NoSE::Fields::IDField) or field.instance_of?(NoSE::Fields::ForeignKeyField) or field.instance_of?(NoSE::Fields::CompositeKeyField)
         fail "#{field.inspect}, #{field.class} is still not supported"
       end
 
@@ -203,59 +203,6 @@ module NoSE
         query_index query
       end
 
-      def load_index_by_COPY(index, results)
-        starting = Time.now.utc
-        fields = index.all_fields.to_a
-        columns = fields.map(&:id)
-        columns << "value_hash"
-        formatted_result = format_result index, results
-
-        fail 'no data given to load on cassandra' if formatted_result.size == 0
-        inserting_try = 0
-        host_name = ""
-        begin
-          formatted_result.each_slice(500_000).each_with_index do |results_chunk, idx|
-            host_name = @hosts.sample(1).first
-            #Parallel.each_with_index(formatted_result.each_slice(2_000_000), in_processes: 2) do |results_chunk, idx|
-            Dir.mktmpdir do |dir|
-              file_name = "#{dir}/#{index.key}_#{idx}.csv"
-              g = File.open(file_name, "w") do |f|
-                f.puts(columns.join('|').to_s)
-                results_chunk.each {|row| f.puts(row.join('|'))}
-                f
-              end
-              STDERR.puts "  insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
-              ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
-              ret = system("cqlsh --connect-timeout=30000 --request-timeout=30000 #{host_name} -k #{@keyspace} "\
-                           "-e \"COPY #{index.key} (#{columns.join(',').to_s}) "\
-                           "FROM '#{file_name}' WITH DELIMITER='|' AND HEADER=TRUE\" > /dev/null")
-              fail "  loading error detected: #{index.key}" unless ret
-              g.close
-              sleep 100
-            end
-          end
-        rescue
-          STDERR.puts "  loading error detected for #{index.key}"
-          sleep 30 if results.size > 100_000
-          all_retries = 10
-          if inserting_try < all_retries
-            STDERR.puts "  once truncate record of #{index.key}"
-            ret = system("cqlsh --request-timeout=10000 #{host_name} -k #{@keyspace} -e \"TRUNCATE #{index.key}\"")
-            if ret
-              STDERR.puts "  truncate succeeded"
-              STDERR.puts "  retry inserting #{inserting_try} / #{all_retries}"
-              inserting_try += 1
-              sleep 30
-              retry
-            end
-            retry
-          end
-        end
-        GC.start
-        ending = Time.now.utc
-        STDERR.puts "loading through csv time: #{ending - starting} for #{results.size.to_s} records on #{index.key}"
-      end
-
       def load_index_by_cassandra_loader(index, results)
         starting = Time.now.utc
         fields = index.all_fields.to_a
@@ -307,6 +254,44 @@ module NoSE
         GC.start
         ending = Time.now.utc
         STDERR.puts "loading through csv time: #{ending - starting} for #{results.size.to_s} records on #{index.key}"
+      end
+
+      def unload_index_by_cassandra_unloader(index)
+        starting = Time.now.utc
+        fields = index.all_fields.to_a
+        columns = fields.map(&:id)
+        columns << "value_hash"
+
+        inserting_try = 0
+        records = nil
+        Dir.mktmpdir do |dir|
+          #file_name = "#{dir}/#{index.key}.csv"
+          file_name = "/tmp/__#{index.key}.csv"
+          host_name = @hosts.sample(1).first
+          ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
+          begin
+            hoge_time = Time.now
+            ret = system("./cassandra-unloader -f stdout -dateFormat \"yyyy-MM-dd\" -delim \"|\" -host #{host_name} " \
+                         "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\" > #{file_name}")
+            STDERR.puts "  unloading time for #{index.key} was #{Time.now - hoge_time}"
+            fail "data collecting error detected: #{index.key}" unless ret
+          rescue Exception => e
+            puts e
+            STDERR.puts "  query error detected for #{index.key}"
+            #sleep 30 if results.size > 100_000
+            all_retries = 10
+            if inserting_try < all_retries
+              STDERR.puts "  retry query #{inserting_try} / #{all_retries}"
+              inserting_try += 1
+              sleep 30
+              retry
+            end
+          end
+          records = CSV.open(file_name,col_sep: "|", headers: columns).map(&:to_h)
+        end
+        ending = Time.now.utc
+        STDERR.puts "unloading through csv time: #{ending - starting} for #{records.size.to_s} records on #{index.key}"
+        records
       end
 
       # Produce an array of fields in the correct order for a CQL insert
@@ -459,7 +444,7 @@ module NoSE
         when [Fields::DateField]
           :timestamp
         when [Fields::IDField],
-            [Fields::ForeignKeyField]
+            [Fields::ForeignKeyField], [Fields::CompositeKeyField]
           :uuid
         end
       end

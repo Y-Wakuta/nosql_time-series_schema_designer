@@ -2,100 +2,112 @@
 
 module NoSE
   module Search
+    class EnumerableConstraint < Constraint
+       def self.apply(problem)
+        enumerate_constraints(problem).each {|c| problem.model << c}
+      end
+    end
+
     # Constraints which force indexes to be present to be used
-    class TimeDependIndexPresenceConstraints < Constraint
+    class TimeDependIndexPresenceConstraints < EnumerableConstraint
       # Add constraint for indices being present
-      def self.apply(problem)
+      def self.enumerate_constraints(problem)
         # constraint for Query or SupportQuery
-        problem.queries.reject{|q| q.is_a? MigrateSupportQuery}.each_with_index do |query, q|
-          problem.data[:costs][query].keys.uniq.each do |related_index|
-            (0...problem.timesteps).each do |ts|
+        problem_constraints = problem.queries.reject{|q| q.is_a? MigrateSupportQuery}.flat_map.with_index do |query, q|
+          problem.data[:costs][query].keys.uniq.flat_map do |related_index|
+            (0...problem.timesteps).map do |ts|
               name = "q#{q}_#{related_index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
-              constr = MIPPeR::Constraint.new problem.query_vars[related_index][query][ts] +
-                                                  problem.index_vars[related_index][ts] * -1,
+              MIPPeR::Constraint.new problem.query_vars[related_index][query][ts] +
+                                                problem.index_vars[related_index][ts] * -1,
                                               :<=, 0, name
-              problem.model << constr
+
             end
           end
         end
 
         # constraint for MigrateSupportQuery
         # if the index is created in the migration process, indexes for migration are required
-        (0...(problem.timesteps - 1)).each do |ts|
-          problem.queries.select{|q| q.is_a? MigrateSupportQuery}.each do |ms_query|
-            problem.data[:costs][ms_query].keys.uniq.each do |related_index|
+        problem_constraints += (0...(problem.timesteps - 1)).flat_map do |ts|
+          problem.queries.select{|q| q.is_a? MigrateSupportQuery}.flat_map do |ms_query|
+            problem.data[:costs][ms_query].keys.uniq.flat_map do |related_index|
               name = "ms_q_#{related_index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
-              constr = MIPPeR::Constraint.new problem.prepare_vars[related_index][ms_query][ts] +
-                                                  problem.index_vars[related_index][ts] * -1,
+              MIPPeR::Constraint.new problem.prepare_vars[related_index][ms_query][ts] +
+                                                problem.index_vars[related_index][ts] * -1,
                                               :<=, 0, name
-              problem.model << constr
             end
           end
         end
+        problem_constraints
       end
     end
 
-    class TimeDependCreationConstraints < Constraint
-      def self.apply(problem)
+     class TimeDependCreationConstraints < EnumerableConstraint
+      def self.enumerate_constraints(problem)
+        problem_constraints = []
         problem.indexes.each do |index|
           (1...problem.timesteps).each do |ts|
+            name = "creation_#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
             constr = MIPPeR::Constraint.new(problem.migrate_vars[index][ts] * 1.0 +
-                                                problem.index_vars[index][ts] * -1.0 +
-                                                problem.index_vars[index][ts - 1] * 1.0,
-                                            :>=, 0)
-            problem.model << constr
+                                              problem.index_vars[index][ts] * -1.0 +
+                                              problem.index_vars[index][ts - 1] * 1.0,
+                                            :>=, 0, name)
+            problem_constraints.append constr
 
+            name = "creation_upper_#{index.key}_#{ts}" if ENV['NOSE_LOG'] == 'debug'
             constr_upper = MIPPeR::Constraint.new(problem.migrate_vars[index][ts] * 1.0 +
-                                                      problem.index_vars[index][ts] * -1.0,
-                                                  :<=, 0)
-            problem.model << constr_upper
+                                                    problem.index_vars[index][ts] * -1.0,
+                                                  :<=, 0, name)
+            problem_constraints.append constr_upper
           end
         end
+        problem_constraints
       end
     end
 
-    class TimeDependIndexesWithoutPreparePlanNotMigrated
-      def self.apply(problem)
+    class TimeDependIndexesWithoutPreparePlanNotMigrated < EnumerableConstraint
+      def self.enumerate_constraints(problem)
+        problem_constraints = []
         # migrate plan and its corresponding variables are not created for Support Queries.
         # Therefore, no cost is calculated for the migration.
         # So, force migrates vars to be 0 that do not have to migrate plans.
-       (problem.indexes - problem.trees.select{|t| t.query.instance_of? Query}.flat_map{|t| t.flat_map(&:indexes)}.uniq)
-         .each do |support_indexes|
-         (1...problem.timesteps).each do |ts|
+        (problem.indexes - problem.trees.select{|t| t.query.instance_of? Query}.flat_map{|t| t.flat_map(&:indexes)}.uniq)
+          .each do |support_indexes|
+          (1...problem.timesteps).each do |ts|
             constr_upper = MIPPeR::Constraint.new(problem.migrate_vars[support_indexes][ts] * 1.0,
-                                                 :==, 0)
-            problem.model << constr_upper
-         end
-       end
+                                                  :==, 0)
+            problem_constraints.append constr_upper
+          end
+        end
+        problem_constraints
       end
     end
 
     # The single constraint used to enforce a maximum storage cost
-    class TimeDependSpaceConstraint < Constraint
-      # Add space constraint if needed
-      def self.apply(problem)
-        return unless problem.data[:max_space].finite?
+    class TimeDependSpaceConstraint < EnumerableConstraint
+      def self.enumerate_constraints(problem)
+        return [] unless problem.data[:max_space].finite?
 
         fail 'Space constraint not supported when grouping by ID graph' \
           if problem.data[:by_id_graph]
 
-        size_gcd = problem.get_index_size_gcd
-        puts "index size gcd : " + size_gcd.to_s
+        problem_constraints = []
+        normalizer = problem.get_index_size_normalizer
         spaces = problem.total_size_each_timestep
-        spaces.each do |space|
-          puts "index size constraint : " + (problem.data[:max_space] / size_gcd).to_s
+        spaces.each_with_index do |space, idx|
           constr = MIPPeR::Constraint.new space, :<=,
-                                          (problem.data[:max_space] / size_gcd) * 1.0,
-                                          'max_space'
-          problem.model << constr
+                                          (problem.data[:max_space] / normalizer.to_f) * 1.0,
+                                          "max_space_#{idx}"
+          problem_constraints.append constr
         end
+        problem_constraints
       end
     end
 
     # Constraints that force each query to have an available plan
     class TimeDependCompletePlanConstraints < CompletePlanConstraints
       # Add the discovered constraints to the problem
-      def self.add_query_constraints(query, q, constraints, problem, timestep)
+      def self.get_query_constraints(query, q, constraints, problem, timestep)
+        problem_constraints = []
         constraints.each do |entities, constraint|
           name = "q#{q}_#{entities.map(&:name).join '_'}_#{timestep}" \
               if ENV['NOSE_LOG'] == 'debug'
@@ -117,19 +129,20 @@ module NoSE
               constr_next_timestep= MIPPeR::Constraint.new constraint + next_timestep_migrate_var * -1.0,
                                                            :>=, 0, name
               constr_upper = MIPPeR::Constraint.new constraint, :<=, 1, name
-              problem.model << constr_current
-              problem.model << constr_next_timestep
-              problem.model << constr_upper
+              problem_constraints.append constr_current
+              problem_constraints.append constr_next_timestep
+              problem_constraints.append constr_upper
             else
               constr = MIPPeR::Constraint.new constraint + index_var * -1.0,
                                               :==, 0, name
-              problem.model << constr
+              problem_constraints.append constr
             end
           else
             constr = MIPPeR::Constraint.new constraint, :==, 1, name
-            problem.model << constr
+            problem_constraints.append constr
           end
         end
+        problem_constraints
       end
 
       # Find the index associated with the support query and make
@@ -143,7 +156,15 @@ module NoSE
         index_var
       end
 
+       # Ensure the previous index is available
+      def self.ensure_parent_index_available(index, index_var, parent_var, problem, q)
+        name = "q#{q}_#{index.key}_parent" if ENV['NOSE_LOG'] == 'debug'
+        MIPPeR::Constraint.new index_var * 1.0 + parent_var * -1.0,
+                                        :<=, 0, name
+      end
+
       def self.time_depend_complete_plan_constraint(query, q, problem, query_plan_step_vars, timesteps)
+        problem_constraints = []
         entities = query.join_order
         query_constraints_whole_time = (0...timesteps).map do |_|
           Hash[entities.each_cons(2).map do |e, next_e|
@@ -151,7 +172,7 @@ module NoSE
           end]
         end
 
-        query_constraints_whole_time.each_with_index do |query_constraints, ts|
+        query_constraints_whole_time.flat_map.with_index do |query_constraints, ts|
           first, last = setup_query_constraints(query_constraints, entities)
 
           problem.data[:costs][query].each do |index, (steps, _)|
@@ -161,26 +182,30 @@ module NoSE
             parent_index = steps.first.parent.parent_index
             next if parent_index.nil?
             parent_var = query_plan_step_vars[parent_index][query][ts]
-            ensure_parent_index_available(index, index_var, parent_var, problem, q)
+            problem_constraints.append ensure_parent_index_available(index, index_var, parent_var, problem, q)
           end
 
           # Ensure we have exactly one index on each component of the query graph
-          add_query_constraints query, q, query_constraints, problem, ts
+          problem_constraints += get_query_constraints(query, q, query_constraints, problem, ts)
+        end
+        problem_constraints
+      end
+
+      def self.enumerate_constraints(problem)
+        Parallel.flat_map(problem.queries.reject{|q| q.is_a? MigrateSupportQuery}, in_threads: Parallel.processor_count / 2) do |query, q|
+          time_depend_complete_plan_constraint(query, q, problem, problem.query_vars, problem.timesteps).map(&:clone)
         end
       end
 
-      # Add complete query plan constraints
-      def self.apply_query(query, q, problem)
-        return if query.is_a? MigrateSupportQuery
-        time_depend_complete_plan_constraint(query, q, problem, problem.query_vars, problem.timesteps)
+      def self.apply(problem)
+        enumerate_constraints(problem).each {|c| problem.model << c}
       end
     end
 
     class TimeDependPrepareConstraints < TimeDependCompletePlanConstraints
-      def self.add_query_constraints(query, q, constraints, problem, timestep)
+      def self.get_query_constraints(query, q, constraints, problem, timestep)
+        problem_constraints = []
         constraints.each do |entities, constraint|
-          name = "q#{q}_#{entities.map(&:name).join '_'}_#{timestep}" \
-              if ENV['NOSE_LOG'] == 'debug'
 
           index_var = time_depend_index_var problem, query, timestep
           # if index_var is nil, the index is not used in any query plan
@@ -191,24 +216,27 @@ module NoSE
 
             fail "if index_var exists, next_timestep_migrate_var also should exists" if next_timestep_migrate_var.nil?
 
+            name = "q#{q}_#{entities.map(&:name).join '_'}_#{timestep}" \
+              if ENV['NOSE_LOG'] == 'debug'
             # TODO: even if index_var and next_timestep_migrate_var are 0, constraint can take 1
             constr_next_timestep = MIPPeR::Constraint.new constraint + next_timestep_migrate_var * -1.0,
                                                           :==, 0, name
-            problem.model << constr_next_timestep
+            problem_constraints.append constr_next_timestep
           end
         end
+        problem_constraints
       end
 
-      # Add complete query plan constraints
-      def self.apply_query(query, q, problem)
-        return unless query.is_a? MigrateSupportQuery
-        time_depend_complete_plan_constraint(query, q, problem, problem.prepare_vars, problem.timesteps - 1)
+      def self.enumerate_constraints(problem)
+        Parallel.flat_map(problem.queries.select{|q| q.is_a? MigrateSupportQuery}.each_with_index, in_threads: Parallel.processor_count / 2) do |query, q|
+          time_depend_complete_plan_constraint(query, q, problem, problem.prepare_vars, problem.timesteps - 1)
+        end
       end
     end
 
-    class TimeDependPrepareTreeConstraints < Constraint
-      def self.apply_query(query, q, problem)
-        return unless query.is_a?(MigrateSupportQuery)
+    class TimeDependPrepareTreeConstraints < EnumerableConstraint
+      def self.enumerate_constraints(problem)
+        problem_constraints = []
         (0...(problem.timesteps - 1)).each do |ts|
           problem.migrate_prepare_plans.each do |index, query_trees|
             plan_expr = MIPPeR::LinExpr.new
@@ -217,24 +245,27 @@ module NoSE
             end
             constr = MIPPeR::Constraint.new plan_expr + problem.migrate_vars[index][ts + 1] * -1.0,
                                             :==,  0, "prepare_tree_constr_#{index.key}"
-            problem.model << constr
+            problem_constraints.append constr
           end
         end
+        problem_constraints
       end
     end
 
-    class TimeDependIndexCreatedAtUsedTimeStepConstraints < Constraint
-      def self.apply(problem)
-          problem.query_vars.each do |index, q_vars|
-            q_vars.each do |_, q_var|
-              (1...problem.timesteps).each do |ts|
-                constr = MIPPeR::Constraint.new q_var[ts] * 1.0 + problem.migrate_vars[index][ts] * -1.0, :>=,
-                                                0, "index_created_at_used_ts_#{index.key}"
-                problem.model << constr
-            end
-          end
+     class TimeDependIndexCreatedAtUsedTimeStepConstraints < EnumerableConstraint
+      def self.enumerate_constraints(problem)
+        problem_constraints = []
+        problem.query_vars.each do |index, q_vars|
+           q_vars.each do |_, q_var|
+             (1...problem.timesteps).each do |ts|
+               constr = MIPPeR::Constraint.new q_var[ts] * 1.0 + problem.migrate_vars[index][ts] * -1.0, :>=,
+                                               0, "index_created_at_used_ts_#{index.key}"
+               problem_constraints.append constr
+             end
+           end
         end
+        problem_constraints
       end
-    end
+     end
   end
 end

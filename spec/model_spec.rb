@@ -69,6 +69,26 @@ module NoSE
     end
   end
 
+  describe Fields::IDField do
+    it 'can dealt as Composite primary key' do
+      entity = Entity.new 'Foo' do
+        ID 'Bar', composite: ['Bae']
+        CompositeKey 'Bae'
+        Integer 'Baz'
+      end
+
+      expect(entity.id_field.id).to eq "Foo_Bar"
+      composite_keys = entity.id_field.composite_keys
+      expect(composite_keys.first.id).to eq "Foo_Bae"
+    end
+
+    it 'can deal with foreign key on composite key' do
+      workload = Workload.new do
+      end
+
+    end
+  end
+
   describe Fields::IntegerField do
     it 'can convert string literals' do
       expect(Fields::IntegerField.value_from_string '42').to eq 42

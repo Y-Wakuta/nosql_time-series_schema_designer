@@ -126,7 +126,7 @@ module NoSE
         query = tree.query
         plan_all_times = (0...@problem.timesteps).map do |ts|
           tree.find do |tree_plan|
-            tree_plan.indexes.to_set == @query_indexes[query][ts]
+            tree_plan.indexes.to_set == @query_indexes.select{|q, idxes| q == query}.values.first[ts]
           end
         end
 
@@ -181,6 +181,8 @@ module NoSE
             @problem.prepare_tree_vars[idx][support_query][timestep].value
           end
         end.first
+
+        return nil unless migrate_prepare_plans.has_key? new_index
 
         migrate_support_tree = migrate_prepare_plans[new_index][migrate_support_query][:tree]
         prepare_plan_for_the_timestep = migrate_support_tree.select do |plan|
@@ -280,10 +282,8 @@ module NoSE
           (@indexes[now + 1] - @indexes[now]).each do |new_index|
             #(indexes_used_in_plans(now + 1) - indexes_used_in_plans(now)).each do |new_index|
             prepare_plans = @migrate_plans.select{|mp| mp.start_time == now}.map{|mp| mp.prepare_plans}.flatten(1)
-            unless prepare_plans.any?{|pp| pp.index == new_index}
-              STDERR.puts "prepare plan not found for :" + new_index.inspect
-            end
-            fail 'no preparing plan for new CF provided' unless prepare_plans.any?{|pp| pp.index == new_index}
+
+            fail "prepare plan not found for :" + new_index.inspect unless prepare_plans.any?{|pp| pp.index == new_index}
           end
 
           #fail 'now + 1 does not match' unless @indexes[now + 1].to_set == indexes_used_in_plans(now + 1).to_set
@@ -375,7 +375,7 @@ module NoSE
       def validate_support_query_plans(plans, timestep)
         plans.each do |plan|
           fail InvalidResultsException unless \
-            plan.indexes.to_set == @query_indexes[plan.query][timestep]
+          plan.indexes.to_set == @query_indexes.select{|q, idxes| q == plan.query}.values.first[timestep]
         end
       end
 

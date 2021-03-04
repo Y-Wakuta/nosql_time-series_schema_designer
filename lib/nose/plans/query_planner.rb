@@ -439,46 +439,5 @@ module NoSE
         find_indexed_steps parent, state, indexes_by_joins
       end
     end
-
-    # this planner only look for IndexLookupStep
-    # prune some indexes based on some roles
-    class PreparingQueryPlanner < MigrateSupportSimpleQueryPlanner
-
-      def initialize(model, indexes, cost_model, target_index,  index_step_size_threshold)
-        @target_index = target_index
-        #indexes = remove_indexes_similar_to_target indexes, target_index
-
-        super(model, indexes, cost_model, index_step_size_threshold)
-      end
-
-      def find_plans_for_query(query)
-        tree = super(query)
-        fail 'migration support plan should include itself' unless tree.any? do |plan|
-          plan.indexes.size == 1 and plan.indexes.first == @target_index
-        end
-        tree
-      end
-
-      private
-
-      def remove_indexes_similar_to_target(indexes, target_index)
-        worth_indexes = indexes.select do |index|
-          next true if index == target_index # every preparing plan should have one plan consist of itself
-          next false if index.hash_fields == target_index.hash_fields \
-                          and index.all_fields == target_index.all_fields # no fields would be changed in this migration
-          true
-        end
-
-        # grouping used indexes and use only the first index
-        # Since Migration Support Query does not have ordering, non-hash_fields fields can be regarded as values simply
-        slim_indexes = worth_indexes.reject{|i| i == target_index}
-                           .group_by{|i| [i.hash_fields, (i.order_fields.to_set + i.extra).to_set]}
-                           .map do |_, index_group|
-          index_group.sort_by{|i| i.hash_str}.first
-        end << target_index
-
-        slim_indexes
-      end
-    end
   end
 end

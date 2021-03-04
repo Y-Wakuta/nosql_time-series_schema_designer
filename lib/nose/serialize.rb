@@ -45,7 +45,9 @@ module NoSE
           field = field_class.new fragment['name'], fragment['size']
         elsif field_class.ancestors.include? Fields::ForeignKeyField
           entity = user_options[:entity_map][fragment['entity']]
-          field = field_class.new fragment['name'], entity
+          field = field_class.new fragment['name'], entity, composite: fragment['composite_keys']
+        elsif field_class == Fields::IDField
+          field = field_class.new fragment['name'], composite: fragment['composite_keys']
         else
           field = field_class.new fragment['name']
         end
@@ -221,6 +223,12 @@ module NoSE
           if represented.is_a? Fields::ForeignKeyField
       end
       property :reverse, exec_context: :decorator
+
+      def composite_keys
+        represented.composite_keys \
+          if represented.instance_of?(Fields::IDField) or represented.instance_of?(Fields::ForeignKeyField)
+      end
+      collection :composite_keys, exec_context: :decorator, deserialize: FieldBuilder
     end
 
     # Reconstruct the fields of an entity

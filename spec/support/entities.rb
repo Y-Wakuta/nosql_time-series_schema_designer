@@ -52,6 +52,43 @@ module NoSE
                 saved_key: 'TweetIndex'
     end
 
+    let(:workload_composite_key) do
+      Workload.new do
+        (Entity 'User' do
+          ID     'UserId'
+          String 'Username', 10
+          String 'City', count: 5
+          String 'Country'
+
+          etc
+        end) * 10
+
+        (Entity 'Link' do
+          ID     'LinkId'
+          String 'URL'
+        end) * 100
+
+        (Entity 'Tweets' do
+          ID          'TweetId', composite: ['FollowerId']
+          CompositeKey 'FollowerId'
+          String     'Body', 140, count: 5
+          Date       'Timestamp'
+          Integer    'Retweets'
+        end) * 1000
+
+        HasOne 'User',    'Tweets',
+               'Tweets' => 'User'
+
+        HasOne 'Link',    'Tweets',
+               'Tweets' => 'Link'
+      end
+    end
+
+    let(:query_composite_key) do
+      Statement.parse 'SELECT Link.URL FROM Link.Tweets.User ' \
+                      'WHERE User.Username = ? AND Tweets.TweetId = ? LIMIT 5', workload_composite_key.model
+    end
+
     let(:users) do
       [{
         'User_UserId'   => '18a9a155-c9c7-43b5-9ab0-5967c49f56e9',

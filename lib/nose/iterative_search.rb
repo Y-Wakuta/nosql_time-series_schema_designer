@@ -168,6 +168,7 @@ module NoSE
           if ts_indexes[ts].nil?
             ts_indexes[ts] = indexes_ts.first
           else
+            fail 'fixed cf is not used' unless indexes_ts.first.to_set >= ts_indexes[ts].to_set
             ts_indexes[ts] &= indexes_ts.first
           end
         end

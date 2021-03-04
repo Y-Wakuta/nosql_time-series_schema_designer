@@ -80,6 +80,11 @@ module NoSE
         index = query.materialize_view
         expect(index.hash_fields.map(&:parent).uniq).to have(1).item
       end
+
+      it 'supports composite key' do
+        index = query_composite_key.materialize_view
+        expect(query_composite_key.eq_fields).to eq(index.hash_fields + index.order_fields.take(query_composite_key.eq_fields.size - index.hash_fields.size))
+      end
     end
 
     it 'can tell if it maps identities for a field' do

@@ -48,27 +48,32 @@ module NoSE
       def solve(previous_type = nil)
         return unless @status.nil?
 
-        log_model 'Model'
+        outputed_path = log_model 'Model'
         @model.update
         STDERR.puts "model variables: " + @model.variables.size.to_s
         STDERR.puts "model constraints: " + @model.constraints.size.to_s
         # Run the optimization
         starting = Time.now
+        STDERR.puts "start solving #{starting}"
         @model.optimize
-        ending = Time.now
-        STDERR.puts "optimization time: #{ending - starting}"
+        STDERR.puts "optimization time: #{Time.now - starting}"
 
         @status = model.status
-        fail NoSolutionException, @status if @status != :optimized
+        if @status != :optimized
+          STDERR.puts @objective_type.to_s
+          STDERR.puts "no solution model is written to #{outputed_path}"
+          outputed_path = log_model 'Model'
+          puts "no solution :" + outputed_path.to_s
+          fail NoSolutionException, @status
+        end
 
         # Store the objective value
         @objective_value = @obj_var.value
 
-        if @objective_type == Objective::COST
-          STDERR.puts "======================="
-          STDERR.puts @objective_value
-          STDERR.puts "======================="
-        end
+        STDERR.puts "current type is " + @objective_type.to_s
+        STDERR.puts "======================="
+        STDERR.puts @objective_value
+        STDERR.puts "======================="
 
         validate_model
 
@@ -164,8 +169,9 @@ module NoSE
       # Pin the current objective value and set a new objective
       # @return [void]
       def solve_next(objective_type)
-        allowed_diff = [@objective_value * 1.0e-10, 0.01].max
+        allowed_diff = [@objective_value * 1.0e-5, 0.01].max
         @obj_var.upper_bound = @objective_value + allowed_diff
+        @obj_var.lower_bound = @objective_value - allowed_diff
 
         if objective_type == Objective::INDEXES
           @objective_type = Objective::INDEXES
@@ -182,12 +188,11 @@ module NoSE
       # Write a model to a temporary file and log the file name
       # @return [void]
       def log_model(type)
-        @logger.debug do
-          tmpfile = Tempfile.new ['model', '.lp']
-          ObjectSpace.undefine_finalizer tmpfile
-          @model.write_lp tmpfile.path
-          "#{type} written to #{tmpfile.path}"
-        end
+        tmpfile = Tempfile.new ['model', '.lp']
+        ObjectSpace.undefine_finalizer tmpfile
+        @model.write_lp tmpfile.path
+        puts "#{type} written to #{tmpfile.path}"
+        tmpfile.path
       end
 
       # Build the ILP by creating all the variables and constraints
@@ -226,7 +231,7 @@ module NoSE
         @model << @obj_var
         @model.update
 
-        @model << MIPPeR::Constraint.new(obj + @obj_var * -1.0, :==, 0.0)
+        @model << MIPPeR::Constraint.new(obj + @obj_var * -1.0, :==, 0.0, "obj")
 
         @logger.debug { "Objective function is #{obj.inspect}" }
 

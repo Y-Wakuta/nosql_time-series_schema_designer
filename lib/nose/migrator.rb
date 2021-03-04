@@ -3,9 +3,10 @@ module NoSE
   module Migrator
     class Migrator
 
-      def initialize(backend, loader, loader_config, does_validate)
+      def initialize(backend, loader, result, loader_config, does_validate)
         @backend = backend
         @loader = loader
+        @result = result
         @loader_config = loader_config
         @validator = MigrateValidator.new(@backend, @loader, @loader_config)
         @does_validate = does_validate
@@ -13,29 +14,48 @@ module NoSE
         @thread = nil
       end
 
-      def migrate(result, timestep)
-        migration_plans = result.migrate_plans.select{|mp| mp.start_time == timestep}
+      def migrate(timestep)
+        return unless timestep < @result.timesteps - 1
+        migration_plans = @result.migrate_plans.select{|mp| mp.start_time == timestep}
+
+        index_loaded_hash = {}
+        get_under_constructing_indexes(timestep).each do |new_index|
+          index_loaded_hash[new_index] = false
+        end
 
         #Parallel.each(migration_plans, in_threads: 10) do |migration_plan|
         migration_plans.each do |migration_plan|
-          prepare_next_indexes(migration_plan)
+          prepare_next_indexes(migration_plan, index_loaded_hash)
         end
       end
 
-      def migrate_async(result, timestep)
-        @worker = NoSE::Worker.new {|_| migrate(result, timestep)}
+      def create_next_indexes(timestep)
+        get_under_constructing_indexes(timestep).uniq.each do |new_index|
+          @backend.create_index(new_index, true, true)
+          STDERR.puts new_index.key + " is created before query processing"
+        end
+      end
+
+      def migrate_async(timestep)
+        @worker = NoSE::Worker.new {|_| migrate(timestep)}
         [@worker].map(&:run).each(&:join)
         @thread = @worker.execute
         @thread.join
-        #[migration_worker, thread]
       end
 
       def stop
         @worker.stop
       end
 
+      def get_under_constructing_indexes(timestep)
+        return [] unless timestep < @result.timesteps - 1
+        next_indexes = @result.time_depend_indexes.indexes_all_timestep[timestep + 1].indexes.to_set
+        current_indexes = @result.time_depend_indexes.indexes_all_timestep[timestep].indexes.to_set
+        next_indexes - current_indexes
+      end
+
       # @param [MigratePlan, Backend]
-      def prepare_next_indexes(migrate_plan)
+      def prepare_next_indexes(migrate_plan, index_loaded_hash)
         STDERR.puts "\e[36m migrate from: \e[0m"
         migrate_plan.obsolete_plan&.map{|step| STDERR.puts '  ' + step.inspect}
         STDERR.puts "\e[36m to: \e[0m"
@@ -43,31 +63,33 @@ module NoSE
 
         migrate_plan.new_plan.steps.each do |new_step|
           next unless new_step.is_a? Plans::IndexLookupPlanStep
-          query_plan = migrate_plan.prepare_plans.find{|pp| pp.index == new_step.index}&.query_plan
+          target_index = new_step.index
+          query_plan = migrate_plan.prepare_plans.find{|pp| pp.index == target_index}&.query_plan
           next if query_plan.nil?
 
-          target_index = new_step.index
-          values = index_records(query_plan.indexes, target_index.all_fields)
-          obsolete_data = full_outer_join(values)
+          unless index_loaded_hash[target_index]
+            STDERR.puts "start get records from cf using cassandra-unloader"
+            start_unloading = Time.now
+            values = collect_records(query_plan.indexes)
+            STDERR.puts "end get records from cf using cassandra-unloader #{target_index.key}: #{Time.now - start_unloading}"
+            obsolete_data = full_outer_join(values)
 
-          STDERR.puts "===== creating index: #{target_index.key} for the migration"
-          unless @backend.index_exists?(target_index)
-            STDERR.puts @backend.create_index(target_index, true, false)
+            STDERR.puts "collected data size for #{target_index.key} is #{obsolete_data.size}: #{Time.now}"
+            @backend.load_index_by_cassandra_loader(target_index, obsolete_data)
+            STDERR.puts "===== creation done: #{target_index.key} for the migration"
+            index_loaded_hash[target_index] = true
           end
-          STDERR.puts "collected data size for #{target_index.key} is #{obsolete_data.size}"
-          @backend.load_index_by_COPY(target_index, obsolete_data)
-          STDERR.puts "===== creation done: #{target_index.key} for the migration"
 
           @validator.validate(target_index) if @does_validate
         end
       end
 
-      def exec_cleanup(result, timestep)
+      def exec_cleanup(timestep)
         STDERR.puts "cleanup"
-        migration_plans = result.migrate_plans.select{|mp| mp.start_time == timestep}
+        migration_plans = @result.migrate_plans.select{|mp| mp.start_time == timestep}
 
-        return if timestep + 1 == result.timesteps
-        next_ts_indexes = result.time_depend_indexes.indexes_all_timestep[timestep + 1].indexes
+        return if timestep + 1 == @result.timesteps
+        next_ts_indexes = @result.time_depend_indexes.indexes_all_timestep[timestep + 1].indexes
         drop_obsolete_tables(migration_plans, next_ts_indexes)
       end
 
@@ -75,48 +97,61 @@ module NoSE
 
       def index_records(indexes, required_fields)
         Hash[indexes.map do |index|
+          STDERR.puts "start collecting data from #{index.key} for the migration: #{Time.now}"
           values = @backend.index_records(index, required_fields).to_a
           [index, values]
         end]
       end
 
+      def collect_records(indexes)
+        Hash[indexes.map do |index|
+          STDERR.puts "start collecting data from #{index.key} for the migration: #{Time.now}"
+          values = @backend.unload_index_by_cassandra_unloader(index)
+          [index, values]
+        end]
+      end
+
       def left_outer_join(left_index, left_values, right_index, right_values)
-        overlap_fields = (left_index.all_fields & right_index.all_fields).to_a
+        overlap_key_fields = (left_index.all_fields & right_index.all_fields).select{|f| f.is_a? NoSE::Fields::IDField}
         right_index_hash = {}
 
         starting = Time.now
         # create hash for right values
         right_values.each do |right_value|
           next if Backend::CassandraBackend.remove_all_null_place_holder_row([right_value]).empty?
-
-          key_fields = overlap_fields.select{|f| f.is_a? NoSE::Fields::IDField}.map{|fi| right_value.slice(fi.id)}
+          key_fields = overlap_key_fields.map{|fi| right_value.slice(fi.id)}
           next if Backend::CassandraBackend.remove_all_null_place_holder_row(key_fields).empty?
 
-          key_fields = overlap_fields.select{|f| f.is_a? NoSE::Fields::IDField}.map{|fi| right_value[fi.id].to_s}.join(',')
+          key_fields = overlap_key_fields.map{|fi| right_value[fi.id].to_s}.join(',')
           key_fields = Zlib.crc32(key_fields)
-          if right_index_hash.has_key?(key_fields)
-            right_index_hash[key_fields] << right_value
-          else
+          if right_index_hash[key_fields].nil?
             right_index_hash[key_fields] = [right_value]
+          else
+            right_index_hash[key_fields] << right_value
           end
         end
-        #puts "left outer join hash creation done: #{Time.now - starting}"
+        puts "left outer join hash creation done: #{Time.now - starting}"
 
         results = []
         # iterate for left value to look for checking does related record exist
         left_values.each do |left_value|
-          related_key = overlap_fields.select{|f| f.is_a? NoSE::Fields::IDField}.map{|fi| left_value[fi.id].to_s}.join(',')
+          related_key = overlap_key_fields.map{|fi| left_value[fi.id].to_s}.join(',')
           related_key = Zlib.crc32(related_key)
-          if right_index_hash.has_key?(related_key)
-            right_index_hash[related_key].each do |right_value|
+          right_records = right_index_hash[related_key]
+          if right_records.nil?
+            results << join_with_empty_record(left_value, right_index)
+          else
+            right_records.each do |right_value|
               results << left_value.merge(right_value)
             end
-          else
-            results << left_value.merge(@backend.create_empty_record(right_index))
           end
-        end.compact
-        #puts "hash join done #{Time.now - starting}"
+        end
+        puts "hash join done results #{results.size} #{Time.now - starting}"
         results
+      end
+
+      def join_with_empty_record(value, empty_record_index)
+        Backend::CassandraBackend.create_empty_record(empty_record_index).merge(value)
       end
 
       def full_outer_join(index_values)
@@ -124,11 +159,15 @@ module NoSE
 
         result = []
         index_values.each_cons(2) do |former_index_value, next_index_value|
-          #puts "former index #{former_index_value[0].key} has #{former_index_value[1].size} records"
-          #puts "next index #{next_index_value[0].key} has #{next_index_value[1].size} records"
+          puts "former index #{former_index_value[0].key} has #{former_index_value[1].size} records"
+          puts "former index #{former_index_value[0].hash_str}"
+          puts "next index #{next_index_value[0].key} has #{next_index_value[1].size} records"
+          puts "next index #{next_index_value[0].hash_str}"
+          puts "start join #{Time.now}"
           result += left_outer_join(former_index_value[0], former_index_value[1], next_index_value[0], next_index_value[1])
           result += left_outer_join(next_index_value[0], next_index_value[1], former_index_value[0], former_index_value[1])
           result.uniq!
+          puts "join done #{result.size} #{Time.now}"
         end
         result
       end
@@ -162,7 +201,7 @@ module NoSE
       private
 
       def data_on_mysql(index)
-        raw_results = @loader.query_for_index index, nil, @loader_config
+        raw_results = @loader.query_for_index_full_outer_join index, nil, @loader_config
 
         results_on_mysql = raw_results.map do |row|
           row.each do |f, v|
