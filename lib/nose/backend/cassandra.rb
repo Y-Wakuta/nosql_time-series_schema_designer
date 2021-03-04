@@ -11,6 +11,13 @@ module NoSE
     class CassandraBackend < Backend
       include Subtype
 
+      @@value_place_holder = {
+          :string => "_",
+          :date => Time.at(0),
+          :numeric => (-1.0e+5).to_i,
+          :uuid => Cassandra::Uuid.new("cd9747a1-b59c-4aca-a12e-65915bcd2768")
+      }
+
       def initialize(model, indexes, plans, update_plans, config)
         super
 
@@ -18,13 +25,6 @@ module NoSE
         @port = config[:port]
         @keyspace = config[:keyspace]
         @generator = Cassandra::Uuid::Generator.new
-
-        @@value_place_holder = {
-            :string => "_",
-            :date => Time.at(0),
-            :numeric => (-1.0e+5).to_i,
-            :uuid => Cassandra::Uuid.new("cd9747a1-b59c-4aca-a12e-65915bcd2768")
-        }
       end
 
       def self.remove_all_null_place_holder_row(rows)
@@ -50,7 +50,7 @@ module NoSE
         return @@value_place_holder[:numeric].to_i if field.is_a?(NoSE::Fields::IntegerField)
         return @@value_place_holder[:numeric].to_f if field.is_a?(NoSE::Fields::FloatField)
         return @@value_place_holder[:date] if field.instance_of?(NoSE::Fields::DateField)
-        return @@value_place_holder[:uuid] if field.instance_of?(NoSE::Fields::IDField) or field.instance_of?(NoSE::Fields::ForeignKeyField)
+        return @@value_place_holder[:uuid] if field.instance_of?(NoSE::Fields::IDField) or field.instance_of?(NoSE::Fields::ForeignKeyField) or field.instance_of?(NoSE::Fields::CompositeKeyField)
         fail "#{field.inspect}, #{field.class} is still not supported"
       end
 
@@ -406,7 +406,7 @@ module NoSE
         when [Fields::DateField]
           :timestamp
         when [Fields::IDField],
-            [Fields::ForeignKeyField]
+            [Fields::ForeignKeyField], [Fields::CompositeKeyField]
           :uuid
         end
       end
