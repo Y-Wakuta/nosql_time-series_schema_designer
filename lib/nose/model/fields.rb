@@ -253,8 +253,14 @@ module NoSE
       alias entity parent
 
       def initialize(name, **options)
+        @composite_key = options.delete(:composite)
         super(name, 16, **options)
         @primary_key = true
+      end
+
+      def composite_keys
+        return nil if @composite_key.nil?
+        @composite_key.map {|c| c.include?(".") ? @parent[c.split(".").last] : @parent[c]}
       end
 
       # Return the String parameter as-is
@@ -288,6 +294,21 @@ module NoSE
       def cardinality
         @entity.count || super
       end
+
+      def composite_keys
+        return nil if @composite_key.nil?
+        @composite_key.map do |c|
+          Hash["name" => c["name"].include?(".") ? @parent[c["name"].split(".").last] : @parent[c["name"]],
+               "related_key" => c["related_key"].include?(".") ? @entity[c["related_key"].split(".").last] : @entity[c["related_key"]]]
+        end
+      end
     end
+
+    class CompositeKeyField < IDField
+        def initialize(name, **options)
+          super(name, **options)
+          @primary_key = false
+        end
+      end
   end
 end
