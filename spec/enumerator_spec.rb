@@ -97,5 +97,18 @@ module NoSE
                                                user['Tweets']])
       expect(indexes.size).to be 28
     end
+
+    it 'produce index for query that uses composite key' do
+      model = workload_composite_key.model
+      workload_composite_key.add_statement Statement.parse 'SELECT Link.URL FROM Link.Tweets.User ' \
+                      'WHERE User.Username = ? AND Tweets.TweetId = ? LIMIT 5', model
+      enum = IndexEnumerator.new workload_composite_key
+      indexes = enum.indexes_for_workload
+      indexes.each do |index|
+        if index.key_fields.include? model["Tweets"]["TweetId"]
+          expect(index.key_fields.to_set).to be >= Set.new([model["Tweets"]["TweetId"], model["Tweets"]["FollowerId"]])
+        end
+      end
+    end
   end
 end

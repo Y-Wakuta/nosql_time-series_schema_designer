@@ -178,8 +178,15 @@ module NoSE
             extra_fields = extra - hash_fields - order_fields
             next if order_fields.empty? && extra_fields.empty?
 
-            generate_index hash_fields, order_fields, extra_fields, graph
-          end
+            generated_indexes = []
+            if Statement.get_composed_keys(hash_fields + order_fields).nil?
+              generated_indexes << generate_index(hash_fields, order_fields, extra_fields, graph)
+            else
+              generated_indexes << generate_index_with_composite_key_in_place(hash_fields, order_fields, extra_fields, graph)
+              generated_indexes << generate_index_with_composite_key_prefix_order(hash_fields, order_fields, extra_fields, graph)
+            end
+            generated_indexes
+          end.flatten(1)
         end
 
         indexes.compact.uniq
@@ -203,6 +210,27 @@ module NoSE
       # Generate all possible indices based on the field choices
       choices = eq_choices.product(extra_choices)
       indexes_for_choices graph, choices, order_choices
+    end
+
+    def generate_index_with_composite_key_in_place(hash, order, extra, graph)
+      composed_keys = Statement.get_composed_keys hash
+      _hash = hash.dup
+      _hash += composed_keys unless composed_keys.nil?
+      _order = []
+      order.each do |o|
+        _order << o
+        next unless o.instance_of?(Fields::IDField)
+        next if o.composite_keys.nil?
+        _order += o.composite_keys
+      end
+      generate_index(_hash, _order, extra, graph)
+    end
+
+    def generate_index_with_composite_key_prefix_order(hash, order, extra, graph)
+      composed_keys = Statement.get_composed_keys hash + order
+      order_prefix_composite = order.dup
+      order_prefix_composite += composed_keys unless composed_keys.nil?
+      generate_index(hash, order_prefix_composite, extra, graph)
     end
 
     # Generate a new index and ignore if invalid
