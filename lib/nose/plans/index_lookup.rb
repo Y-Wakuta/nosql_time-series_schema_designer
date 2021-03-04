@@ -106,18 +106,22 @@ module NoSE
           parent_index.graph.entities.include? entity
         end
         parent_ids = Set.new [last_parent_entity.id_field]
+        parent_ids += parent_ids.flat_map(&:composite_keys).compact
         has_ids = parent_ids.subset? parent_index.all_fields
 
+        hash_order_prefix = index.hash_fields + index.order_fields.take((parent_ids - index.hash_fields).size)
         # If the last step gave an ID, we must use it
         # XXX This doesn't cover all cases
-        return true if has_ids && index.hash_fields.to_set != parent_ids
+        return true if has_ids && hash_order_prefix.to_set != parent_ids
 
         # If we're looking up from a previous step, only allow lookup by ID
         return true unless (index.graph.size == 1 &&
           parent_index.graph != index.graph) ||
-          index.hash_fields == parent_ids
+          hash_order_prefix == parent_ids
 
         return true if is_useless_parent?(state, index, parent_index)
+
+        return true unless is_both_have_composite_key?(state, index, parent_index)
 
         false
       end
@@ -158,6 +162,21 @@ module NoSE
         return true if state.query.eq_fields >= index.hash_fields and \
                       (index.hash_fields + index.order_fields.to_set) >= state.query.eq_fields and \
                       index.all_fields >= state.fields
+
+        false
+      end
+
+      def self.is_both_have_composite_key?(state, index, parent_index)
+        overlapped_key_fields = (index.key_fields & parent_index.all_fields).select{|kf| kf.primary_key?}.to_set
+        current_composite_keys = overlapped_key_fields.flat_map(&:composite_keys).compact.to_set
+        return true if current_composite_keys.empty?
+        return false unless parent_index.key_fields.to_set >= current_composite_keys
+
+        join_keys = overlapped_key_fields + current_composite_keys
+        return true if index.hash_fields.to_set >= current_composite_keys or \
+                            index.order_fields.drop_while{|of| state.eq.include? of}
+                                 .take((join_keys - index.hash_fields - state.eq).size)
+                                 .to_set == (join_keys - index.hash_fields - state.eq).to_set
 
         false
       end
@@ -323,6 +342,10 @@ module NoSE
 
         # Find fields which are filtered by the index
         @eq_filter = @index.hash_fields + (@state.eq & order_prefix)
+
+        # composite key should be added only if the keys are used for join.
+        # Therefore, the first step of the plan does not have to have composite keys to its eq_filter
+        @eq_filter += @eq_filter.select(&:primary_key?).flat_map(&:composite_keys).compact unless parent.instance_of?(Plans::RootPlanStep)
         if order_prefix.include?(@state.range) \
           or @index.hash_fields.include?(@state.range) # range_filter also could be adapted to hash_fields
           @range_filter = @state.range
