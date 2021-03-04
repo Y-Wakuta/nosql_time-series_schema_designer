@@ -40,7 +40,7 @@ module NoSE
         index = Index.new [user['City']], [user['UserId'], tweet['TweetId']],
                           [tweet['Timestamp'], tweet['Body']],
                           QueryGraph::Graph.from_path(
-                              [user.id_field, user['Tweets']]
+                            [user.id_field, user['Tweets']]
                           )
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT Tweet.Body FROM Tweet.User ' \
@@ -49,8 +49,8 @@ module NoSE
 
         tree = planner.find_plans_for_query query
         steps = [
-            IndexLookupPlanStep.new(index),
-            SortPlanStep.new([tweet['Timestamp']])
+          IndexLookupPlanStep.new(index),
+          SortPlanStep.new([tweet['Timestamp']])
         ]
         steps.each { |step| step.calculate_cost cost_model }
         expect(tree.first).to eq steps
@@ -61,7 +61,7 @@ module NoSE
         index1 = Index.new [user['UserId']], [tweet['TweetId']],
                            [user['Username']],
                            QueryGraph::Graph.from_path(
-                               [user.id_field, user['Tweets']]
+                             [user.id_field, user['Tweets']]
                            )
         index2 = Index.new [tweet['TweetId']], [], [tweet['Body']],
                            QueryGraph::Graph.from_path([tweet.id_field])
@@ -70,9 +70,9 @@ module NoSE
                                 'User.UserId = ? ORDER BY User.Username',
                                 workload.model
         expect(planner.min_plan(query)).to eq [
-                                                  IndexLookupPlanStep.new(index1),
-                                                  SortPlanStep.new([user['Username']]),
-                                                  IndexLookupPlanStep.new(index2)
+                                                IndexLookupPlanStep.new(index1),
+                                                SortPlanStep.new([user['Username']]),
+                                                IndexLookupPlanStep.new(index2)
                                               ]
       end
 
@@ -92,7 +92,7 @@ module NoSE
         index = Index.new [user['UserId']], [tweet['TweetId']],
                           [tweet['Timestamp'], tweet['Body']],
                           QueryGraph::Graph.from_path(
-                              [user.id_field, user['Tweets']]
+                            [user.id_field, user['Tweets']]
                           )
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT Tweet.Body FROM Tweet.User ' \
@@ -101,9 +101,9 @@ module NoSE
 
         tree = planner.find_plans_for_query query
         steps = [
-            IndexLookupPlanStep.new(index),
-            SortPlanStep.new([tweet['Timestamp']]),
-            LimitPlanStep.new(5)
+          IndexLookupPlanStep.new(index),
+          SortPlanStep.new([tweet['Timestamp']]),
+          LimitPlanStep.new(5)
         ]
         steps.each { |step| step.calculate_cost cost_model }
         expect(tree.first).to eq steps
@@ -123,12 +123,12 @@ module NoSE
                            [tweet['Timestamp'], tweet['TweetId']],
                            [tweet['Body']],
                            QueryGraph::Graph.from_path(
-                               [user.id_field, user['Tweets']]
+                             [user.id_field, user['Tweets']]
                            )
         index2 = Index.new [user['UserId']], [tweet['TweetId']],
                            [tweet['Timestamp'], tweet['Body']],
                            QueryGraph::Graph.from_path(
-                               [user.id_field, user['Tweets']]
+                             [user.id_field, user['Tweets']]
                            )
         planner = QueryPlanner.new workload.model, [index1, index2], cost_model
         query = Statement.parse 'SELECT Tweet.Body FROM Tweet.User WHERE ' \
@@ -137,11 +137,11 @@ module NoSE
 
         tree = planner.find_plans_for_query query
         expect(tree.to_a).to match_array [
-                                             [IndexLookupPlanStep.new(index1)],
-                                             [
-                                                 IndexLookupPlanStep.new(index2),
-                                                 SortPlanStep.new([tweet['Timestamp']])
-                                             ]
+                                           [IndexLookupPlanStep.new(index1)],
+                                           [
+                                             IndexLookupPlanStep.new(index2),
+                                             SortPlanStep.new([tweet['Timestamp']])
+                                           ]
                                          ]
       end
 
@@ -149,7 +149,7 @@ module NoSE
         index = Index.new [tweet['TweetId']], [],
                           [tweet['Body'], tweet['Timestamp']],
                           QueryGraph::Graph.from_path(
-                              [tweet.id_field]
+                            [tweet.id_field]
                           )
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT Tweet.Body FROM Tweet ' \
@@ -164,7 +164,7 @@ module NoSE
         index = Index.new [tweet['TweetId']], [],
                           [tweet['Body'], tweet['Timestamp']],
                           QueryGraph::Graph.from_path(
-                              [tweet.id_field]
+                            [tweet.id_field]
                           )
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT Tweet.Body FROM Tweet WHERE ' \
@@ -181,7 +181,7 @@ module NoSE
         index = Index.new [tweet['TweetId']], [],
                           [tweet['Body']],
                           QueryGraph::Graph.from_path(
-                              [tweet.id_field]
+                            [tweet.id_field]
                           )
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT count(Tweet.Body) FROM Tweet WHERE ' \
@@ -195,12 +195,12 @@ module NoSE
         parent_index = Index.new [tweet['Body']], [tweet['TweetId']],
                                  [],
                                  QueryGraph::Graph.from_path(
-                                     [tweet.id_field]
+                                   [tweet.id_field]
                                  )
         index = Index.new [tweet['TweetId']], [],
                           [tweet['Timestamp']],
                           QueryGraph::Graph.from_path(
-                              [tweet.id_field])
+                            [tweet.id_field])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
         query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Timestamp FROM Tweet WHERE ' \
                                 'Tweet.Body = ?', workload.model
@@ -217,16 +217,81 @@ module NoSE
         parent_index = Index.new [tweet['Body']], [tweet['TweetId']],
                                  [tweet['Retweets']],
                                  QueryGraph::Graph.from_path(
-                                     [tweet.id_field]
+                                   [tweet.id_field]
                                  )
         index = Index.new  [tweet['TweetId']], [tweet['Retweets']],
                            [tweet['Timestamp']],
                            QueryGraph::Graph.from_path(
-                               [tweet.id_field])
+                             [tweet.id_field])
         planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
         tree = planner.find_plans_for_query(query)
         expect(tree).to have(1).plan
         expect(tree.first.steps.last.class).to be AggregationPlanStep
+      end
+
+      it 'can apply composite key in query planning' do
+        workload_comp = workload_composite_key
+        user_comp = workload_comp.model["User"]
+        tweet_comp = workload_comp.model["Tweets"]
+        model = workload_comp.model
+        query =  Statement.parse 'SELECT Tweets.Body, Tweets.Timestamp FROM Tweets.User ' \
+                      'WHERE User.Username = ? AND Tweets.TweetId = ? LIMIT 5', model
+        workload_comp.add_statement query
+
+        #============================
+        # composite key should be included
+        #============================
+        single_parent_index = Index.new [user_comp['Username']],
+                                        [user_comp['UserId'], tweet_comp['TweetId']], [],
+                                        QueryGraph::Graph.from_path([user_comp.id_field, user_comp['Tweets']])
+        single_last_index = Index.new [tweet_comp['TweetId']] , [],
+                                      [tweet_comp['Body'], tweet_comp['Timestamp']], QueryGraph::Graph.from_path([tweet_comp.id_field])
+        planner = QueryPlanner.new workload_comp.model, [single_parent_index, single_last_index], cost_model
+        # join should use all of composite key to join CF
+        expect { planner.find_plans_for_query query }.to raise_error NoPlanException
+
+        #============================
+        # composite key should be included in hash_field or prefix order_fields
+        #============================
+        composite_parent_index = Index.new [user_comp['Username']],
+                                           [user_comp['UserId'], tweet_comp['TweetId'], tweet_comp['FollowerId']], [],
+                                           QueryGraph::Graph.from_path([user_comp.id_field, user_comp['Tweets']])
+        composite_last_index = Index.new [tweet_comp['TweetId']] , [tweet_comp['Body'],tweet_comp['FollowerId']],
+                                         [ tweet_comp['Timestamp']], QueryGraph::Graph.from_path([tweet_comp.id_field])
+        planner = QueryPlanner.new workload_comp.model, [composite_parent_index, composite_last_index], cost_model
+        expect { planner.find_plans_for_query query }.to raise_error NoPlanException
+
+        #============================
+        # primary key and composite key can exist both in hash_field and prefix order_field
+        #============================
+        composite_parent_index = Index.new [user_comp['Username']],
+                                           [user_comp['UserId'], tweet_comp['TweetId'], tweet_comp['FollowerId']], [],
+                                           QueryGraph::Graph.from_path([user_comp.id_field, user_comp['Tweets']])
+        composite_last_index1 = Index.new [tweet_comp['TweetId']] , [tweet_comp['FollowerId']],
+                                          [tweet_comp['Body'], tweet_comp['Timestamp']], QueryGraph::Graph.from_path([tweet_comp.id_field])
+        composite_last_index2 = Index.new [tweet_comp['TweetId'], tweet_comp['FollowerId']], [],
+                                          [tweet_comp['Body'], tweet_comp['Timestamp']], QueryGraph::Graph.from_path([tweet_comp.id_field])
+        planner = QueryPlanner.new workload_comp.model, [composite_parent_index, composite_last_index1, composite_last_index2], cost_model
+        tree = planner.find_plans_for_query(query)
+        expect(tree.to_a.size).to be 2
+      end
+
+      it 'can select part of composite key' do
+        workload_comp = workload_composite_key
+        tweet_comp = workload_comp.model["Tweets"]
+        model = workload_comp.model
+        query =  Statement.parse 'SELECT Tweets.FollowerId FROM Tweets ' \
+                      'WHERE Tweets.TweetId = ?', model
+        workload_comp.add_statement query
+
+        single_last_index = Index.new [tweet_comp['TweetId']] , [tweet_comp['FollowerId']],
+                                      [tweet_comp['Body']], QueryGraph::Graph.from_path([tweet_comp.id_field])
+        planner = QueryPlanner.new workload_comp.model, [single_last_index], cost_model
+        plan =  planner.min_plan query
+
+        # If the plan is MV plan, that should not have composite key.
+        # As long as the query does not specify composite key, composite key should no specified for the first step
+        expect(plan.steps.first.eq_filter).to eq(Set.new([tweet_comp['TweetId']]))
       end
 
       context 'when updating cardinality' do
@@ -269,7 +334,7 @@ module NoSE
           index = Index.new [user['UserId']], [tweet['TweetId']],
                             [tweet['Body']],
                             QueryGraph::Graph.from_path(
-                                [user.id_field, user['Tweets']]
+                              [user.id_field, user['Tweets']]
                             )
           step = IndexLookupPlanStep.new index, @state,
                                          RootPlanStep.new(@state)
@@ -279,10 +344,10 @@ module NoSE
 
       it 'fails if required fields are not available' do
         indexes = [
-            Index.new([user['Username']], [user['UserId']], [user['City']],
-                      QueryGraph::Graph.from_path([user.id_field])),
-            Index.new([tweet['TweetId']], [], [tweet['Body']],
-                      QueryGraph::Graph.from_path([tweet.id_field]))
+          Index.new([user['Username']], [user['UserId']], [user['City']],
+                    QueryGraph::Graph.from_path([user.id_field])),
+          Index.new([tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]))
         ]
         planner = QueryPlanner.new workload.model, indexes, cost_model
         query = Statement.parse 'SELECT Tweet.Body FROM Tweet.User ' \
@@ -310,18 +375,18 @@ module NoSE
         workload.add_statement query
 
         indexes = [
-            Index.new([user['Username']],
-                      [user['UserId'], tweet['TweetId']], [],
-                      QueryGraph::Graph.from_path([user.id_field,
-                                                   user['Tweets']])),
-            Index.new([tweet['TweetId']], [], [tweet['Body']],
-                      QueryGraph::Graph.from_path([tweet.id_field]))
+          Index.new([user['Username']],
+                    [user['UserId'], tweet['TweetId']], [],
+                    QueryGraph::Graph.from_path([user.id_field,
+                                                 user['Tweets']])),
+          Index.new([tweet['TweetId']], [], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]))
         ]
 
         planner = QueryPlanner.new workload.model, indexes, cost_model
         expect(planner.min_plan(query)).to eq [
-                                                  IndexLookupPlanStep.new(indexes[0]),
-                                                  IndexLookupPlanStep.new(indexes[1])
+                                                IndexLookupPlanStep.new(indexes[0]),
+                                                IndexLookupPlanStep.new(indexes[1])
                                               ]
       end
 
@@ -359,7 +424,7 @@ module NoSE
                                              tweet['Timestamp'], tweet['TweetId']],
                           [tweet['Body']],
                           QueryGraph::Graph.from_path(
-                              [user.id_field, user['Tweets']]
+                            [user.id_field, user['Tweets']]
                           )
 
         planner = QueryPlanner.new workload.model, [index], cost_model
@@ -479,7 +544,7 @@ module NoSE
         1.upto(3).each do |index_step_size_threshold|
           indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model,
                                               1, index_step_size_threshold, 1)
-                        .indexes_for_workload.to_a
+                                         .indexes_for_workload.to_a
           pruned_planner = PrunedQueryPlanner.new tpch_workload.model, indexes, cost_model, index_step_size_threshold
           tpch_workload.statement_weights.keys.select { |s| s.instance_of? Query}.each do |q|
             step_sizes = pruned_planner.find_plans_for_query(q).map do |plan|
@@ -494,7 +559,7 @@ module NoSE
       end
     end
 
-    describe PreparingQueryPlanner do
+    describe MigrateSupportSimpleQueryPlanner do
       include_context 'dummy cost model'
       include_context 'entities'
 
@@ -534,7 +599,7 @@ module NoSE
         index = Index.new [tweet['Timestamp']],
                           [tweet['TweetId'], user['UserId']], [user['City']],
                           QueryGraph::Graph.from_path(
-                              [tweet.id_field, tweet['User']]
+                            [tweet.id_field, tweet['User']]
                           )
         workload.add_statement update
         indexes = IndexEnumerator.new(workload).indexes_for_workload [index]
@@ -548,7 +613,7 @@ module NoSE
         plans.each { |plan| plan.select_query_plans indexes }
 
         update_steps = [
-            InsertPlanStep.new(index)
+          InsertPlanStep.new(index)
         ]
         plan = UpdatePlan.new update, index, trees, update_steps, cost_model
         plan.select_query_plans indexes
