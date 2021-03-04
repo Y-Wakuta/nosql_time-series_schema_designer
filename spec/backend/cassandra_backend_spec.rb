@@ -103,6 +103,67 @@ module NoSE
                                   step, nil, step.parent
         prepared.process query.conditions, nil, nil
       end
+
+      it 'produce query with composite key for each step' do
+        workload_comp = workload_composite_key
+        user_comp = workload_comp.model["User"]
+        tweet_comp = workload_comp.model["Tweets"]
+        model = workload_comp.model
+        query =  Statement.parse 'SELECT Tweets.Body, Tweets.Timestamp FROM Tweets.User ' \
+                      'WHERE User.Username = "Bob" AND Tweets.TweetId = 1 LIMIT 5', model
+        workload_comp.add_statement query
+
+        composite_parent_index = Index.new [user_comp['Username']],
+                                         [user_comp['UserId'], tweet_comp['TweetId'], tweet_comp['FollowerId']], [],
+                                         QueryGraph::Graph.from_path([user_comp.id_field, user_comp['Tweets']])
+        composite_last_index = Index.new [tweet_comp['TweetId']] , [tweet_comp['FollowerId']],
+                                         [tweet_comp['Body'], tweet_comp['Timestamp']], QueryGraph::Graph.from_path([tweet_comp.id_field])
+        planner = Plans::QueryPlanner.new workload_comp.model, [composite_parent_index, composite_last_index], cost_model
+        plan = planner.min_plan(query)
+
+        client = double('client')
+        step_class = CassandraBackend::IndexLookupStatementStep
+
+        #===============================================================
+        # check first step
+        #===============================================================
+        first_step = plan.first
+        backend_query = 'SELECT "User_Username", "Tweets_TweetId", "Tweets_FollowerId" ' \
+                         + "FROM \"#{composite_parent_index.key}\" " \
+                        'WHERE "User_Username" = ? LIMIT 5'
+        expect(client).to receive(:prepare).with(backend_query) \
+          .and_return(backend_query)
+        prepared = step_class.new client, query.all_fields, query.conditions,
+                                  first_step, nil, first_step.parent, [plan.last]
+        results = [
+            {"User_Username" => "Bob", "Tweets_TweetId" => "1", "Tweets_FollowerId" => "100"},
+            {"User_Username" => "Bob", "Tweets_TweetId" => "2", "Tweets_FollowerId" => "101"}
+        ]
+        allow(CassandraBackend).to receive(:remove_any_null_place_holder_row).and_return(results)
+
+        def results.last_page?
+          true
+        end
+        expect(client).to receive(:execute) \
+          .with(backend_query, arguments: ['Bob']).and_return(results)
+        res = prepared.process query.conditions, nil, nil
+
+        #===============================================================
+        # check last step
+        #===============================================================
+        last_step = plan.last
+        backend_query = 'SELECT "Tweets_TweetId", "Tweets_Body", "Tweets_Timestamp" ' \
+                         + "FROM \"#{composite_last_index.key}\" " \
+                        'WHERE "Tweets_TweetId" = ? AND "Tweets_FollowerId" = ? LIMIT 5'
+        expect(client).to receive(:prepare).with(backend_query) \
+          .and_return(backend_query)
+        prepared = step_class.new client, query.all_fields, query.conditions,
+                                  last_step, nil, last_step.parent
+        expect(client).to receive(:execute) \
+          .with(backend_query, arguments: [kind_of(Cassandra::Uuid), kind_of(Cassandra::Uuid)]) \
+          .and_return(results).exactly(results.size).times
+        prepared.process query.conditions, res, nil
+      end
     end
 
     describe CassandraBackend::InsertStatementStep do
