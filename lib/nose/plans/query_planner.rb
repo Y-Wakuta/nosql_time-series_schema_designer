@@ -259,6 +259,8 @@ module NoSE
         @logger.debug { "Plans for #{query.inspect}: #{tree.inspect}" }
         does_include_materialized_plan tree, query
 
+        validate_query_plans tree if query.instance_of? Query
+
         tree
       end
 
@@ -297,6 +299,19 @@ module NoSE
       end
 
       private
+
+      def validate_query_plans(tree)
+        tree.each do |plan|
+          required_groupby_fields = plan.query.groupby.to_set
+          last_aggregatable_step = plan.steps.select{|s| s.is_a?(Plans::IndexLookupPlanStep) or s.is_a?(Plans::AggregationPlanStep)}.last
+          if last_aggregatable_step.is_a?(Plans::IndexLookupPlanStep)
+            given_groupby_fields = last_aggregatable_step.index.groupby_fields
+          elsif last_aggregatable_step.is_a?(Plans::AggregationPlanStep)
+            given_groupby_fields = last_aggregatable_step.groupby
+          end
+          fail "candidate plans has more groupby fields than required: required #{required_groupby_fields.map(&:id)}, given: #{given_groupby_fields.flatten.map(&:id)}, query: #{plan.query.comment}, plan: #{plan.inspect}" if given_groupby_fields > required_groupby_fields
+        end
+      end
 
       # Produce indexes possibly useful for this query
       # grouped by the first entity they join on
