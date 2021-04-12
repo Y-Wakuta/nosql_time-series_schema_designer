@@ -39,7 +39,7 @@ module NoSE
       Parallel.flat_map(query.graph.subgraphs, in_processes: 5) do |graph|
         #query.graph.subgraphs.flat_map do |graph|
         indexes_for_graph graph, query.select, eq, range
-      end.uniq << query.materialize_view
+      end.uniq << query.materialize_view << query.materialize_view_with_aggregation
     end
 
     def indexes_for_queries(queries, additional_indexes)
@@ -178,14 +178,7 @@ module NoSE
             extra_fields = extra - hash_fields - order_fields
             next if order_fields.empty? && extra_fields.empty?
 
-            generated_indexes = []
-            if Statement.get_composed_keys(hash_fields + order_fields).nil?
-              generated_indexes << generate_index(hash_fields, order_fields, extra_fields, graph)
-            else
-              generated_indexes << generate_index_with_composite_key_in_place(hash_fields, order_fields, extra_fields, graph)
-              generated_indexes << generate_index_with_composite_key_prefix_order(hash_fields, order_fields, extra_fields, graph)
-            end
-            generated_indexes
+            generate_indexes hash_fields, order_fields, extra_fields, graph
           end.flatten(1)
         end
 
@@ -210,6 +203,17 @@ module NoSE
       # Generate all possible indices based on the field choices
       choices = eq_choices.product(extra_choices)
       indexes_for_choices graph, choices, order_choices
+    end
+
+    def generate_indexes(hash, order, extra, graph)
+      generated_indexes = []
+      if Statement.get_composed_keys(hash + order).nil?
+        generated_indexes << generate_index(hash, order, extra, graph)
+      else
+        generated_indexes << generate_index_with_composite_key_in_place(hash, order, extra, graph)
+        generated_indexes << generate_index_with_composite_key_prefix_order(hash, order, extra, graph)
+      end
+      generated_indexes
     end
 
     def generate_index_with_composite_key_in_place(hash, order, extra, graph)

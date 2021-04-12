@@ -35,6 +35,8 @@ module NoSE
       puts "index size before pruning: " + indexes.size.to_s
       if queries.all? {|q| q.instance_of? Query}
         indexes = pruning_tree_by_is_shared(queries, indexes)
+        indexes += queries.map(&:materialize_view)
+        indexes += queries.map(&:materialize_view_with_aggregation)
       else
         indexes = get_used_indexes(queries, indexes)
       end
@@ -109,29 +111,32 @@ module NoSE
     def indexes_for_query(query, entity_fields, extra_fields)
       @logger.debug "Enumerating indexes for query #{query.text}"
 
-      # not enumerate CFs for not-updated query
-      unless has_upsearted_entity? query
-        return [query.materialize_view]
-      end
+      #unless has_upsearted_entity? query
+      #  return [query.materialize_view]
+      #end
 
       range = get_query_range query
       eq = get_query_eq query
 
-      indexes = Parallel.flat_map(query.graph.subgraphs, in_processes: Etc.nprocessors - 5) do |graph|
-        indexes_for_graph graph, query.select, eq, range, entity_fields, extra_fields
-      end.uniq << query.materialize_view
-
-      ignore_cluster_key_order query, indexes
+      # yusuke そもそもここの graph.subgraphs を1分割までにすればいいのでは? クエリプランで二つまでのジョインのみを許すことに一致している
+      indexes = Parallel.flat_map(query.graph.subgraphs(), in_processes: [Parallel.processor_count - 5, 0].max()) do |graph|
+        indexes_for_graph graph, query.select, eq, range,  entity_fields, extra_fields
+      end.uniq
+      indexes = ignore_cluster_key_order query, indexes
+      indexes << query.materialize_view
+      indexes << query.materialize_view_with_aggregation
+      indexes
     end
 
     def ignore_cluster_key_order(query, indexes)
-      pruned_indexes = indexes.uniq.sort_by{|i| i.hash_str}.dup
+      pruned_indexes = indexes.sort_by{|i| i.hash_str}.dup
       indexes.each_with_index do |target_index, idx|
         next unless target_index.key_fields.size > (query.eq_fields + query.order).size
         indexes[(idx + 1)..-1].select{|i| target_index.hash_fields == i.hash_fields and \
                            target_index.order_fields.to_set == i.order_fields.to_set and \
                            target_index.extra == i.extra}.each do |other_index|
-          variable_order_fields_size = [((query.eq_fields + query.order).to_set & target_index.key_fields).size - target_index.hash_fields.size, 0].max
+          worth_order_fields_candidates = ((query.eq_fields + query.order + query.groupby + [query.range_field]).to_set & target_index.key_fields).to_set
+          variable_order_fields_size = [worth_order_fields_candidates.size - target_index.hash_fields.size, 0].max
           if target_index.order_fields.take(variable_order_fields_size) == other_index.order_fields.take(variable_order_fields_size)
             pruned_indexes = pruned_indexes.reject{|pi| pi == other_index}
           end
