@@ -80,13 +80,19 @@ module NoSE
 
           # if the included indexes are not shared with other queries, the plan would not be recommended
           is_shared_than_threshold = plan.indexes.any? do |index|
-            other_tree_indexes.count{|oti| oti.include?(index)} >= @index_plan_shared_threshold
+            # if shared n times within other trees, it is shared with n + 1 trees
+            other_tree_indexes.count{|oti| oti.include?(index)} >= (@index_plan_shared_threshold - 1)
           end
           if is_shared_than_threshold
             fixed_indexes += plan.indexes
             next
           end
         end
+
+        tree.each{|p| p.steps.each {|s| s.calculate_cost @cost_model}}
+        fixed_indexes += tree.select{|p| p.indexes.size == 1}
+                             .sort_by{|p | [p.cost, p.indexes.first.hash_str]}
+                             .first.indexes
       end
       fixed_indexes.uniq
     end
@@ -208,8 +214,14 @@ module NoSE
 
       reduced_fields = unique_shared_fields.dup.map do |query, fields|
         current_frequent_shared_patterns = frequent_shared_patterns.select{|fsp| fields[:shared].to_set >= fsp.content.to_set}
-        threshold = current_frequent_shared_patterns.size > 1 ? [current_frequent_shared_patterns.map{|cfs| cfs.support}.max, 1].max : 1
-        fields[:shared] = reduce_choices fields[:shared], current_frequent_shared_patterns, threshold
+        if query.instance_of? Query
+          puts "======================================================="
+          puts "query: #{query.comment}" #threshold: " + threshold.to_s
+          puts "old shared fields size : #{fields[:shared].size.to_s}"
+          fields[:shared] = reduce_choices fields[:shared], current_frequent_shared_patterns
+          puts "current shared fields size : #{fields[:shared].size.to_s}"
+          puts "======================================================="
+        end
         Hash[query, fields]
       end.inject(:merge)
 
@@ -250,8 +262,8 @@ module NoSE
 
     def get_frequent_shared_patterns(unique_shared_fields, queries)
       shared_fields = unique_shared_fields.map{|_, usf| usf[:shared]}
-      support_threshold = [2, queries.size].min()
-      FpGrowth.mine(shared_fields.map(&:dup), 30)
+      support_threshold = [2, queries.size / 4].max()
+      FpGrowth.mine(shared_fields.map(&:dup))
           .select{|ef| ef.support >= support_threshold and ef.content.size > 1}
     end
 
@@ -280,7 +292,7 @@ module NoSE
       # get each enumeration combination size for shared fields and unique fields
       graph_entities_size_for_shared = shared_patterns.flatten.map(&:parent).uniq.size
       graph_entities_size_for_unique = graph.entities.length - graph_entities_size_for_shared
-      unique_patterns = entity_fields_patterns[:unique].select{|efpu| efpu.all?{|efp| graph.entities.include? efp.parent}}
+      unique_patterns = entity_fields_patterns[:unique].select{|efpu| efpu.all?{|efp| graph.entities.include? efp.is_a?(Array) ? efp.first.parent : efp.parent}}
       unique_eq_choices = enumerate_unique_patterns unique_patterns, graph_entities_size_for_unique
 
       eq_choices = 1.upto(graph_entities_size_for_shared).flat_map do |n|
@@ -337,9 +349,8 @@ module NoSE
 
     # TODO: At least for extra_fields, reduce for all patterns reduces candidates too much. I need to used only effective sets
     # group choices if the choices are included in the same frequent pattern
-    def reduce_choices(entity_choice, patterns, threshold)
-      frequent_fields_set = patterns.select{|p| p.support >= threshold}
-                                .sort_by { |p| [-p.content.size, p.support]}
+    def reduce_choices(entity_choice, patterns)
+      frequent_fields_set = patterns.sort_by { |p| [-p.content.size, p.support]}
                                 .map(&:content)
                                 .first
       return entity_choice if frequent_fields_set.nil?
