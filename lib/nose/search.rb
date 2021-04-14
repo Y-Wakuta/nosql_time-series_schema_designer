@@ -45,6 +45,8 @@ module NoSE
         query_weights = combine_query_weights indexes
         costs, trees = query_costs query_weights, indexes
 
+        show_tree trees
+
         # prepare_update_costs possibly takes nil value if the workload is not time-depend workload
         update_costs, update_plans, prepare_update_costs = update_costs trees, indexes
 
@@ -69,14 +71,16 @@ module NoSE
           else
             starting = Time.now.utc
             migrate_prepare_plans = get_migrate_preparing_plans(trees, indexes)
-            ending = Time.now.utc
-            STDERR.puts "prepare plan enumeration time: " + (ending - starting).to_s
-            costs.merge!(migrate_prepare_plans.values.flat_map{|v| v.values}.map{|v| v[:costs]}.reduce(&:merge))
+            STDERR.puts "prepare plan enumeration time: " + (Time.now.utc - starting).to_s
+            migrate_prepare_plans = {} if migrate_prepare_plans.values.size == 1 and migrate_prepare_plans.values.first.empty?
+
+            costs.merge!(migrate_prepare_plans.values.flat_map{|v| v.values}.map{|v| v[:costs]}.reduce(&:merge) || {})
           end
 
           solver_params[:migrate_prepare_plans] = migrate_prepare_plans
         end
 
+        STDERR.puts "measure runtime: end enumeration: #{DateTime.now.strftime('%Q')}"
         search_result query_weights, indexes, solver_params, trees,
                       update_plans
       end
@@ -107,6 +111,13 @@ module NoSE
       end
 
       private
+
+      def show_tree(trees)
+        trees.each do |tree|
+          join_plan_size = tree.select{|p| p.indexes.size > 1}.size
+          puts "--- #{tree.to_a.size} plans : #{join_plan_size} join plans for #{tree.query.text}  ---" if tree.query.instance_of? Query
+        end
+      end
 
       # Combine the weights of queries and statements
       # @return [void]
@@ -140,7 +151,9 @@ module NoSE
                         update_plans)
         # Solve the LP using MIPPeR
         STDERR.puts "start optimization : #{Time.now}"
+        STDERR.puts "measure runtime: start optimization : #{DateTime.now.strftime('%Q')}"
         result = solve_mipper query_weights.keys, indexes, update_plans, **solver_params
+        STDERR.puts "measure runtime: end optimization : #{DateTime.now.strftime('%Q')}"
 
         setup_result result, solver_params, update_plans
         result
@@ -244,7 +257,7 @@ module NoSE
             # But the weight is multiplied frequency by migration interval,
             # Therefore, divide this value by interval to get query frequency
             preparing_update_costs[statement][plan.index] =
-                weights.map{|w| (plan.prepare_update_cost_with_size / @workload.interval) * w}
+              weights.map{|w| (plan.prepare_update_cost_with_size / @workload.interval) * w}
           else
             update_costs[statement][plan.index] = plan.update_cost * weights
           end
@@ -257,7 +270,6 @@ module NoSE
         planner = @is_pruned ?
                       Plans::PrunedQueryPlanner.new(@workload, indexes, @cost_model, 2) :
                       Plans::QueryPlanner.new(@workload, indexes, @cost_model)
-        STDERR.puts "#{planner.class.to_s} is used"
 
         results = Parallel.map(query_weights, in_processes: [Parallel.processor_count - 4, 0].max()) do |query, weight|
           query_cost planner, query, weight
