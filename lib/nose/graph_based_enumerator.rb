@@ -1,19 +1,17 @@
 # frozen_string_literal: true
 
 require 'logging'
-require 'fpgrowth'
+require 'benchmark'
 
 
 module NoSE
   # Produces potential indices to be used in schemas
-  class PrunedIndexEnumeratorSimplified < IndexEnumerator
-    def initialize(workload, cost_model, is_entity_fields_shared_threshold,
-                   index_plan_step_threshold, index_plan_shared_threshold, choice_limit_size: 3_000)
+  class GraphBasedIndexEnumerator < IndexEnumerator
+    def initialize(workload, cost_model,
+                   index_plan_step_threshold, choice_limit_size)
       @eq_threshold = 1
       @cost_model = cost_model
-      @is_entity_fields_shared_threshold = is_entity_fields_shared_threshold
       @index_steps_threshold = index_plan_step_threshold
-      @index_plan_shared_threshold = index_plan_shared_threshold
       @choice_limit_size = choice_limit_size
       super(workload)
     end
@@ -45,7 +43,6 @@ module NoSE
 
     def get_trees(queries, indexes)
       planner = Plans::PrunedQueryPlanner.new @workload.model, indexes, @cost_model, @index_steps_threshold
-      #queries.map do |query|
       Parallel.map(queries, in_processes: [Parallel.processor_count - 5, 0].max()) do |query|
         planner.find_plans_for_query(query)
       end
