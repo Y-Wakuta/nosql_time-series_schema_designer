@@ -211,13 +211,18 @@ module NoSE
                      prune_eq_choices_for_prefix_graph(eq_choices, eq, range, orderby)
                      : prune_eq_choices_for_suffix_graph(eq_choices, overlapping_entities)
 
-      range_fields = graph.entities.map { |entity| range[entity] }.reduce(&:+).uniq
-      order_choices = range_fields.prefixes.flat_map do |fields|
-        fields.permutation.to_a
-      end.uniq << []
+      order_choices = order_choices(graph, range, is_prefix_graph)
       extra_choices = extra_choices(graph, select, eq, range)
 
       [eq_choices, order_choices, extra_choices]
+    end
+
+    def order_choices(graph, range, is_prefix_graph)
+      return [[]] if is_prefix_graph or range.keys.to_set < graph.entities
+      # order by is not executed partially. Thus, This enumerator only enumerates order fields for graph that has all of required entity
+      range_fields = graph.entities.map { |entity| range[entity] }.reduce(&:+).uniq
+      order_choices = range_fields.permutation.to_a << []
+      order_choices
     end
 
     def prune_eq_choices_for_prefix_graph(eq_choices, eq, range, orderby)
@@ -277,4 +282,3 @@ module NoSE
     end
   end
 end
-
