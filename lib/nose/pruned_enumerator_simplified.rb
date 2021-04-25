@@ -45,10 +45,8 @@ module NoSE
 
     def get_trees(queries, indexes)
       planner = Plans::PrunedQueryPlanner.new @workload.model, indexes, @cost_model, @index_steps_threshold
-      #planner = Plans::QueryPlanner.new @workload.model, indexes, @cost_model
-      #Parallel.map(queries, in_processes: [Parallel.processor_count - 5, 0].max()) do |query|
-      # 一旦並列を無効化して、stack トレースでより詳しく詰まっている箇所を確認する
-      queries.map do |query|
+      #queries.map do |query|
+      Parallel.map(queries, in_processes: [Parallel.processor_count - 5, 0].max()) do |query|
         planner.find_plans_for_query(query)
       end
     end
@@ -61,7 +59,6 @@ module NoSE
       range = get_query_range query
       eq = get_query_eq query
       orderby = get_query_orderby query
-      groupby = get_query_groupby query
 
       # query.subgrapphs() の中で query.graph に対しては materialized view を返す
       # query.subgraphs() で分割されたクエリグラフには接点となるエンティティがある。suffix query 側では必ずこのエンティティが partition key の先頭に来る
@@ -90,7 +87,7 @@ module NoSE
         # 一つの entity のみの prefix + 全ての entity を持つ　suffix に対応するための列挙メソッドが必要
         if subgraph_pair[:prefix].entities.size == 1 and subgraph_pair[:suffix].entities == query.graph.entities
           STDERR.puts query.text
-          suffix_idxes = indexes_for_full_suffix_graph(subgraph_pair[:prefix], subgraph_pair[:suffix], query.materialize_view, eq, range, orderby, groupby)
+          suffix_idxes = indexes_for_full_suffix_graph(subgraph_pair[:prefix], subgraph_pair[:suffix], query.materialize_view, eq, range, orderby)
           puts "====== full suffix: #{subgraph_pair[:suffix].entities.map(&:name).inspect} ======="
           puts "suffix: #{suffix_idxes.size} ====="
         else
@@ -102,41 +99,40 @@ module NoSE
         [prefix_idxes + suffix_idxes].flatten
       end
       indexes.uniq!
-      puts "prune indexes based on clutering key before: #{indexes.size}"
+      STDERR.puts "prune indexes based on clutering key before: #{indexes.size}"
       indexes = ignore_cluster_key_order query, indexes
-      puts "prune indexes based on clutering key after: #{indexes.size}"
+      STDERR.puts "prune indexes based on clutering key after: #{indexes.size}"
       indexes << query.materialize_view
       indexes << query.materialize_view_with_aggregation
       puts "#{indexes.size} indexes for #{query.comment}"
       indexes
     end
 
-    # こいつの実装汚いのでもう少しなんとかしたい
-    # prefix と suffix で実装を分けるだけでももう少し削れる余地がありそう
     def ignore_cluster_key_order(query, indexes)
-      pruned_indexes = indexes.sort_by{|i| i.hash_str}.dup
-      indexes.each_with_index do |target_index, idx|
-        next unless target_index.key_fields.size > (query.eq_fields + query.order).size
+      overlapping_index_keys = []
+      condition_fields = (query.eq_fields + query.order.to_set + Set.new([query.range_field])).reject(&:nil?)
+      indexes.each_with_index do |base_index, idx|
+        next if overlapping_index_keys.include? base_index.key # this cf is already removed
+        next if (base_index.key_fields.to_set - (query.eq_fields + query.order).to_set).empty?
+        cf_condition_fields = condition_fields.select{|f| query.graph.entities.include? f.parent}.to_set
 
-        similar_indexes = indexes[(idx + 1)..-1].select{|i| target_index.hash_fields == i.hash_fields and \
-                           target_index.order_fields.to_set == i.order_fields.to_set and \
-                           target_index.extra == i.extra}
-        similar_indexes.each do |other_index|
-          variable_fields = (query.eq_fields + query.order + query.groupby + [query.range_field]).to_set
-          worth_order_fields_candidates = (variable_fields & target_index.key_fields).to_set
+        # クエリに関係の無い order_fields の末尾と extra の境目の区別をしなくていいはずなので、ここの similar_indexes は拡大の余地がある
+        similar_indexes = indexes[(idx + 1)..-1].select{|i| base_index.hash_fields == i.hash_fields}
+                                                .select{|i| base_index.order_fields.to_set == i.order_fields.to_set}
+                                                .select{|i| base_index.extra == i.extra}
+                                                .reject{|i| overlapping_index_keys.include? i.key}
 
-          # ここを サイズベースではなく、属性一致によるものに変えられたら、より削れる余地があるはず
-          variable_order_fields_size = [worth_order_fields_candidates.size - target_index.hash_fields.size, 0].max
-          if target_index.order_fields.take(variable_order_fields_size) == other_index.order_fields.take(variable_order_fields_size)
-            pruned_indexes = pruned_indexes.reject{|pi| pi == other_index}
-          end
-        end
+        query_condition_order_fields = ((cf_condition_fields - base_index.hash_fields) & base_index.order_fields).to_set
+        variable_order_fields_size = (query_condition_order_fields.to_set & base_index.order_fields.to_set).size
+        overlapping_index_keys += similar_indexes
+                                    .select{|i| base_index.order_fields.take(variable_order_fields_size) == \
+                                                i.order_fields.take(variable_order_fields_size) }
+                                    .map(&:key)
       end
-      pruned_indexes
+      indexes.reject { |i| overlapping_index_keys.include? i.key}
     end
 
-
-    def indexes_for_full_suffix_graph(prefix_graph, suffix_graph, materialize_view, eq, range, orderby, groupby)
+    def indexes_for_full_suffix_graph(prefix_graph, suffix_graph, materialize_view, eq, range, orderby)
       prefix_eq_choices = eq_choices prefix_graph, eq
       prefix_eq_choices.map do |eq_choice|
         generate_index(eq_choice, materialize_view.order_fields.reject{|of| eq_choice.include? of},
@@ -227,14 +223,14 @@ module NoSE
     def prune_eq_choices_for_prefix_graph(eq_choices, eq, range, orderby)
       eq_entities = eq.keys
       eq_choices = eq_choices.select do |eq_choice|
-        eq_choice_entites = eq_choice.map(&:parent).uniq
-        key_prefix_entities = (eq_entities & eq_choice_entites).uniq
+        eq_choice_entities = eq_choice.map(&:parent).uniq
+        key_prefix_entities = (eq_entities & eq_choice_entities).uniq
         next false if key_prefix_entities.empty?
 
         # overlapping_eq_entities は eq.keys のどれか一つと一致していれば良い
-        overlapping_eq_entities = eq_choice_entites.take(key_prefix_entities.size).to_set
+        overlapping_eq_entities = eq_choice_entities.take(key_prefix_entities.size).to_set
         eq_entities.combination(overlapping_eq_entities.size)
-                                .any?{|ek| ek.to_set == overlapping_eq_entities}
+                   .any?{|ek| ek.to_set == overlapping_eq_entities}
       end
 
       # eq_choices の各属性は、eq, range, orderby, groupby に含まれない限り、id_field が先頭にある必要がない。
