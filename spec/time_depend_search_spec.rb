@@ -235,8 +235,6 @@ module NoSE
         query_decrease = 'SELECT items.* FROM items WHERE items.quantity=? -- 3'
         td_workload_static.add_statement query_increase, frequency: [0.01, 0.5, 9]
         td_workload_static.add_statement query_decrease, frequency: [9, 0.5, 0.01]
-        #td_workload_static.migrate_support_coeff = 1.0e-06
-        #td_workload_static.creation_coeff = 1.0e-07
         indexes = IndexEnumerator.new(td_workload_static).indexes_for_workload.to_a
         result = Search.new(td_workload_static, cost_model).search_overlap indexes, 9800000
 

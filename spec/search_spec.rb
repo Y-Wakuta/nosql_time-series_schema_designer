@@ -111,12 +111,15 @@ module NoSE
         expect(result.plans).to have(1).plan
       end
 
-      it 'provide solution even when the query include GROUP BY clause' do
+      it 'provide query plan that does aggregation on database if there was no other queries' do
         workload.add_statement(Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, count(Tweet.Timestamp) FROM Tweet WHERE ' \
                                 'Tweet.Body = ? GROUP BY Tweet.Retweets', workload.model)
         indexes = IndexEnumerator.new(workload).indexes_for_workload.to_a
         result = Search.new(workload, cost_model).search_overlap indexes
         expect(result.plans).to have(1).plan
+        expect(result.plans.first.steps).to have(1).step
+        expect(result.plans.first.steps.first.index.count_fields).to eq(Set.new([tweet['TweetId'], tweet['Timestamp']]))
+        expect(result.plans.first.steps.first.index.groupby_fields).to eq(Set.new([tweet['Retweets']]))
       end
 
       let(:cost_model) do
@@ -145,19 +148,18 @@ module NoSE
         tpch_workload = Workload.new do |_|
           Model 'tpch'
           Group 'Group1', default: 1 do
-            Q 'SELECT to_nation.n_name, sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
-              'FROM lineitem.to_orders.to_customer.to_nation.to_region ' \
-              'WHERE to_region.r_name = ? AND to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? ' \
+            Q 'SELECT c_nationkey.n_name, sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
+              'FROM lineitem.l_orderkey.o_custkey.c_nationkey.n_regionkey ' \
+              'WHERE n_regionkey.r_name = ? AND l_orderkey.o_orderdate >= ? AND l_orderkey.o_orderdate < ? ' \
               'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
-              'GROUP BY to_nation.n_name -- Q5'
+              'GROUP BY c_nationkey.n_name -- Q5'
           end
         end
-        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model,
-                                            1, 100, 1)
+        indexes = GraphBasedIndexEnumerator.new(tpch_workload, cost_model, 2, 1_000)
                       .indexes_for_workload.to_a
         result = Search.new(tpch_workload, cost_model).search_overlap indexes
         plan = result.plans.first
-        mv = plan.query.materialize_view
+        mv = plan.query.materialize_view_with_aggregation
         expect(plan.indexes.first).to eq mv
       end
     end

@@ -89,6 +89,47 @@ module NoSE
                       'WHERE User.Username = ? AND Tweets.TweetId = ? LIMIT 5', workload_composite_key.model
     end
 
+    let(:td_workload) do
+      # rubocop:disable Lint/Void
+      TimeDependWorkload.new do
+        TimeSteps 3
+        (Entity 'User' do
+          ID     'UserId'
+          String 'Username', 10
+          String 'City', count: 5
+          String 'Country'
+
+          etc
+        end) * 10
+
+        (Entity 'Link' do
+          ID     'LinkId'
+          String 'URL'
+        end) * 100
+
+        (Entity 'Tweet' do
+          ID         'TweetId'
+          String     'Body', 140, count: 5
+          Date       'Timestamp'
+          Integer    'Retweets'
+        end) * 1000
+
+        HasOne 'User',    'Tweets',
+               'Tweet' => 'User'
+
+        HasOne 'Favourite',    'Favourited',
+               'User' =>       'Tweet'
+
+        HasOne 'Link',    'Tweets',
+               'Tweet' => 'Link'
+      end
+    end
+    # rubocop:enable Lint/Void
+
+    let(:td_tweet) { workload.model['Tweet'] }
+    let(:td_user) { workload.model['User'] }
+    let(:td_link) { workload.model['Link'] }
+
     let(:users) do
       [{
         'User_UserId'   => '18a9a155-c9c7-43b5-9ab0-5967c49f56e9',
