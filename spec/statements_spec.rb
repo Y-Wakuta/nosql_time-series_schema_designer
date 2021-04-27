@@ -233,6 +233,25 @@ module NoSE
       expect(insert.support_queries index).to be_empty
     end
 
+    it 'modifies index if related entities are overlapped' do
+      index = Index.new [user['UserId']], [tweet['TweetId']], [tweet['Body']],
+                        QueryGraph::Graph.from_path([user['UserId'],
+                                                     user['Tweets']])
+      insert_tweet = Statement.parse 'INSERT INTO Tweet SET Body = "Test", TweetId = "1"' , workload.model
+      # entities of INSERT (tweet) < entities of CF (tweet, user)
+      expect(insert_tweet.modifies_index? index).to be true
+
+      index_tweet = Index.new [tweet['TweetId']], [], [tweet['Timestamp']],
+                        QueryGraph::Graph.from_path(
+                          [tweet.id_field]
+                        )
+      # entities of INSERT (tweet) == entities of CF (tweet)
+      expect(insert_tweet.modifies_index? index_tweet).to be true
+
+      # entities of INSERT (tweet, user) > entities of CF (tweet)
+      expect(insert.modifies_index? index_tweet).to be true
+    end
+
     it 'uses a support query for connected entities' do
       index = Index.new [user['Username']], [user['UserId'], tweet['TweetId']],
                         [tweet['Body']], QueryGraph::Graph.from_path(
