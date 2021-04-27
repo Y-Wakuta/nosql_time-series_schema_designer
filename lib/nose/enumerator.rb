@@ -37,7 +37,6 @@ module NoSE
       eq = get_query_eq query
 
       Parallel.flat_map(query.graph.subgraphs, in_processes: 5) do |graph|
-        #query.graph.subgraphs.flat_map do |graph|
         indexes_for_graph graph, query.select, eq, range
       end.uniq << query.materialize_view << query.materialize_view_with_aggregation
     end
@@ -139,9 +138,10 @@ module NoSE
         end
       end
 
-      2.upto(graph.entities.length).flat_map do |n|
-        entity_choices.permutation(n).map(&:flatten).to_a
+      choices = 2.upto(graph.entities.length).flat_map do |n|
+        entity_choices.permutation(n).map(&:flatten).map(&:uniq).to_a
       end + entity_choices
+      choices.uniq
     end
 
     # Get fields which should be included in an index for the given graph
@@ -149,7 +149,7 @@ module NoSE
     def extra_choices(graph, select, eq, range)
       choices = eq.values + range.values << select.to_a
 
-      choices.each do |choice|
+      choices = choices.map do |choice|
         choice.select { |field| graph.entities.include?(field.parent) }
       end
 
@@ -159,7 +159,6 @@ module NoSE
     def indexes_for_choices(graph, choices, order_choices)
       return [] if choices.size == 0
       Parallel.flat_map(choices, in_processes: Parallel.processor_count / 2) do |index, extra|
-        #choices.flat_map do |index, extra|
         indexes = []
 
         order_choices.each do |order|
@@ -169,7 +168,6 @@ module NoSE
 
           # Partition into the ordering portion
           indexes += Parallel.flat_map(index.partitions, in_threads: 10) do |index_prefix, order_prefix|
-            #indexes += index.partitions.each do |index_prefix, order_prefix|
             hash_fields = index_prefix.take_while do |field|
               field.parent == index.first.parent
             end
