@@ -148,7 +148,7 @@ describe Cardinality do
     cardinality = Cardinality.filter tweet.count, [tweet['Body']],
                                      tweet['Timestamp']
 
-    expect(cardinality).to eq(20)
+    expect(cardinality - (200.0 / 3)).to be < 0.001
   end
 end
 
