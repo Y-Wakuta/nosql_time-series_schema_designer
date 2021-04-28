@@ -23,8 +23,8 @@ jobs:
         sudo apt-get install -qq coinor-libcbc-dev coinor-libcbc3 coinor-libcoinutils-dev coinor-libcoinutils3v5 coinor-libosi-dev coinor-libosi1v5 coinor-libclp-dev coinor-libclp1 coinor-libcgl-dev coinor-libcgl1 libstdc++6
         sudo apt install libpq-dev
         gem install bundler
-        mysql -uroot -e 'create database nose;'
-        mysql -uroot -Dnose < spec/support/data/mysql.sql
+        #mysql -uroot -e 'create database nose;'
+        #mysql -uroot -Dnose < spec/support/data/mysql.sql
         sudo rm -rf /var/lib/cassandra/*
         wget https://archive.apache.org/dist/cassandra/3.7/apache-cassandra-3.7-bin.tar.gz && tar -xvzf apache-cassandra-3.7-bin.tar.gz && sudo sh apache-cassandra-3.7/bin/cassandra -R && sleep 15
         bundle install --jobs 4 --retry 3
