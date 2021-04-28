@@ -16,7 +16,7 @@ jobs:
     - name: Setup Environment
       run: |
         sudo apt-get update
-        sudo apt-get install libmysqlclient-dev
+        sudo apt-get install -y libmysqlclient-dev mysql-server
         sudo apt-get update -qq
         curl -L https://packagecloud.io/michaelmior/coinor/gpgkey | sudo apt-key add -
         echo "deb https://packagecloud.io/michaelmior/coinor/ubuntu/ precise main" | sudo tee -a /etc/apt/sources.list
