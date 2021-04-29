@@ -112,46 +112,6 @@ module NoSE
 
       def left_outer_join(left_index, left_values, right_index, right_values)
         overlap_key_fields = (left_index.all_fields & right_index.all_fields).select{|f| f.is_a? NoSE::Fields::IDField}
-        puts "join on #{overlap_key_fields.inspect}"
-        right_index_hash = {}
-
-        starting = Time.now
-        # create hash for right values
-        right_values.each do |right_value|
-          next if Backend::CassandraBackend.remove_all_null_place_holder_row([right_value]).empty?
-          key_fields = overlap_key_fields.map{|fi| right_value.slice(fi.id)}
-          next if Backend::CassandraBackend.remove_all_null_place_holder_row(key_fields).empty?
-
-          key_fields = overlap_key_fields.map{|fi| right_value[fi.id].to_s}.join(',')
-          key_fields = Zlib.crc32(key_fields)
-          if right_index_hash[key_fields].nil?
-            right_index_hash[key_fields] = [right_value]
-          else
-            right_index_hash[key_fields] << right_value
-          end
-        end
-
-        results = Parallel.flat_map(left_values, in_threads: Parallel.processor_count / 3) do |left_value|
-          tmp = []
-          related_key = overlap_key_fields.map{|fi| left_value[fi.id].to_s}.join(',')
-          related_key = Zlib.crc32(related_key)
-          right_records = right_index_hash[related_key]
-          if right_records.nil?
-            tmp << join_with_empty_record(left_value, right_index)
-          else
-            right_records.each do |right_value|
-              tmp << left_value.merge(right_value)
-            end
-          end
-          tmp
-        end.uniq
-
-        puts "hash join done results #{results.size} records:  #{Time.now - starting}"
-        results
-      end
-
-      def left_outer_join_groupby(left_index, left_values, right_index, right_values)
-        overlap_key_fields = (left_index.all_fields & right_index.all_fields).select{|f| f.is_a? NoSE::Fields::IDField}
 
         starting = Time.now
         right_index_hash = right_values.reject{|rv| Backend::CassandraBackend.remove_all_null_place_holder_row([rv]).empty? \
@@ -176,31 +136,20 @@ module NoSE
       def full_outer_join(index_values)
         return index_values.to_a.flatten(1)[1] if index_values.length == 1
 
-        #result = []
-        result_groupby = []
+        result = []
         index_values.each_cons(2) do |(former_index, former_value), (next_index, next_value)|
           puts "former index #{former_index.key} has #{former_value.size} records"
-          puts "former index #{former_index.hash_str}"
+          puts "  former index #{former_index.hash_str}"
           puts "next index #{next_index.key} has #{next_value.size} records"
-          puts "next index #{next_index.hash_str}"
-          puts "start join #{Time.now}"
-          #result += left_outer_join(former_index, former_value, next_index, next_value)
-          #result += left_outer_join(next_index, next_value, former_index, former_value)
-          #result.uniq!
-          #puts "full outer join done #{result.size} records by #{Time.now}"
+          puts "  next index #{next_index.hash_str}"
 
-          result_groupby += left_outer_join_groupby(former_index, former_value, next_index, next_value)
-          result_groupby += left_outer_join_groupby(next_index, next_value, former_index, former_value)
-          result_groupby.uniq!
-
-          #if result.to_set != result_groupby.to_set
-          #  result
-          #  result_groupby
-          #  fail "merged result was not same"
-          #end
-          puts "full outer join done with new impl #{result_groupby.size} records by #{Time.now}"
+          start_time = Time.now
+          result += left_outer_join(former_index, former_value, next_index, next_value)
+          result += left_outer_join(next_index, next_value, former_index, former_value)
+          result.uniq!
+          puts "full outer join done with new impl #{result.size} records by #{Time.now - start_time}"
         end
-        result_groupby
+        result
       end
 
       def drop_obsolete_tables(migrate_plans, next_ts_indexes)
