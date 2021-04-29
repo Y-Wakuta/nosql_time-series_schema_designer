@@ -23,8 +23,9 @@ module NoSE
           index_loaded_hash[new_index] = false
         end
 
-        #Parallel.each(migration_plans, in_threads: 10) do |migration_plan|
+        #Parallel.each(migration_plans, in_processes: Parallel.processor_count / 3) do |migration_plan|
         migration_plans.each do |migration_plan|
+          @backend.initialize_client
           prepare_next_indexes(migration_plan, index_loaded_hash)
         end
       end
@@ -68,10 +69,8 @@ module NoSE
           next if query_plan.nil?
 
           unless index_loaded_hash[target_index]
-            STDERR.puts "start get records from cf using cassandra-unloader"
-            start_unloading = Time.now
             values = collect_records(query_plan.indexes)
-            STDERR.puts "end get records from cf using cassandra-unloader #{target_index.key}: #{Time.now - start_unloading}"
+            #values = index_records(query_plan.indexes)
             obsolete_data = full_outer_join(values)
 
             STDERR.puts "collected data size for #{target_index.key} is #{obsolete_data.size}: #{Time.now}"
@@ -95,10 +94,10 @@ module NoSE
 
       private
 
-      def index_records(indexes, required_fields)
+      def index_records(indexes)
         Hash[indexes.map do |index|
           STDERR.puts "start collecting data from #{index.key} for the migration: #{Time.now}"
-          values = @backend.index_records(index, required_fields).to_a
+          values = @backend.index_records(index, index.all_fields).to_a
           [index, values]
         end]
       end
@@ -113,6 +112,7 @@ module NoSE
 
       def left_outer_join(left_index, left_values, right_index, right_values)
         overlap_key_fields = (left_index.all_fields & right_index.all_fields).select{|f| f.is_a? NoSE::Fields::IDField}
+        puts "join on #{overlap_key_fields.inspect}"
         right_index_hash = {}
 
         starting = Time.now
@@ -130,23 +130,115 @@ module NoSE
             right_index_hash[key_fields] << right_value
           end
         end
-        puts "left outer join hash creation done: #{Time.now - starting}"
+        #puts "left outer join hash creation done: #{Time.now - starting}, hash size #{right_index_hash.size}"
 
-        results = []
-        # iterate for left value to look for checking does related record exist
-        left_values.each do |left_value|
+        results = Parallel.flat_map(left_values, in_threads: Parallel.processor_count / 3) do |left_value|
+          tmp = []
           related_key = overlap_key_fields.map{|fi| left_value[fi.id].to_s}.join(',')
           related_key = Zlib.crc32(related_key)
           right_records = right_index_hash[related_key]
           if right_records.nil?
-            results << join_with_empty_record(left_value, right_index)
+            tmp << join_with_empty_record(left_value, right_index)
           else
             right_records.each do |right_value|
-              results << left_value.merge(right_value)
+              tmp << left_value.merge(right_value)
             end
           end
+          tmp
+        end.uniq
+
+        puts "hash join done results #{results.size} records:  #{Time.now - starting}"
+        results
+      end
+
+      #def left_outer_join_merge!(left_index, left_values, right_index, right_values)
+      #  overlap_key_fields = (left_index.all_fields & right_index.all_fields).select{|f| f.is_a? NoSE::Fields::IDField}
+      #  right_index_hash = {}
+
+      #  starting = Time.now
+      #  # create hash for right values
+      #  right_values.each do |right_value|
+      #    next if Backend::CassandraBackend.remove_all_null_place_holder_row([right_value]).empty?
+      #    key_fields = overlap_key_fields.map{|fi| right_value.slice(fi.id)}
+      #    next if Backend::CassandraBackend.remove_all_null_place_holder_row(key_fields).empty?
+
+      #    key_fields = overlap_key_fields.map{|fi| right_value[fi.id].to_s}.join(',')
+      #    #key_fields = Zlib.crc32(key_fields)
+      #    if right_index_hash[key_fields].nil?
+      #      right_index_hash[key_fields] = [right_value.dup]
+      #    else
+      #      right_index_hash[key_fields] << right_value.dup
+      #    end
+      #  end
+      #  #puts "left outer join hash creation done: #{Time.now - starting}, hash size #{right_index_hash.size}"
+
+      #  null_count = 0
+      #  fuga_= []
+      #  recs = []
+      #  results = left_values.flat_map do |lv|
+      #    left_value = lv.dup
+      #    tmp = []
+      #    related_key = overlap_key_fields.map{|fi| left_value[fi.id].to_s}.join(',')
+      #    #related_key = Zlib.crc32(related_key)
+      #    right_records = right_index_hash[related_key]
+      #    if right_records.nil?
+      #      tmp << join_with_empty_record(left_value, right_index)
+      #      null_count += 1
+      #    else
+      #      ##-------------------------
+      #      #fuga = []
+      #      #right_records.each do |rv|
+      #      #  hoge = rv.dup
+      #      #  hoge.merge!(left_value)
+      #      #  fuga << hoge
+      #      #end
+      #      #fuga_ += fuga
+      #      #fuga
+      #      ##-------------------------
+      #      right_records.each do |rv|
+      #        ## this works but would have similar performance with merge
+      #        #lv = left_value.dup
+      #        #lv.merge!(right_value)
+      #        #tmp << lv
+
+      #        #hoge = rv.dup
+      #        rv.merge!(left_value)
+      #        tmp << rv
+      #      end
+      #      #puts "right_records size: #{right_records.uniq.size.to_s}, tmp size: #{tmp.uniq.size.to_s}" if right_records.size > 1
+      #      recs += tmp
+      #      tmp
+      #    end
+      #    tmp
+      #  end.uniq
+
+      #  puts "  hash join done results #{results.size} records with merge!:  #{Time.now - starting}"
+      #  results
+      #end
+
+      def left_outer_join_new_impl_ruby_original(left_index, left_values, right_index, right_values)
+        left_values = left_values.dup
+        right_values = right_values.dup
+        overlap_key_fields = (left_index.all_fields & right_index.all_fields).select{|f| f.is_a? NoSE::Fields::IDField}
+
+        starting = Time.now
+        right_index_hash = right_values.reject{|rv| Backend::CassandraBackend.remove_all_null_place_holder_row([rv]).empty? \
+              or Backend::CassandraBackend.remove_all_null_place_holder_row(overlap_key_fields.map{|fi| rv.slice(fi.id)}).empty?}.group_by do |right_value|
+          #Zlib.crc32(overlap_key_fields.map{|fi| right_value[fi.id].to_s}.join(','))
+          (overlap_key_fields.map{|fi| right_value[fi.id].to_s}.join(',')).hash
         end
-        puts "hash join done results #{results.size} #{Time.now - starting}"
+        right_index_hash.default = Backend::CassandraBackend.create_empty_record(right_index)
+
+        #puts "  new impl ruby original: left outer join hash creation done: #{Time.now - starting}, hash size #{right_index_hash.size}"
+
+        results = left_values.flat_map do |left_value|
+          #related_key = Zlib.crc32(overlap_key_fields.map{|fi| left_value[fi.id].to_s}.join(','))
+          related_key = (overlap_key_fields.map{|fi| left_value[fi.id].to_s}.join(',')).hash
+          # ここで left_value に merge! することを繰り返すと、この行で返される
+          [right_index_hash[related_key]].map {|rv| left_value.merge!(rv)}
+        end.uniq
+
+        puts "  new impl ruby original: hash join done results #{results.size} records:  #{Time.now - starting}"
         results
       end
 
@@ -158,16 +250,26 @@ module NoSE
         return index_values.to_a.flatten(1)[1] if index_values.length == 1
 
         result = []
+        result_with_new_impl = []
         index_values.each_cons(2) do |former_index_value, next_index_value|
           puts "former index #{former_index_value[0].key} has #{former_index_value[1].size} records"
           puts "former index #{former_index_value[0].hash_str}"
           puts "next index #{next_index_value[0].key} has #{next_index_value[1].size} records"
           puts "next index #{next_index_value[0].hash_str}"
           puts "start join #{Time.now}"
-          result += left_outer_join(former_index_value[0], former_index_value[1], next_index_value[0], next_index_value[1])
-          result += left_outer_join(next_index_value[0], next_index_value[1], former_index_value[0], former_index_value[1])
+          result_with_new_impl += left_outer_join_new_impl_ruby_original(former_index_value[0], former_index_value[1].map(&:dup), next_index_value[0], next_index_value[1].map(&:dup))
+          #left_outer_join_new_impl(former_index_value[0], former_index_value[1], next_index_value[0], next_index_value[1])
+          #tmp1=left_outer_join_merge(former_index_value[0], former_index_value[1].dup, next_index_value[0], next_index_value[1].dup)
+          result += left_outer_join(former_index_value[0], former_index_value[1].map(&:dup), next_index_value[0], next_index_value[1].map(&:dup))
+
+          result_with_new_impl += left_outer_join_new_impl_ruby_original(next_index_value[0], next_index_value[1].map(&:dup), former_index_value[0], former_index_value[1].map(&:dup))
+          #left_outer_join_new_impl(next_index_value[0], next_index_value[1], former_index_value[0], former_index_value[1])
+          #tmp2=left_outer_join_merge(next_index_value[0], next_index_value[1].dup, former_index_value[0], former_index_value[1].dup)
+          result += left_outer_join(next_index_value[0], next_index_value[1].map(&:dup), former_index_value[0], former_index_value[1].map(&:dup))
           result.uniq!
-          puts "join done #{result.size} #{Time.now}"
+          result_with_new_impl.uniq!
+          puts "full outer join done #{result.size} records by #{Time.now}"
+          puts "full outer join done with new imple #{result_with_new_impl.size} records by #{Time.now}"
         end
         result
       end
@@ -202,6 +304,7 @@ module NoSE
 
       def data_on_mysql(index)
         raw_results = @loader.query_for_index_full_outer_join index, nil, @loader_config
+        #raw_results = @loader.query_for_index_inner_join index, nil, @loader_config
 
         results_on_mysql = raw_results.map do |row|
           row.each do |f, v|
@@ -217,6 +320,7 @@ module NoSE
       end
 
       def data_on_cassandra(index)
+        #results_on_backend = @backend.unload_index_by_cassandra_unloader(index)
         results_on_backend = @backend.index_records(index, index.all_fields)
         results_on_backend.each {|r| r.delete('value_hash')}
         results_on_backend
@@ -228,37 +332,43 @@ module NoSE
         left_hash.first.keys.each do |field_name|
           left_values = left_hash.map{|lh| lh[field_name]}
           right_values = right_hash.map{|rh| rh[field_name]}
-          if compare_values left_values.compact, right_values
-            STDERR.puts "    #{field_name} in #{index.key} matches"
-          else
-            if compare_approximately_values left_values, right_values
-              STDERR.puts "    === #{field_name} in #{index.key} approximately match #{left_values.size} <-> #{right_values.size}==="
 
-              if left_values.first.class == Float
-                if left_values.size > right_values.size
-                  STDERR.puts "      left_values is larger than right_values : #{
-                    left_values.sort.zip(right_values.sort).select{|l, r| (l - r).abs < 0.001}.map{|l, r| l}.take(100)
-                  }"
-                else
-                  STDERR.puts "      right_values is larger than left_values : #{
-                    left_values.sort.zip(right_values.sort).select{|l, r| (l - r).abs < 0.001}.map{|l, r| r}.take(100)
-                  }"
-                end
-              else
-                if left_values.size > right_values.size
-                  STDERR.puts "      left_values is larger than right_values : #{left_values.difference(right_values).map(&:to_s)}"
-                else
-                  STDERR.puts "      right_values is larger than left_values : #{right_values.difference(left_values).map(&:to_s)}"
-                end
-              end
-            else
-              # this possibly happen if there are INSERT or UPDATE
-              STDERR.puts "    === #{field_name} in #{index.key} does not match ==="
-              STDERR.puts "      #{left_values.size}: #{left_values.map(&:to_s).sort.take(10)}"
-              STDERR.puts "      #{right_values.size}: #{right_values.map(&:to_s).sort.take(10)}"
-              STDERR.puts "    ==========================================="
-            end
-          end
+          #tmp ====
+          puts "left values : #{left_values.size}"
+          puts "right values : #{right_values.size}"
+          #tmp ====
+
+          #if compare_values left_values.compact, right_values
+          #  STDERR.puts "    #{field_name} in #{index.key} matches"
+          #else
+          #  if compare_approximately_values left_values, right_values
+          #    STDERR.puts "    === #{field_name} in #{index.key} approximately match #{left_values.size} <-> #{right_values.size}==="
+
+          #    if left_values.first.class == Float
+          #      if left_values.size > right_values.size
+          #        STDERR.puts "      left_values is larger than right_values : #{
+          #          left_values.sort.zip(right_values.sort).select{|l, r| (l - r).abs < 0.001}.map{|l, r| l}.take(100)
+          #        }"
+          #      else
+          #        STDERR.puts "      right_values is larger than left_values : #{
+          #          left_values.sort.zip(right_values.sort).select{|l, r| (l - r).abs < 0.001}.map{|l, r| r}.take(100)
+          #        }"
+          #      end
+          #    else
+          #      if left_values.size > right_values.size
+          #        STDERR.puts "      left_values is larger than right_values : #{left_values.difference(right_values).map(&:to_s)}"
+          #      else
+          #        STDERR.puts "      right_values is larger than left_values : #{right_values.difference(left_values).map(&:to_s)}"
+          #      end
+          #    end
+          #  else
+          #    # this possibly happen if there are INSERT or UPDATE
+          #    STDERR.puts "    === #{field_name} in #{index.key} does not match ==="
+          #    STDERR.puts "      #{left_values.size}: #{left_values.map(&:to_s).sort.take(10)}"
+          #    STDERR.puts "      #{right_values.size}: #{right_values.map(&:to_s).sort.take(10)}"
+          #    STDERR.puts "    ==========================================="
+          #  end
+          #end
         end
       end
 
