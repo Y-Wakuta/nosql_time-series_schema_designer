@@ -25,7 +25,6 @@ module NoSE
         @port = config[:port]
         @keyspace = config[:keyspace]
         @generator = Cassandra::Uuid::Generator.new
-        initialize_client()
       end
 
       def self.remove_all_null_place_holder_row(rows)
