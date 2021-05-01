@@ -4,6 +4,7 @@
 NoSE::TimeDependWorkload.new do
   #Model 'tpch'
   Model 'tpch_card'
+  #Model 'tpch_card_key_composite'
 
   def step_freq(start_ratio, end_ratio, timesteps)
     timesteps -= 1
@@ -19,7 +20,7 @@ NoSE::TimeDependWorkload.new do
 
   TimeSteps frequencies.size
   Interval 7200 # specify interval in minutes
-  #Static true
+  Static true
   #FirstTs true
   #LastTs true
 

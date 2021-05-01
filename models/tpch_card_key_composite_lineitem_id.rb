@@ -28,8 +28,8 @@ NoSE::Model.new do
   end) * 10_000
 
   (Entity 'partsupp' do
-    ID 'ps_partkey', count: 200_000
-    #ID 'ps_suppkey'
+    ID 'ps_partkey', count: 200_000, composite: ['ps_suppkey']
+    ID 'ps_suppkey', count: 10_000
     Integer 'ps_availqty', count: 9_999
     Float 'ps_supplycost', count: 99_865
     String 'ps_comment', count: 799_124
@@ -60,8 +60,8 @@ NoSE::Model.new do
   end) * 1_500_000
 
   (Entity 'lineitem' do
-    ID 'l_linenumber', count: 6_000_000
-    #Integer 'l_orderkey'
+    ID 'l_orderkey', composite: ['l_linenumber']
+    CompositeKey 'l_linenumber', count: 6_000_000
     #Integer 'l_suppkey'
     #Integer 'l_partkey'
     Float 'l_quantity', count: 50
@@ -98,9 +98,6 @@ NoSE::Model.new do
   HasOne 'c_nationkey',       'from_customer',
          'customer'      => 'nation'
 
-  #HasOne '',       'n_nationkey',
-  #       'customer'      => 'supplier'
-
   HasOne 'ps_suppkey', 'from_partsupp',
          'partsupp' => 'supplier'
 
@@ -114,11 +111,11 @@ NoSE::Model.new do
          'lineitem'      => 'orders'
 
   HasOne 'l_partkey', 'from_lineitem',
-         'lineitem' => 'partsupp'
+         {'lineitem' => 'partsupp'}, composite: [{"name" => "l_suppkey", "related_key" => "ps_suppkey"}]
 
   # TODO: currently entities cannot have multiple foreign keys
-  #HasOne 'l_suppkey', 'from_lineitem',
-  #       'lineitem' => 'partsupp'
+  HasOne 'l_suppkey', 'from_lineitem_supp',
+  'lineitem' => 'partsupp'
 
   HasOne 'ps_partkey', 'from_partsupp',
          'partsupp' => 'part'

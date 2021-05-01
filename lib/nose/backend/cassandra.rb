@@ -25,6 +25,7 @@ module NoSE
         @port = config[:port]
         @keyspace = config[:keyspace]
         @generator = Cassandra::Uuid::Generator.new
+        initialize_client()
       end
 
       def self.remove_all_null_place_holder_row(rows)
@@ -108,10 +109,10 @@ module NoSE
       def index_insert_chunk(index, chunk)
         fields = index.all_fields.to_a
         prepared = insert_cql index
-        prepared = client.prepare prepared
+        prepared = @client.prepare prepared
 
         ids = []
-        batches = client.batch do |batch|
+        batches = @client.batch do |batch|
           chunk.each do |row|
             index_row = index_row(row, fields)
             ids << (index.hash_fields.to_a + index.order_fields).map do |field|
@@ -121,7 +122,7 @@ module NoSE
           end
         end
         begin
-          client.execute(batches)
+          @client.execute(batches)
         rescue => e
           STDERR.puts "===========+==========" + e
           throw e
@@ -146,28 +147,24 @@ module NoSE
       # Check if the given index is empty
       def index_empty?(index)
         query = "SELECT count(*) FROM \"#{index.key}\" LIMIT 1"
-        client()
-        client.execute(query).first.values.first.zero?
+        @client.execute(query).first.values.first.zero?
       end
 
       # Check if a given index exists in the target database
       def index_exists?(index)
-        client()
         tables = @client.execute("SELECT table_name FROM system_schema.tables WHERE keyspace_name='#{@keyspace}'").to_a.map{|t| t.values}.flatten
         tables.include? index.key
       end
 
       # Check if a given index exists in the target database
       def drop_index(index)
-        client()
         @client.execute "DROP TABLE \"#{index.key}\""
       end
 
       def clear_keyspace
         STDERR.puts "clearing keyspace: #{@keyspace}"
-        client()
         @cluster.keyspace(@keyspace).tables.map(&:name).each do |index_key|
-          client.execute("DROP TABLE #{index_key}")
+          @client.execute("DROP TABLE #{index_key}")
         end
 
         # this works only for localhost
@@ -214,7 +211,7 @@ module NoSE
         inserting_try = 0
         host_name = ""
         begin
-          Parallel.each_with_index(formatted_result.each_slice(1_000_000), in_processes: 3) do |results_chunk, idx|
+          Parallel.each_with_index(formatted_result.each_slice(1_000_000), in_processes: 5) do |results_chunk, idx|
             #formatted_result.each_slice(10_000_000).each_with_index do |results_chunk, idx|
             host_name = @hosts.sample(1).first
             Dir.mktmpdir do |dir|
@@ -258,15 +255,12 @@ module NoSE
 
       def unload_index_by_cassandra_unloader(index)
         starting = Time.now.utc
-        fields = index.all_fields.to_a
-        columns = fields.map(&:id)
-        columns << "value_hash"
+        columns = index.all_fields.map(&:id)
 
         inserting_try = 0
         records = nil
         Dir.mktmpdir do |dir|
-          #file_name = "#{dir}/#{index.key}.csv"
-          file_name = "/tmp/__#{index.key}.csv"
+          file_name = "#{dir}/#{index.key}.csv"
           host_name = @hosts.sample(1).first
           ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
           begin
@@ -306,7 +300,7 @@ module NoSE
         end
       end
 
-      def create_empty_record(index)
+      def self.create_empty_record(index)
         row = {}
         index.all_fields.each do |f|
           row[f.id] = CassandraBackend.convert_nil_2_place_holder f
@@ -329,13 +323,19 @@ module NoSE
         ddl
       end
 
+      def initialize_client
+        @cluster = Cassandra.cluster hosts: @hosts, port: @port,
+                                     timeout: nil
+        @client = @cluster.connect @keyspace
+      end
+
       private
 
       def query_index_limit_for_sample(query, limit)
         query_tries = 0
         begin
           rows = []
-          result = client.execute(query, page_size: limit * 100 * 3)
+          result = @client.execute(query, page_size: limit * 100 * 3)
           loop do
             tmp_rows = CassandraBackend.remove_any_null_place_holder_row(result.to_a)
             rows = CassandraBackend.remove_any_null_row(tmp_rows)
@@ -359,7 +359,7 @@ module NoSE
         query_tries = 0
         begin
           rows = []
-          result = client.execute(query, page_size: 20_000)
+          result = @client.execute(query, page_size: 20_000)
           loop do
             rows += CassandraBackend.remove_all_null_place_holder_row(result.to_a)
 
@@ -426,9 +426,8 @@ module NoSE
 
       # Get a Cassandra client, connecting if not done already
       def client
-        @cluster = Cassandra.cluster hosts: @hosts, port: @port,
-                                     timeout: nil
-        @client = @cluster.connect @keyspace
+        return @client unless @client.nil?
+        initialize_client
       end
 
       # Return the datatype to use in Cassandra for a given field

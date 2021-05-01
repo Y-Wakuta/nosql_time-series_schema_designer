@@ -45,9 +45,43 @@ module NoSE
       # :nocov:
 
       def self.apply(parent, state)
-        return nil unless state.answered? check_aggregate: false
+        return nil unless state.answered? check_aggregate: false, check_orderby: false
         return nil unless required_fields? parent.fields, state
+        return nil if any_parent_is_sort_step? parent
+
+        if any_parent_does_aggregation? parent
+          return nil if state.groupby.empty?
+
+          parent_aggs = parent_aggregations(parent)
+          # if the parent step does aggregation on db, AggregationStep is still required for aggregation on client
+          return AggregationPlanStep.new parent_aggs[:counts], parent_aggs[:sums], parent_aggs[:avgs], parent_aggs[:maxes], state.groupby, state
+        end
         AggregationPlanStep.new state.counts, state.sums, state.avgs, state.maxes, state.groupby, state
+      end
+
+      # As the same as SQL procedure, sort should be done after Aggregation
+      def self.any_parent_is_sort_step?(parent)
+        return false if parent.is_a? Plans::RootPlanStep
+        return true if parent.instance_of?(Plans::SortPlanStep)
+        return any_parent_does_aggregation?(parent.parent)
+      end
+
+      # aggregation should be done at IndexLookupStep or AggregationPlanStep.
+      # Not at both of these steps
+      def self.any_parent_does_aggregation?(parent)
+        return false if parent.is_a? Plans::RootPlanStep
+        return true if parent.instance_of?(Plans::IndexLookupPlanStep) and parent.index.has_aggregation_fields?
+        return any_parent_does_aggregation?(parent.parent)
+      end
+
+      def self.parent_aggregations(parent)
+        return nil if parent.is_a? Plans::RootPlanStep
+        if parent.instance_of?(Plans::IndexLookupPlanStep) and parent.index.has_aggregation_fields?
+          return {counts: parent.index.count_fields || Set.new, sums: parent.index.sum_fields || Set.new,
+                  avgs: parent.index.avg_fields || Set.new,
+                  maxes: parent.index.max_fields || Set.new, groupby: parent.index.groupby_fields || Set.new}
+        end
+        return any_parent_does_aggregation?(parent.parent)
       end
 
       # Check that we have all the fields we are filtering

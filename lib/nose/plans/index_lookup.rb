@@ -47,7 +47,7 @@ module NoSE
       # Check if this step can be applied for the given index,
       # returning a possible application of the step
       # @return [IndexLookupPlanStep]
-      def self.apply(parent, index, state)
+      def self.apply(parent, index, state, check_aggregation: true)
         # Validate several conditions which identify if this index is usable
         begin
           check_joins index, state
@@ -56,12 +56,39 @@ module NoSE
           check_all_hash_fields parent, index, state
           check_graph_fields parent, index, state
           check_last_fields index, state
-          check_parent_aggregation parent
+          if check_aggregation
+            check_has_only_required_aggregations index, state
+            check_parent_groupby parent
+            check_parent_aggregation parent
+          end
         rescue InvalidIndex
           return nil
         end
 
         IndexLookupPlanStep.new(index, state, parent)
+      end
+
+      def self.check_has_only_required_aggregations(index, state)
+        fail InvalidIndex if state.groupby.empty? and not index.groupby_fields.empty?
+        fail InvalidIndex if (not state.groupby.empty? and not index.groupby_fields.empty?) and not state.groupby <= index.groupby_fields
+      end
+
+      def self.check_parent_groupby(parent)
+        return unless parent.is_a? Plans::IndexLookupPlanStep
+        # no column family with GROUP BY can become parent of any index
+        fail InvalidIndex if parent.index.has_aggregation_fields?
+      end
+
+      # remove invalid query plans because of aggregation fields
+      def self.check_aggregate_fields(parent, index)
+        return unless parent.is_a? IndexLookupPlanStep
+
+        # fields used for join parent_index and current index
+        join_fields = parent.index.all_fields & (index.hash_fields + index.order_fields)
+        aggregation_fields = parent.index.count_fields + parent.index.sum_fields + parent.index.max_fields + parent.index.avg_fields
+
+        # if all primary fields are used for joining column families are aggregate fields, raise InvalidIndex
+        fail InvalidIndex if join_fields.select(&:primary_key).all?{|f| aggregation_fields.include? f}
       end
 
       def self.check_parent_aggregation(parent)
@@ -357,6 +384,14 @@ module NoSE
         # Remove fields resolved by this index
         @state.fields -= @index.all_fields
         @state.eq -= @eq_filter
+        @state.counts -= @index.count_fields.to_set
+        @state.sums -= @index.sum_fields
+        @state.maxes -= @index.max_fields
+        @state.avgs -= @index.avg_fields
+        if @state.groupby == @index.groupby_fields
+          # groupby fields can be resolved with only required group by
+          @state.groupby -= @index.groupby_fields
+        end
 
         indexed_by_id = resolve_order
         strip_graph

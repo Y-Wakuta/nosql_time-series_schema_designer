@@ -45,10 +45,19 @@ module NoSE
         # Get fields and check for possible filtering
         filter_fields, eq_filter, range_filter = filter_fields parent, state
         return nil if filter_fields.empty?
+        return nil if any_parent_does_aggregation? parent
 
         FilterPlanStep.new eq_filter, range_filter, state \
           if required_fields?(filter_fields, parent)
       end
+
+      # Filtering should be done before IndexLookupStep with aggregations.
+      def self.any_parent_does_aggregation?(parent)
+        return false if parent.is_a? Plans::RootPlanStep
+        return true if parent.instance_of?(Plans::IndexLookupPlanStep) and parent.index.has_aggregation_fields?
+        return any_parent_does_aggregation?(parent.parent)
+      end
+
 
       # Get the fields we can possibly filter on
       def self.filter_fields(parent, state)

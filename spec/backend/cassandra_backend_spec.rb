@@ -61,8 +61,9 @@ module NoSE
             'CREATE COLUMNFAMILY "TweetIndex" ("User_Username" text, ' \
             '"Tweet_Timestamp" timestamp, "User_UserId" uuid, '\
             '"Tweet_TweetId" uuid, ' \
-            '"Tweet_Body" text, PRIMARY KEY(("User_Username"), ' \
-            '"Tweet_Timestamp", "User_UserId", "Tweet_TweetId"));'
+            '"Tweet_Body" text, ' \
+            '"value_hash" text, PRIMARY KEY(("User_Username"), ' \
+            '"Tweet_Timestamp", "User_UserId", "Tweet_TweetId", value_hash));'
           ]
         end
       end
@@ -164,6 +165,27 @@ module NoSE
           .and_return(results).exactly(results.size).times
         prepared.process query.conditions, res, nil
       end
+
+      it 'generates query for aggregation on database' do
+        query = Statement.parse 'SELECT sum(Tweet.Body), max(Tweet.Retweets), User.Username FROM Tweet.User ' \
+                                'WHERE User.Username = "Bob" ' \
+                                'GROUP BY User.Username',
+                                workload.model
+        index = query.materialize_view_with_aggregation
+        planner = Plans::QueryPlanner.new workload.model, [index], cost_model
+        step = planner.min_plan(query).last
+
+        client = double('client')
+        backend_query = 'SELECT "User_Username", sum("Tweet_Body"), max("Tweet_Retweets") ' \
+                        + "FROM \"#{index.key}\" " \
+                        'WHERE "User_Username" = ? GROUP BY "User_Username"'
+
+        step_class = CassandraBackend::IndexLookupStatementStep
+        expect(client).to receive(:prepare).with(backend_query) \
+          .and_return(backend_query)
+        step_class.new client, query.all_fields, query.conditions,
+                                  step, nil, step.parent
+      end
     end
 
     describe CassandraBackend::InsertStatementStep do
@@ -176,7 +198,7 @@ module NoSE
           'Link_LinkId' => nil,
           'Link_URL' => 'http://www.example.com/'
         }]
-        values = backend.add_value_hash(index, values)
+        values = backend.send(:add_value_hash, index, values)
         backend_insert = "INSERT INTO #{index.key} (\"Link_LinkId\", " \
                          '"Link_URL", value_hash ) VALUES (?, ?, ?)'
         expect(client).to receive(:prepare).with(backend_insert) \
@@ -238,8 +260,10 @@ module NoSE
                                   step, nil, step.parent
         actual = prepared.process query.conditions, results, nil
         expected = [
-            {["Bob"] => {tweet['Body'] => 3.0, tweet['Retweets'] => 12.0, user['Username'] => "Bob"}},
-            {["Alice"] => {tweet['Body'] => 7.0, tweet['Retweets'] => 14.0, user['Username'] => "Alice"}}
+          #{["Bob"] => {tweet['Body'] => 3.0, tweet['Retweets'] => 12.0, user['Username'] => "Bob"}},
+          #{["Alice"] => {tweet['Body'] => 7.0, tweet['Retweets'] => 14.0, user['Username'] => "Alice"}}
+          {tweet['Body'] => 3.0, tweet['Retweets'] => 12.0, user['Username'] => "Bob"},
+          {tweet['Body'] => 7.0, tweet['Retweets'] => 14.0, user['Username'] => "Alice"}
         ]
         expect(actual).to eq(expected)
       end

@@ -182,13 +182,13 @@ module NoSE
                           [tweet['Body']],
                           QueryGraph::Graph.from_path(
                             [tweet.id_field]
-                          )
+                          ), count_fields: Set.new([tweet['Body']])
         planner = QueryPlanner.new workload.model, [index], cost_model
         query = Statement.parse 'SELECT count(Tweet.Body) FROM Tweet WHERE ' \
                                 'Tweet.TweetId = ?', workload.model
         tree = planner.find_plans_for_query(query)
         expect(tree).to have(1).plan
-        expect(tree.first).to have(2).steps
+        expect(tree.first).to have(1).steps
       end
 
       it 'creates Aggregation step for the last step of query plan' do
@@ -211,7 +211,144 @@ module NoSE
         expect(plan.steps.last.class).to be AggregationPlanStep
       end
 
-      it 'can apply group by in the query' do
+      it 'can apply aggregation function at last step in the query plan' do
+        parent_index = Index.new [tweet['Body']], [tweet['TweetId'], tweet['Retweets']],
+                                 [],
+                                 QueryGraph::Graph.from_path(
+                                     [tweet.id_field]
+                                 )
+        index = Index.new [tweet['TweetId']], [],
+                          [tweet['Timestamp'], tweet['Retweets']],
+                          QueryGraph::Graph.from_path(
+                              [tweet.id_field]), count_fields: Set.new([tweet['TweetId']]),
+                          sum_fields: Set.new([tweet['Retweets']]), avg_fields: Set.new([tweet['Timestamp']])
+        planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
+        query = Statement.parse 'SELECT count(Tweet.TweetId), sum(Tweet.Retweets), avg(Tweet.Timestamp) FROM Tweet WHERE ' \
+                                'Tweet.Body = ?', workload.model
+
+        tree = planner.find_plans_for_query(query)
+        expect(tree).to have(1).plan
+
+        last_index = tree.first.steps.last.index
+        expect(last_index.sum_fields).to include Set.new([tweet['Retweets']])
+        expect(last_index.count_fields).to include Set.new([tweet['TweetId']])
+        expect(last_index.avg_fields).to include Set.new([tweet['Timestamp']])
+      end
+
+      it 'can apply group by in the query on database' do
+        query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, sum(Tweet.Timestamp) FROM Tweet WHERE ' \
+                                'Tweet.Body = ? GROUP BY Tweet.Retweets', workload.model
+        parent_index = Index.new [tweet['Body']], [tweet['TweetId']],
+                                 [tweet['Retweets']],
+                                 QueryGraph::Graph.from_path(
+                                   [tweet.id_field]
+                                 )
+        index = Index.new  [tweet['TweetId']], [tweet['Retweets']],
+                           [tweet['Timestamp']],
+                           QueryGraph::Graph.from_path(
+                             [tweet.id_field]), count_fields: Set.new([tweet['TweetId']]),
+                           sum_fields: Set.new([tweet['Timestamp']]), groupby_fields: Set.new([tweet['Retweets']])
+        planner = QueryPlanner.new workload.model, [parent_index, index], cost_model
+        tree = planner.find_plans_for_query(query)
+        expect(tree).to have(1).plan
+        expect(tree.first.steps.last.class).to be IndexLookupPlanStep
+        expect(tree.first.steps.last.index.count_fields).to eq(Set.new([tweet['TweetId']]))
+        expect(tree.first.steps.last.index.sum_fields).to eq(Set.new([tweet['Timestamp']]))
+        expect(tree.first.steps.last.index.groupby_fields).to eq(Set.new([tweet['Retweets']]))
+      end
+
+      it 'does not apply partial aggregation' do
+        query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, sum(Tweet.Timestamp) FROM Tweet WHERE ' \
+                                'Tweet.Body = ? GROUP BY Tweet.Retweets', workload.model
+        index = Index.new [tweet['Body']], [tweet['Retweets'], tweet['TweetId']],
+                                 [tweet['Timestamp']],
+                                 QueryGraph::Graph.from_path(
+                                   [tweet.id_field]
+                                 ), count_fields: Set.new([tweet['TweetId']]),
+                           sum_fields: Set.new([tweet['Timestamp']]), groupby_fields: Set.new([tweet['Retweets']])
+        planner = QueryPlanner.new workload.model, [index], cost_model
+        tree = planner.find_plans_for_query(query)
+        expect(tree).to have(1).plan
+
+        index_without_count = Index.new [tweet['Body']], [tweet['Retweets'], tweet['TweetId']],
+                                 [tweet['Timestamp']],
+                                 QueryGraph::Graph.from_path(
+                                   [tweet.id_field]
+                                 ), sum_fields: Set.new([tweet['Timestamp']]), groupby_fields: Set.new([tweet['Retweets']])
+        planner_ = QueryPlanner.new workload.model, [index_without_count], cost_model
+        expect do
+          planner_.find_plans_for_query(query)
+        end.to raise_error(NoPlanException)
+      end
+
+      it 'applies aggregation before sort step' do
+        query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, sum(Tweet.Timestamp) FROM Tweet WHERE ' \
+                                'Tweet.Body = ? ORDER BY Tweet.Retweets, Tweet.Timestamp GROUP BY Tweet.Retweets', workload.model
+        index = Index.new [tweet['Body']], [tweet['Retweets'], tweet['TweetId']],
+                                 [tweet['Timestamp']],
+                                 QueryGraph::Graph.from_path(
+                                   [tweet.id_field]
+                                 )
+        planner = QueryPlanner.new workload.model, [index], cost_model
+        tree = planner.find_plans_for_query(query)
+        expect(tree).to have(1).plan
+        steps = tree.first.steps
+        expect(steps.index{|s| s.instance_of?(AggregationPlanStep)}).to be < steps.index{|s| s.instance_of?(SortPlanStep)}
+      end
+
+      it 'does not apply Filter after aggregation on IndexLookupPlanStep' do
+        query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, sum(Tweet.Timestamp) FROM Tweet WHERE ' \
+                                'Tweet.Body = ? AND Tweet.TweetId = ? GROUP BY Tweet.Retweets', workload.model
+        index = Index.new [tweet['Body']], [tweet['Retweets'], tweet['TweetId']],
+                         [tweet['Timestamp']],
+                         QueryGraph::Graph.from_path(
+                           [tweet.id_field]
+                         ), count_fields: Set.new([tweet['TweetId']]),
+                   sum_fields: Set.new([tweet['Timestamp']]), groupby_fields: Set.new([tweet['Retweets']])
+        planner = QueryPlanner.new workload.model, [index], cost_model
+        expect do
+          planner.find_plans_for_query(query)
+        end.to raise_error(NoPlanException)
+
+        index = Index.new [tweet['Body']], [tweet['Retweets'], tweet['TweetId']],
+                 [tweet['Timestamp']],
+                 QueryGraph::Graph.from_path(
+                   [tweet.id_field]
+                 )
+        planner = QueryPlanner.new workload.model, [index], cost_model
+        tree = planner.find_plans_for_query(query)
+        expect(tree).to have(1).plan
+        steps = tree.first.steps
+        indexlookupsteps_before_filter = steps[0...steps.index{|s| s.instance_of?(FilterPlanStep)}].select{|s| s.instance_of?(IndexLookupPlanStep)}
+        expect(indexlookupsteps_before_filter.any?{|ibf| ibf.index.has_aggregation_fields?}).to be false
+      end
+
+      it 'uses CF that does aggregation with range condition and then apply AggregationPlanStep' do
+        query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, sum(Tweet.Timestamp) FROM Tweet WHERE ' \
+                                'Tweet.Body = ? AND Tweet.TweetId > 0 GROUP BY Tweet.Retweets', workload.model
+        index = query.materialize_view_with_aggregation
+        #index = Index.new [tweet['Body']], [ tweet['TweetId'], tweet['Retweets']],
+        #                         [tweet['Timestamp']],
+        #                         QueryGraph::Graph.from_path(
+        #                           [tweet.id_field]
+        #                         ), count_fields: Set.new([tweet['TweetId']]),
+        #                   sum_fields: Set.new([tweet['Timestamp']]), groupby_fields: Set.new([tweet['TweetId'], tweet['Retweets']]), extra_groupby_fields: Set.new([tweet['TweetId']])
+        planner = QueryPlanner.new workload.model, [index], cost_model
+        tree = planner.find_plans_for_query(query)
+        expect(tree).to have(1).plan
+
+        index_without_count = Index.new [tweet['Body']], [tweet['Retweets'], tweet['TweetId']],
+                                 [tweet['Timestamp']],
+                                 QueryGraph::Graph.from_path(
+                                   [tweet.id_field]
+                                 ), sum_fields: Set.new([tweet['Timestamp']]), groupby_fields: Set.new([tweet['Retweets']])
+        planner_ = QueryPlanner.new workload.model, [index_without_count], cost_model
+        expect do
+          planner_.find_plans_for_query(query)
+        end.to raise_error(NoPlanException)
+      end
+
+      it 'can apply group by in the query on memory' do
         query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, sum(Tweet.Timestamp) FROM Tweet WHERE ' \
                                 'Tweet.Body = ? GROUP BY Tweet.Retweets', workload.model
         parent_index = Index.new [tweet['Body']], [tweet['TweetId']],
@@ -436,19 +573,15 @@ module NoSE
       it 'enumerates join query plans for complicated queries' do
         tpch_workload = Workload.new do |_| Model('tpch')
           Group 'Group1', default: 1 do
-            Q 'INSERT INTO orders SET o_orderkey=?, o_orderstatus=?, o_totalprice=?, o_orderdate=?, o_orderpriority=?, '\
-                  'o_clerk=?, o_shippriority=?, o_comment=? AND CONNECT TO to_customer(?) -- 4'
-            Q 'SELECT lineitem.l_orderkey, lineitem.l_extendedprice, to_orders.o_shippriority '\
-                'FROM lineitem.to_orders.to_customer '\
-                'WHERE to_customer.c_mktsegment = ? AND to_orders.o_orderdate = ?'
-            Q 'SELECT lineitem.l_orderkey, lineitem.l_extendedprice, to_orders.o_shippriority '\
-                'FROM lineitem.to_orders.to_customer '\
-                'WHERE to_customer.c_mktsegment = ? AND to_orders.o_shippriority = ?'
+            Q 'SELECT l_orderkey.o_orderkey, sum(lineitem.l_extendedprice), sum(lineitem.l_discount), l_orderkey.o_orderdate, l_orderkey.o_shippriority '\
+              'FROM lineitem.l_orderkey.o_custkey '\
+              'WHERE o_custkey.c_mktsegment = ? AND lineitem.l_shipdate > ? '\
+              'ORDER BY lineitem.l_extendedprice, lineitem.l_discount, l_orderkey.o_orderdate ' \
+              'GROUP BY l_orderkey.o_orderkey, l_orderkey.o_orderdate, l_orderkey.o_shippriority -- Q3'
           end
         end
 
-        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model,
-                                            1, 100, 1).indexes_for_workload
+        indexes = GraphBasedIndexEnumerator.new(tpch_workload, cost_model, 2, 1_000).indexes_for_workload
         planner = QueryPlanner.new tpch_workload.model, indexes, cost_model
         tpch_workload.statement_weights.select{|s| s.instance_of? Query}.keys.each do |q|
           join_plans = planner.find_plans_for_query(q).select do |plan|
@@ -461,16 +594,16 @@ module NoSE
 
       it 'fields in clustering key and ORDER BY matches' do
         tpch_workload = Workload.new do |_| Model('tpch')
-          Group 'Group1', default: 1 do
-            Q 'SELECT ps_suppkey.s_acctbal, ps_suppkey.s_name, s_nationkey.n_name, ps_suppkey.s_phone ' \
+        Group 'Group1', default: 1 do
+          Q 'SELECT ps_suppkey.s_acctbal, ps_suppkey.s_name, s_nationkey.n_name, ps_suppkey.s_phone ' \
               'FROM part.from_partsupp.ps_suppkey.s_nationkey ' \
               'WHERE part.p_size = ? AND part.p_type = ? '\
               'ORDER BY ps_suppkey.s_acctbal, s_nationkey.n_name, ps_suppkey.s_name -- Q2_outer'
-          end
+        end
         end
 
-        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model,
-                                            1, 2, 1).indexes_for_workload
+        indexes = GraphBasedIndexEnumerator.new(tpch_workload, cost_model,
+                                                3, 1_000).indexes_for_workload
         planner = QueryPlanner.new tpch_workload.model, indexes, cost_model
         tpch_workload.statement_weights.select{|s| s.instance_of? Query}.keys.each do |q|
           tree = planner.find_plans_for_query(q)
@@ -495,27 +628,20 @@ module NoSE
         tpch_workload = Workload.new do |_|
           Model 'tpch'
           Group 'Group1', default: 1 do
-            Q 'SELECT to_nation.n_name, lineitem.l_extendedprice, lineitem.l_discount ' \
-              'FROM lineitem.to_orders.to_customer.to_nation.to_region ' \
-              'WHERE to_region.r_name = ? AND to_orders.o_orderdate >= ? AND to_orders.o_orderdate < ? ' \
-              'ORDER BY lineitem.l_extendedprice, lineitem.l_discount -- Q5'
-            Q 'SELECT to_nation.n_name, lineitem.l_shipdate, '\
-              'lineitem.l_extendedprice, lineitem.l_discount ' \
-              'FROM lineitem.to_orders.to_customer.to_nation '\
-              'WHERE lineitem.l_orderkey = ? AND lineitem.l_shipdate < ? AND lineitem.l_shipdate > ? ' \
-              'ORDER BY to_nation.n_name, lineitem.l_shipdate -- Q7'
-             Q 'SELECT to_orders.o_orderdate, from_lineitem.l_extendedprice, from_lineitem.l_discount, to_nation.n_name '\
-               'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation.to_region ' \
-               'WHERE to_region.r_name = ? AND to_orders.o_orderdate < ? AND to_orders.o_orderdate > ? AND part.p_type = ? ' \
-               'ORDER BY to_orders.o_orderdate -- Q8'
-             Q 'SELECT to_nation.n_name, to_orders.o_orderdate, from_lineitem.l_extendedprice, from_lineitem.l_discount, '  \
-               'from_partsupp.ps_supplycost, from_lineitem.l_quantity ' \
-               'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation ' \
-               'WHERE part.p_name = ? AND from_lineitem.l_orderkey = ? ' \
-               'ORDER BY to_nation.n_name, to_orders.o_orderdate -- Q9'
+            Q 'SELECT c_nationkey.n_name, sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
+              'FROM lineitem.l_orderkey.o_custkey.c_nationkey.n_regionkey ' \
+              'WHERE n_regionkey.r_name = ? AND l_orderkey.o_orderdate < ? ' \
+              'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
+              'GROUP BY c_nationkey.n_name -- Q5'
+
+            Q 'SELECT l_orderkey.o_orderdate, sum(from_lineitem.l_extendedprice), sum(from_lineitem.l_discount) '\
+              'FROM part.from_partsupp.from_lineitem.l_orderkey.o_custkey.c_nationkey.n_regionkey ' \
+              'WHERE c_nationkey.n_name = ? AND n_regionkey.r_name = ? AND part.p_type = ? AND l_orderkey.o_orderdate < ? ' \
+              'ORDER BY l_orderkey.o_orderdate ' \
+              'GROUP BY l_orderkey.o_orderdate -- Q8'
           end
         end
-        indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model, 1, 3, 1).indexes_for_workload.to_a
+        indexes = GraphBasedIndexEnumerator.new(tpch_workload, cost_model, 3, 1_000).indexes_for_workload.to_a
         pruned_planner = QueryPlanner.new tpch_workload.model, indexes, cost_model
         query_indexes_hash = tpch_workload.statement_weights.keys.flat_map do |q|
           pruned_plan = pruned_planner.find_plans_for_query q
@@ -524,26 +650,23 @@ module NoSE
         end.inject(&:merge)
 
         used_indexes = query_indexes_hash.values.map(&:uniq).flatten
-        expect(used_indexes.size - used_indexes.uniq.size).to be 175
+        expect(used_indexes.size - used_indexes.uniq.size).to be 10
       end
 
       it 'enumerates only allowed depth query plan' do
         tpch_workload = Workload.new do |_|
           Model 'tpch'
           Group 'Group1', default: 1 do
-            Q 'INSERT INTO orders SET o_orderkey=?, o_orderstatus=?, o_totalprice=?, o_orderdate=?, o_orderpriority=?, '\
-                  'o_clerk=?, o_shippriority=?, o_comment=? AND CONNECT TO to_customer(?) -- 4'
-            Q 'SELECT to_orders.o_orderdate, from_lineitem.l_extendedprice '\
-              'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation.to_region ' \
-              'WHERE to_region.r_name = ? AND part.p_type = ?'
-            Q 'SELECT to_orders.o_orderdate, from_lineitem.l_extendedprice '\
-              'FROM part.from_partsupp.from_lineitem.to_orders.to_customer.to_nation.to_region ' \
-              'WHERE to_region.r_name = ? AND part.p_brand = ?'
+            Q 'SELECT c_nationkey.n_name, sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
+              'FROM lineitem.l_orderkey.o_custkey.c_nationkey.n_regionkey ' \
+              'WHERE n_regionkey.r_name = ? AND l_orderkey.o_orderdate < ? ' \
+              'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
+              'GROUP BY c_nationkey.n_name -- Q5'
           end
         end
         1.upto(3).each do |index_step_size_threshold|
-          indexes = PrunedIndexEnumerator.new(tpch_workload, cost_model,
-                                              1, index_step_size_threshold, 1)
+          indexes = GraphBasedIndexEnumerator.new(tpch_workload, cost_model,
+                                              index_step_size_threshold, 1000)
                                          .indexes_for_workload.to_a
           pruned_planner = PrunedQueryPlanner.new tpch_workload.model, indexes, cost_model, index_step_size_threshold
           tpch_workload.statement_weights.keys.select { |s| s.instance_of? Query}.each do |q|
@@ -568,10 +691,11 @@ module NoSE
           TimeSteps 3
           Model 'tpch'
           Group 'Group1', default: [1,2,3] do
-            Q 'SELECT to_orders.o_orderpriority, count(to_orders.o_orderkey) ' \
-              'FROM lineitem.to_orders '\
-              'WHERE to_orders.o_orderkey = ? AND to_orders.o_orderpriority = ? AND lineitem.l_orderkey = ? ' \
-              'GROUP BY to_orders.o_orderpriority -- Q4'
+            Q 'SELECT customer.c_phone, sum(customer.c_acctbal), count(customer.c_custkey) ' \
+              'FROM customer ' \
+              'WHERE customer.c_phone = ? AND customer.c_custkey = ? AND customer.c_acctbal > ? ' \
+              'ORDER BY customer.c_phone ' \
+              'GROUP BY customer.c_phone -- Q22'
           end
         end
         indexes = IndexEnumerator.new(tpch_workload).indexes_for_workload [], false
@@ -586,6 +710,30 @@ module NoSE
             end
           end
         end
+      end
+
+      it 'pruduce prepare plans for CF that has aggregation' do
+        target_index = Index.new [td_tweet['TweetId']], [td_tweet['Body']],
+                  [td_tweet['Timestamp'], td_tweet['Retweets']],
+                  QueryGraph::Graph.from_path(
+                      [td_tweet.id_field]), count_fields: Set.new([td_tweet['TweetId']])
+
+        index1 = Index.new [td_tweet['TweetId']], [td_tweet['Body'], td_tweet['Timestamp']],
+                                 [td_tweet['Retweets']],
+                                 QueryGraph::Graph.from_path(
+                                   [td_tweet.id_field]), count_fields: Set.new([td_tweet['TweetId']])
+
+        index2 = Index.new [td_tweet['TweetId']], [td_tweet['Body']],
+                                 [td_tweet['Timestamp'], td_tweet['Retweets']],
+                                 QueryGraph::Graph.from_path(
+                                   [td_tweet.id_field])
+
+        migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(target_index)
+        planner = Plans::MigrateSupportSimpleQueryPlanner.new td_workload, [index1, index2], cost_model, 2
+        search = Search::Search.new(td_workload, cost_model)
+        tree = search.send(:support_query_cost, migrate_support_query, planner)[:tree]
+        expect(tree.to_a.size).to be 2
+        expect(tree.flat_map(&:indexes).to_set).to eq(Set.new([index1, index2]))
       end
     end
 
@@ -632,6 +780,18 @@ module NoSE
         expect(plans).to have(1).item
         expect(plans.first.query_plans).to be_empty
       end
+
+      #it 'produces support query for single-entity query' do
+      #  update = Statement.parse 'INSERT INTO User SET UserId = ?, City = ?, Username = ?' , workload.model
+      #  index = Index.new [user['Username']],
+      #                    [user['Country'], user['UserId']], [user['City']],
+      #                    QueryGraph::Graph.from_path(
+      #                      [user.id_field]
+      #                    )
+
+      #  queries = update.support_queries(index)
+      #  expect(queries.size).to be > 0
+      #end
     end
   end
 end

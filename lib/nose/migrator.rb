@@ -23,8 +23,9 @@ module NoSE
           index_loaded_hash[new_index] = false
         end
 
-        #Parallel.each(migration_plans, in_threads: 10) do |migration_plan|
+        #Parallel.each(migration_plans, in_processes: Parallel.processor_count / 3) do |migration_plan|
         migration_plans.each do |migration_plan|
+          @backend.initialize_client
           prepare_next_indexes(migration_plan, index_loaded_hash)
         end
       end
@@ -68,10 +69,8 @@ module NoSE
           next if query_plan.nil?
 
           unless index_loaded_hash[target_index]
-            STDERR.puts "start get records from cf using cassandra-unloader"
-            start_unloading = Time.now
             values = collect_records(query_plan.indexes)
-            STDERR.puts "end get records from cf using cassandra-unloader #{target_index.key}: #{Time.now - start_unloading}"
+            #values = index_records(query_plan.indexes)
             obsolete_data = full_outer_join(values)
 
             STDERR.puts "collected data size for #{target_index.key} is #{obsolete_data.size}: #{Time.now}"
@@ -95,10 +94,10 @@ module NoSE
 
       private
 
-      def index_records(indexes, required_fields)
+      def index_records(indexes)
         Hash[indexes.map do |index|
           STDERR.puts "start collecting data from #{index.key} for the migration: #{Time.now}"
-          values = @backend.index_records(index, required_fields).to_a
+          values = @backend.index_records(index, index.all_fields).to_a
           [index, values]
         end]
       end
@@ -113,40 +112,20 @@ module NoSE
 
       def left_outer_join(left_index, left_values, right_index, right_values)
         overlap_key_fields = (left_index.all_fields & right_index.all_fields).select{|f| f.is_a? NoSE::Fields::IDField}
-        right_index_hash = {}
 
         starting = Time.now
-        # create hash for right values
-        right_values.each do |right_value|
-          next if Backend::CassandraBackend.remove_all_null_place_holder_row([right_value]).empty?
-          key_fields = overlap_key_fields.map{|fi| right_value.slice(fi.id)}
-          next if Backend::CassandraBackend.remove_all_null_place_holder_row(key_fields).empty?
-
-          key_fields = overlap_key_fields.map{|fi| right_value[fi.id].to_s}.join(',')
-          key_fields = Zlib.crc32(key_fields)
-          if right_index_hash[key_fields].nil?
-            right_index_hash[key_fields] = [right_value]
-          else
-            right_index_hash[key_fields] << right_value
-          end
+        right_index_hash = right_values.reject{|rv| Backend::CassandraBackend.remove_all_null_place_holder_row([rv]).empty? \
+              or Backend::CassandraBackend.remove_all_null_place_holder_row(overlap_key_fields.map{|fi| rv.slice(fi.id)}).empty?}.group_by do |right_value|
+          (overlap_key_fields.map{|fi| right_value[fi.id].to_s}.join(',')).hash
         end
-        puts "left outer join hash creation done: #{Time.now - starting}"
+        right_index_hash.default = Backend::CassandraBackend.create_empty_record(right_index)
 
-        results = []
-        # iterate for left value to look for checking does related record exist
-        left_values.each do |left_value|
-          related_key = overlap_key_fields.map{|fi| left_value[fi.id].to_s}.join(',')
-          related_key = Zlib.crc32(related_key)
-          right_records = right_index_hash[related_key]
-          if right_records.nil?
-            results << join_with_empty_record(left_value, right_index)
-          else
-            right_records.each do |right_value|
-              results << left_value.merge(right_value)
-            end
-          end
-        end
-        puts "hash join done results #{results.size} #{Time.now - starting}"
+        results = left_values.flat_map do |left_value|
+          related_key = (overlap_key_fields.map{|fi| left_value[fi.id].to_s}.join(',')).hash
+          [right_index_hash[related_key]].flatten.map {|rv| rv.merge(left_value)}
+        end.uniq
+
+        puts "  new impl ruby original: hash join done results #{results.size} records:  #{Time.now - starting}"
         results
       end
 
@@ -158,16 +137,17 @@ module NoSE
         return index_values.to_a.flatten(1)[1] if index_values.length == 1
 
         result = []
-        index_values.each_cons(2) do |former_index_value, next_index_value|
-          puts "former index #{former_index_value[0].key} has #{former_index_value[1].size} records"
-          puts "former index #{former_index_value[0].hash_str}"
-          puts "next index #{next_index_value[0].key} has #{next_index_value[1].size} records"
-          puts "next index #{next_index_value[0].hash_str}"
-          puts "start join #{Time.now}"
-          result += left_outer_join(former_index_value[0], former_index_value[1], next_index_value[0], next_index_value[1])
-          result += left_outer_join(next_index_value[0], next_index_value[1], former_index_value[0], former_index_value[1])
+        index_values.each_cons(2) do |(former_index, former_value), (next_index, next_value)|
+          puts "former index #{former_index.key} has #{former_value.size} records"
+          puts "  former index #{former_index.hash_str}"
+          puts "next index #{next_index.key} has #{next_value.size} records"
+          puts "  next index #{next_index.hash_str}"
+
+          start_time = Time.now
+          result += left_outer_join(former_index, former_value, next_index, next_value)
+          result += left_outer_join(next_index, next_value, former_index, former_value)
           result.uniq!
-          puts "join done #{result.size} #{Time.now}"
+          puts "full outer join done with new impl #{result.size} records by #{Time.now - start_time}"
         end
         result
       end
@@ -202,6 +182,7 @@ module NoSE
 
       def data_on_mysql(index)
         raw_results = @loader.query_for_index_full_outer_join index, nil, @loader_config
+        #raw_results = @loader.query_for_index_inner_join index, nil, @loader_config
 
         results_on_mysql = raw_results.map do |row|
           row.each do |f, v|
@@ -217,6 +198,7 @@ module NoSE
       end
 
       def data_on_cassandra(index)
+        #results_on_backend = @backend.unload_index_by_cassandra_unloader(index)
         results_on_backend = @backend.index_records(index, index.all_fields)
         results_on_backend.each {|r| r.delete('value_hash')}
         results_on_backend
@@ -228,6 +210,7 @@ module NoSE
         left_hash.first.keys.each do |field_name|
           left_values = left_hash.map{|lh| lh[field_name]}
           right_values = right_hash.map{|rh| rh[field_name]}
+
           if compare_values left_values.compact, right_values
             STDERR.puts "    #{field_name} in #{index.key} matches"
           else
