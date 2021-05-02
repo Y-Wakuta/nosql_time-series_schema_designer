@@ -145,6 +145,23 @@ module NoSE
       class StatementStep
         include Supertype
         attr_reader :index
+
+        def remove_aggregation_function_name(records)
+          regex = Regexp.compile(/(?<=\().*?(?=\))/)
+          records.map do |r|
+            r.map do |k, v|
+              k = regex.match(k).to_s if k.include? '('
+              Hash[k, v]
+            end.inject({}) do |l_hash, r_hash|
+              l_hash.merge(r_hash) do |_, l_v, r_v|
+                fail 'value must be the same' \
+                  if (l_v.instance_of?(Integer) || l_v.instance_of?(Float)) and (l_v - r_v).abs < 0.01
+                l_v
+              end
+            end
+          end
+        end
+
       end
 
       # Look up data on an index in the backend
@@ -178,10 +195,21 @@ module NoSE
               Condition.new field, :'=', result[field.id]
             end
 
+            # modify condition value for each range operator type
             unless @range_field.nil?
               operator = conditions.each_value.find(&:range?).operator
-              result_condition << Condition.new(@range_field, operator,
-                                                result[@range_field.id])
+              if operator == :>= or operator == :<=
+                result_condition << Condition.new(@range_field, operator,
+                                                  result[@range_field.id])
+              elsif operator == :>
+                result_condition << Condition.new(@range_field, operator,
+                                                  result[@range_field.id] - 1)
+              elsif operator == :<
+                result_condition << Condition.new(@range_field, operator,
+                                                  result[@range_field.id] + 1)
+              else
+                fail
+              end
             end
 
             result_condition
@@ -289,11 +317,9 @@ module NoSE
         # Sort results by a list of fields given in the step
         # @return [Array<Hash>]
         def process(_conditions, results, _ = nil)
-          results.sort_by! do |row|
-            @step.sort_fields.map do |field|
-              row[field.id]
-            end
-          end
+          results = remove_aggregation_function_name results
+
+          results.sort_by! {|row| @step.sort_fields.map {|field| row[field.id]}}
         end
       end
 
@@ -350,22 +376,6 @@ module NoSE
             validate_all_field_aggregated? row
 
             row
-          end
-        end
-
-        def remove_aggregation_function_name(records)
-          regex = Regexp.compile(/(?<=\().*?(?=\))/)
-          records.map do |r|
-            r.map do |k, v|
-              k = regex.match(k).to_s if k.include? '('
-              Hash[k, v]
-            end.inject({}) do |l_hash, r_hash|
-              l_hash.merge(r_hash) do |_, l_v, r_v|
-                fail 'value must be the same' if (l_v - r_v).abs < 0.01 \
-                  unless l_v.instance_of?(Integer) || l_v.instance_of?(Float)
-                l_v
-              end
-            end
           end
         end
 
