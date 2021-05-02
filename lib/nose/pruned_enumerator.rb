@@ -120,7 +120,8 @@ module NoSE
       range = get_query_range query
       eq = get_query_eq query
 
-      # yusuke そもそもここの graph.subgraphs を1分割までにすればいいのでは? クエリプランで二つまでのジョインのみを許すことに一致している
+      # TODO: check graph.subgraphs() does not have to split graph recursively,
+      # TODO: however we join only 2 CFs and we don't have to split graph recursively
       indexes = Parallel.flat_map(query.graph.subgraphs(), in_processes: [Parallel.processor_count - 5, 0].max()) do |graph|
         indexes_for_graph graph, query.select, eq, range,  entity_fields, extra_fields
       end.uniq
@@ -331,10 +332,7 @@ module NoSE
 
     def frequent_extra_choices(graph, select, eq, range, extra_fields)
       extra_choices = extra_choices(graph, select, eq, range)
-      current_extra_fields = extra_fields.select{|extra_field| extra_field.content.all?{|c| extra_choices.include? c}}
       frequent_extra_fields = extra_choices
-      max_frequency = current_extra_fields.map(&:support).max()
-      #frequent_extra_fields = reduce_choices(extra_choices, current_extra_fields, max_frequency).map{|c| c.flatten(1).uniq}
       extra_choices = 1.upto(frequent_extra_fields.length).flat_map do |n|
         frequent_extra_fields.combination(n).map{|fef| fef.flatten(1).uniq}
       end.map(&:to_set).uniq
