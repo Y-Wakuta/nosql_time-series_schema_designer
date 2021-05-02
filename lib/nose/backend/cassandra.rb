@@ -666,21 +666,23 @@ module NoSE
         end
 
         def fields_with_aggregations(select)
+          select = select.to_a
           count_fields = select.select{|f| @step.index.count_fields.include? f}
           sum_fields = select.select{|f| @step.index.sum_fields.include? f}
           avg_fields = select.select{|f| @step.index.avg_fields.include? f}
           max_fields = select.select{|f| @step.index.max_fields.include? f}
           non_aggregate_fields = select - count_fields - sum_fields - avg_fields - max_fields
 
-          select_fields = []
-          select_fields.append non_aggregate_fields.map { |f| "\"#{f.id}\"" } unless non_aggregate_fields.empty?
-          select_fields.append count_fields.map{|f| "count(\"#{f.id}\")"} unless count_fields.empty?
-          select_fields.append sum_fields.map{|f| "sum(\"#{f.id}\")"} unless sum_fields.empty?
-          select_fields.append avg_fields.map{|f| "avg(\"#{f.id}\")"} unless avg_fields.empty?
-          select_fields.append max_fields.map{|f| "max(\"#{f.id}\")"} unless max_fields.empty?
+          fields = []
+          non_aggregate_fields.each { |f| fields.append Hash[f, Set.new(["\"#{f.id}\""])]} unless non_aggregate_fields.empty?
+          count_fields.each{|f| fields.append Hash[f, Set.new(["count(\"#{f.id}\")"])]} unless count_fields.empty?
+          sum_fields.each{|f| fields.append Hash[f, Set.new(["sum(\"#{f.id}\")"])]} unless sum_fields.empty?
+          avg_fields.each{|f| fields.append Hash[f, Set.new(["avg(\"#{f.id}\")"])]} unless avg_fields.empty?
+          max_fields.each{|f| fields.append Hash[f, Set.new(["max(\"#{f.id}\")"])]} unless max_fields.empty?
 
-          # select はどうでもいいが、order by はもとの順序を維持しなければならない
-          select_fields.join ', '
+          # field should be ordered in the given order especially for ORDER BY clause
+          fields = fields.inject({}){|l, r| l.merge(r) {|_, l_v, r_v| Set.new([l_v, r_v])}}
+          fields.sort_by{|k, _| select.index k}.flat_map{|_, v| v.map(&:to_s).join(', ')}.join ', '
         end
 
         def cql_group_by
