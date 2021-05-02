@@ -305,22 +305,35 @@ module NoSE
         end
 
         def process(_conditions, results, _ = nil)
+          fail "some group by keys are not provided result keys: #{results.first.keys.map(&:to_s).inspect}, " \
+               "required: #{@step.groupby.map(&:id).inspect}" unless results.first.keys.to_set >= @step.groupby.map(&:id).to_set
+
+          results = remove_aggregation_function_name results
+
           # execute GROUP BY field first
-          grouped_results = results.group_by{|rr| @step.groupby.map(&:id).map{|r| rr[r]} }
+          grouped_results = results.group_by{|rr| @step.groupby.map(&:id).map{|r| rr[r].to_s}.join(',') }
 
           grouped_results.map do |k, group|
             row = {}
             @step.sums.each do |sum_field|
-              row[sum_field] = group.map{|r| r[sum_field.id].to_f}.sum
+              values = group.map{|r| r[sum_field.id]}
+              fail 'some aggregation value is null' if values.any?(&:nil?)
+              row[sum_field] = values.map(&:to_f).sum
             end
             @step.counts.each do |count_field|
-              row[count_field] = group.map{|r| r[count_field.id]}.count
+              values = group.map{|r| r[count_field.id]}
+              fail 'some aggregation value is null' if values.any?(&:nil?)
+              row[count_field] = values.count
             end
             @step.maxes.each do |max_field|
-              row[max_field] = group.map{|r| r[max_field.id].to_f}.max
+              values = group.map{|r| r[max_field.id]}
+              fail 'some aggregation value is null' if values.any?(&:nil?)
+              row[max_field] = values.map(&:to_f).max
             end
             @step.avgs.each do |avg_field|
-              summation = group.map{|r| r[avg_field.id].to_f}.sum.to_f
+              values = group.map{|r| r[avg_field.id]}
+              fail 'some aggregation value is null' if values.any?(&:nil?)
+              summation = values.map(&:to_f).sum
               row[avg_field] = summation / group.map{|r| r[avg_field.id].to_f}.count
             end
             @step.groupby.each do |groupby_field|
@@ -335,14 +348,33 @@ module NoSE
               row[condition.field] = condition_field_values.first
             end
 
-            unless row.keys.map(&:id).to_set >= @step.state.query.select.map(&:id).to_set
-              puts "result fields " + row.keys.inspect
-              puts "selected fields " + @step.state.query.select.map(&:id).inspect
-              fail 'all selected fields should be aggregated'
-            end
+            validate_all_field_aggregated? row
 
             row
           end
+        end
+
+        def remove_aggregation_function_name(records)
+          regex = Regexp.compile(/(?<=\().*?(?=\))/)
+          records.map do |r|
+            r.map do |k, v|
+              k = regex.match(k).to_s if k.include? '('
+              Hash[k, v]
+            end.inject({}) do |l_hash, r_hash|
+              l_hash.merge(r_hash) do |_, l_v, r_v|
+                fail 'value must be the same' if (l_v - r_v).abs < 0.01 \
+                  unless l_v.instance_of?(Integer) || l_v.instance_of?(Float)
+                l_v
+              end
+            end
+          end
+        end
+
+        def validate_all_field_aggregated?(row)
+          return if row.keys.map(&:id).to_set >= @step.state.query.select.map(&:id).to_set
+          puts "result fields " + row.keys.inspect
+          puts "selected fields " + @step.state.query.select.map(&:id).inspect
+          fail 'all selected fields should be aggregated'
         end
       end
 

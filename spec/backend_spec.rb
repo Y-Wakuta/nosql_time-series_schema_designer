@@ -60,10 +60,6 @@ module NoSE
           { 'User_Username' => 'Alice' }
         ]
       end
-    end
-
-    describe Backend::FilterStatementStep do
-      include_context 'entities'
 
       it 'can limit results' do
         results = [
