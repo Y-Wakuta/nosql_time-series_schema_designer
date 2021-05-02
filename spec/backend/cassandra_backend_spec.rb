@@ -260,10 +260,8 @@ module NoSE
                                   step, nil, step.parent
         actual = prepared.process query.conditions, results, nil
         expected = [
-          #{["Bob"] => {tweet['Body'] => 3.0, tweet['Retweets'] => 12.0, user['Username'] => "Bob"}},
-          #{["Alice"] => {tweet['Body'] => 7.0, tweet['Retweets'] => 14.0, user['Username'] => "Alice"}}
-          {tweet['Body'] => 3.0, tweet['Retweets'] => 12.0, user['Username'] => "Bob"},
-          {tweet['Body'] => 7.0, tweet['Retweets'] => 14.0, user['Username'] => "Alice"}
+          {'Tweet_Body' => 3.0, 'Tweet_Retweets' => 12.0, 'User_Username' => "Bob"},
+          {'Tweet_Body' => 7.0, 'Tweet_Retweets' => 14.0, 'User_Username' => "Alice"}
         ]
         expect(actual).to eq(expected)
       end

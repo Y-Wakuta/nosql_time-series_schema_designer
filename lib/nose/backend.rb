@@ -314,29 +314,29 @@ module NoSE
 
           grouped_results.map do |k, group|
             row = {}
-            @step.sums.each do |sum_field|
-              values = group.map{|r| r[sum_field.id]}
+            @step.sums.map(&:id).each do |sum_field|
+              values = group.map{|r| r[sum_field]}
               fail 'some aggregation value is null' if values.any?(&:nil?)
               row[sum_field] = values.map(&:to_f).sum
             end
-            @step.counts.each do |count_field|
-              values = group.map{|r| r[count_field.id]}
+            @step.counts.map(&:id).each do |count_field|
+              values = group.map{|r| r[count_field]}
               fail 'some aggregation value is null' if values.any?(&:nil?)
               row[count_field] = values.count
             end
-            @step.maxes.each do |max_field|
-              values = group.map{|r| r[max_field.id]}
+            @step.maxes.map(&:id).each do |max_field|
+              values = group.map{|r| r[max_field]}
               fail 'some aggregation value is null' if values.any?(&:nil?)
               row[max_field] = values.map(&:to_f).max
             end
-            @step.avgs.each do |avg_field|
-              values = group.map{|r| r[avg_field.id]}
+            @step.avgs.map(&:id).each do |avg_field|
+              values = group.map{|r| r[avg_field]}
               fail 'some aggregation value is null' if values.any?(&:nil?)
               summation = values.map(&:to_f).sum
-              row[avg_field] = summation / group.map{|r| r[avg_field.id].to_f}.count
+              row[avg_field] = summation / group.map{|r| r[avg_field].to_f}.count
             end
-            @step.groupby.each do |groupby_field|
-              row[groupby_field] = group.map{|r| r[groupby_field.id]}.first
+            @step.groupby.map(&:id).each do |groupby_field|
+              row[groupby_field] = group.map{|r| r[groupby_field]}.first
             end
             _conditions.each do |field_name, condition|
               next unless condition.operator == "=".to_sym
@@ -344,7 +344,7 @@ module NoSE
               fail "condition value must be uniq" if condition.operator == "=".to_sym and \
                                                      condition_field_values.size > 1 and \
                                                      condition_field_values.uniq.size > 1
-              row[condition.field] = condition_field_values.first
+              row[condition.field.id] = condition_field_values.first
             end
 
             validate_all_field_aggregated? row
@@ -370,7 +370,7 @@ module NoSE
         end
 
         def validate_all_field_aggregated?(row)
-          return if row.keys.map(&:id).to_set >= @step.state.query.select.map(&:id).to_set
+          return if row.keys.to_set >= @step.state.query.select.map(&:id).to_set
           puts "result fields " + row.keys.inspect
           puts "selected fields " + @step.state.query.select.map(&:id).inspect
           fail 'all selected fields should be aggregated'
