@@ -45,9 +45,13 @@ module NoSE
       # :nocov:
 
       def self.apply(parent, state)
+
+        # check all of query process except aggregation and ordering are done already
         return nil unless state.answered? check_aggregate: false, check_orderby: false
+
         return nil unless required_fields? parent.fields, state
         return nil if any_parent_is_sort_step? parent
+        return nil if any_parent_does_sort? parent
 
         if any_parent_does_aggregation? parent
           return nil if state.groupby.empty?
@@ -63,7 +67,13 @@ module NoSE
       def self.any_parent_is_sort_step?(parent)
         return false if parent.is_a? Plans::RootPlanStep
         return true if parent.instance_of?(Plans::SortPlanStep)
-        return any_parent_does_aggregation?(parent.parent)
+        return any_parent_is_sort_step?(parent.parent)
+      end
+
+      def self.any_parent_does_sort?(parent)
+        return false if parent.is_a? Plans::RootPlanStep
+        return true if parent.instance_of?(Plans::IndexLookupPlanStep) and not parent.order_by.empty?
+        return any_parent_does_sort?(parent.parent)
       end
 
       # aggregation should be done at IndexLookupStep or AggregationPlanStep.

@@ -55,9 +55,10 @@ module NoSE
 
       # Check if the query has been fully answered
       # @return [Boolean]
-      def answered?(check_limit: true, check_aggregate: true)
+      def answered?(check_limit: true, check_aggregate: true, check_orderby: true)
         done = @fields.empty? && @eq.empty? && @range.nil? &&
-               @order_by.empty? && @joins.empty? && @graph.empty?
+               @joins.empty? && @graph.empty?
+        done &= @order_by.empty? if check_orderby
 
         done &= @counts.empty? && @sums.empty? && @maxes.empty? \
               && @avgs.empty? && @groupby.empty? if check_aggregate
@@ -375,13 +376,13 @@ module NoSE
         steps
       end
 
-      def find_indexed_steps(parent, state, indexes_by_joins)
+      def find_indexed_steps(parent, state, indexes_by_joins, check_aggregation: true)
         steps = []
         # Don't allow indices to be used multiple times
         indexes = (indexes_by_joins[state.joins.first] || Set.new).to_set
         used_indexes = parent.parent_steps.indexes.to_set
-        (indexes - used_indexes).each do |index|
-          new_step = IndexLookupPlanStep.apply parent, index, state
+        Parallel.map(indexes - used_indexes, in_threads: Parallel.processor_count / 4) do |index|
+          new_step = IndexLookupPlanStep.apply parent, index, state, check_aggregation: check_aggregation
           next if new_step.nil?
 
           new_step.add_fields_from_index index
@@ -451,7 +452,7 @@ module NoSE
 
     class MigrateSupportSimpleQueryPlanner < PrunedQueryPlanner
       def find_steps_for_state(parent, state, indexes_by_joins)
-        find_indexed_steps parent, state, indexes_by_joins
+        find_indexed_steps parent, state, indexes_by_joins, check_aggregation: false
       end
     end
   end

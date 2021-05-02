@@ -37,7 +37,3 @@ Gemfile.lock
 
 ## Log files
 gurobi.log
-
-## ignore binary of existing repository
-cassandra-loader
-cassandra-unloader

@@ -296,6 +296,21 @@ module NoSE
         expect(steps.index{|s| s.instance_of?(AggregationPlanStep)}).to be < steps.index{|s| s.instance_of?(SortPlanStep)}
       end
 
+      it 'applies aggregation and sort to the same field' do
+        query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, sum(Tweet.Timestamp) FROM Tweet WHERE ' \
+                                'Tweet.Body = ? ORDER BY Tweet.Retweets GROUP BY Tweet.Retweets', workload.model
+        index = Index.new [tweet['Body']], [tweet['Retweets'], tweet['TweetId']],
+                                 [tweet['Timestamp']],
+                                 QueryGraph::Graph.from_path(
+                                   [tweet.id_field]
+                                 )
+        planner = QueryPlanner.new workload.model, [index], cost_model
+        tree = planner.find_plans_for_query(query)
+        expect(tree).to have(1).plan
+        steps = tree.first.steps
+        expect(steps.index{|s| s.instance_of?(AggregationPlanStep)}).to be < steps.index{|s| s.instance_of?(SortPlanStep)}
+      end
+
       it 'does not apply Filter after aggregation on IndexLookupPlanStep' do
         query = Statement.parse 'SELECT count(Tweet.TweetId), Tweet.Retweets, sum(Tweet.Timestamp) FROM Tweet WHERE ' \
                                 'Tweet.Body = ? AND Tweet.TweetId = ? GROUP BY Tweet.Retweets', workload.model

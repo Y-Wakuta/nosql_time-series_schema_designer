@@ -33,7 +33,7 @@ module NoSE
           "#{super} #{@index.to_color}"
         else
           "#{super} #{@index.to_color} * " \
-            "#{@state.cardinality}/#{@state.hash_cardinality} "
+            "#{@state.cardinality}/#{@state.hash_cardinality} eq_filter: {#{@eq_filter}}, order by: #{@order_by} "
         end
       end
       # :nocov:
@@ -269,14 +269,15 @@ module NoSE
 
       # Perform any ordering implicit to this index
       # @return [Boolean] whether this index is by ID
-      def resolve_order
+      def resolve_order(indexed_by_id)
+        unless is_order_appliable_for_state?
+          @order_by = []
+          return
+        end
+
         # We can't resolve ordering if we're doing an ID lookup
         # since only one record exists per row (if it's the same entity)
         # We also need to have the fields used in order
-        first_join = @state.query.join_order.detect do |entity|
-          @index.graph.entities.include? entity
-        end
-        indexed_by_id = @index.hash_fields.include?(first_join.id_field)
         order_prefix = @state.order_by.longest_common_prefix(
           @index.order_fields - @eq_filter.to_a
         )
@@ -287,8 +288,25 @@ module NoSE
           @state.order_by -= order_prefix
         end
         @order_by = order_prefix
+      end
 
-        indexed_by_id
+      def is_indexed_by_id?
+         first_join = @state.query.join_order.detect do |entity|
+          @index.graph.entities.include? entity
+        end
+        @index.hash_fields.include?(first_join.id_field)
+      end
+
+      def is_order_appliable_for_state?
+        # if the query does not have any aggregation, order by can be applied
+        return true unless @state.query.has_aggregation_fields?
+
+        # if the aggregation is done in this IndexLookup, order can be applied
+        return true if @index.has_aggregation_fields?
+
+        # if the aggregation is done on client, order by should be done after the aggregation.
+        # Thus, the ordering cannot be applied in this step
+        false
       end
 
       # Strip the graph for this index, but if we haven't fetched all
@@ -393,7 +411,8 @@ module NoSE
           @state.groupby -= @index.groupby_fields
         end
 
-        indexed_by_id = resolve_order
+        indexed_by_id = is_indexed_by_id?
+        resolve_order(indexed_by_id)
         strip_graph
         update_cardinality parent, indexed_by_id
       end

@@ -76,6 +76,10 @@ module NoSE
       super @text
     end
 
+    def has_aggregation_fields?
+      [@counts, @sums, @maxes, @avgs, @groupby].any?{|af| not af.empty?}
+    end
+
     def ==(other)
       other.is_a?(Query) &&
           @graph == other.graph &&
