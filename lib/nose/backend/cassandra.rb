@@ -583,7 +583,8 @@ module NoSE
           @logger = Logging.logger['nose::backend::cassandra::indexlookupstep']
 
           # TODO: Check if we can apply the next filter via ALLOW FILTERING
-          cql = select_cql(select + conditions.values.map(&:field).to_set, conditions)
+          cql = select_cql(select + conditions.values.map(&:field).to_set + step.index.groupby_fields, conditions)
+          STDERR.puts "query prepared : #{cql}"
           begin
             @prepared = client.prepare cql
           rescue => e
