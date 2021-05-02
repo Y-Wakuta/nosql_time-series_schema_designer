@@ -171,7 +171,7 @@ module NoSE
       end
 
       # Sample a number of values from the given index
-      def index_sample(index, count = nil)
+      def index_sample(index, count = nil, is_nullable = false)
         record_pool_magnification = 100
         field_list = index.all_fields.map { |f| "\"#{f.id}\"" }
         query = "SELECT #{field_list.join ', '} FROM \"#{index.key}\""
@@ -182,7 +182,8 @@ module NoSE
 
         return rows if count.nil?
         if rows.size == 0
-          fail "collected record for #{index.key} was empty: #{index.hash_str}"
+          fail "collected record for #{index.key} was empty: #{index.hash_str}" unless is_nullable
+          return rows
         end
 
         r = Object::Random.new(100)
