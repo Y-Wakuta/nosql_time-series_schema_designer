@@ -117,10 +117,6 @@ module NoSE
     def indexes_for_query(query, entity_fields, extra_fields)
       @logger.debug "Enumerating indexes for query #{query.text}"
 
-      #unless has_upsearted_entity? query
-      #  return [query.materialize_view]
-      #end
-
       range = get_query_range query
       eq = get_query_eq query
 

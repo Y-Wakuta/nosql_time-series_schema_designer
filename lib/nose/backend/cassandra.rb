@@ -687,10 +687,10 @@ module NoSE
 
         def cql_group_by
           return '' if @step.index.groupby_fields.empty?
-          #' GROUP BY ' + @step.index.groupby_fields.sort_by { |f| @step.index.hash_str.index(f.id)}.map { |f| "\"#{f.id}\"" }.join(', ')
-
-          # groupby_fields should be already ordered in the required order of query
-          ' GROUP BY ' + @step.index.groupby_fields.map { |f| "\"#{f.id}\"" }.join(', ')
+          ' GROUP BY ' + @step.index
+                              .groupby_fields
+                              .sort_by { |f| @step.index.hash_str.index(f.id)}.map { |f| "\"#{f.id}\"" }
+                              .join(', ')
         end
 
         # Lookup values from an index selecting the given

@@ -196,8 +196,7 @@ module NoSE
           #       It should be sufficient to check what is needed for future
           #       filtering and sorting and use only those + query.select
           select += @next_step.index.hash_fields \
-            unless @next_step.nil? ||
-                   !@next_step.is_a?(Plans::IndexLookupPlanStep)
+            unless @next_step.nil? || !@next_step.is_a?(Plans::IndexLookupPlanStep)
 
           if !@next_step.is_a?(Plans::IndexLookupPlanStep) \
               and !later_indexlookup_steps.nil?
@@ -597,8 +596,7 @@ module NoSE
 
         # If we have no query for IDs on the first entity, we must
         # have the fields we need to execute the other support queries
-        if !@statement.nil? &&
-           @support_plans.first.query.entity != @statement.entity
+        if !@statement.nil? && @support_plans.first.query.entity != @statement.entity
           support = @support_plans.map do |plan|
             plan.execute settings
           end

@@ -33,6 +33,7 @@ module NoSE
         # XXX Assuming backend is thread-safe
         #indexes.each do |index|
         Parallel.each(indexes, in_processes: Parallel.processor_count / 3) do |index|
+          @backend.initialize_client
           load_index index, config, show_progress, limit, skip_existing, false
         end
       end
@@ -68,7 +69,7 @@ module NoSE
           results += reversed_result
           results.uniq!
         end
-        STDERR.puts "#{Time.now - starting} for #{results.size}"
+        STDERR.puts "collect #{results.size} records with #{Time.now - starting} seconds from MySQL"
 
         results
       end
@@ -78,7 +79,7 @@ module NoSE
         client = new_client config
         sql, fields = index_sql index, limit: limit, reverse_entities: false, full_outer_join: false
         results = execute_sql client, sql, fields, index
-        STDERR.puts "#{Time.now - starting} query for #{results.size}"
+        STDERR.puts "collect #{results.size} records with #{Time.now - starting} seconds from MySQL"
 
         results
       end

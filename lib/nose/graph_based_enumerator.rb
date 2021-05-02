@@ -1,14 +1,11 @@
 # frozen_string_literal: true
 
 require 'logging'
-require 'benchmark'
-
 
 module NoSE
   # Produces potential indices to be used in schemas
   class GraphBasedIndexEnumerator < IndexEnumerator
-    def initialize(workload, cost_model,
-                   index_plan_step_threshold, choice_limit_size)
+    def initialize(workload, cost_model, index_plan_step_threshold, choice_limit_size)
       @eq_threshold = 1
       @cost_model = cost_model
       @index_steps_threshold = index_plan_step_threshold
@@ -270,12 +267,6 @@ module NoSE
       order = query.order.group_by(&:parent)
       order.default_proc = ->(*) { [] }
       order
-    end
-
-    def get_query_groupby(query)
-      groupby = query.order.group_by(&:parent)
-      groupby.default_proc = ->(*) { [] }
-      groupby
     end
   end
 end

@@ -32,7 +32,6 @@ module NoSE
         expect(join_result).to be related_index_values[index]
       end
 
-
       it 'migrator collects data using join view plan' do
         workload_comp = workload_composite_key
         user_comp = workload_comp.model["User"]
