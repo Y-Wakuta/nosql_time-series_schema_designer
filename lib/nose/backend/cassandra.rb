@@ -224,7 +224,7 @@ module NoSE
               ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
               ret = system("./cassandra-loader -badDir /tmp/ -queryTimeout 20 -numRetries 5 -batchSize 20 " \
                            "-dateFormat \"yyyy-MM-dd\" -skipRows 1 -delim \"|\" -f #{file_name} -host #{host_name} " \
-                           "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\"")
+                           "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\" > /dev/null")
 
               fail "  loading error detected: #{index.key}" unless ret
               g.close
@@ -614,8 +614,10 @@ module NoSE
         # @return [String]
         def select_cql(select, conditions)
           select = expand_selected_fields select, @later_indexlookup_steps
-          cql = "SELECT #{select.map { |f| "\"#{f.id}\"" }.join ', '} FROM " \
+          select_fields = fields_with_aggregations select
+          cql = "SELECT #{select_fields} FROM " \
                 "\"#{@step.index.key}\" WHERE #{cql_where_clause conditions}"
+          cql += cql_group_by
           cql += cql_order_by
 
           # Add an optional limit
@@ -660,11 +662,32 @@ module NoSE
             fail 'order by fields and eq_filter does not match order_fields' \
               unless @step.index.order_fields.take(order_by_fields.size) == order_by_fields
           end
-          ' ORDER BY ' + order_by_fields.map { |f| "\"#{f.id}\"" }.join(', ')
+          ' ORDER BY ' + fields_with_aggregations(order_by_fields)
+        end
+
+        def fields_with_aggregations(select)
+          count_fields = select.select{|f| @step.index.count_fields.include? f}
+          sum_fields = select.select{|f| @step.index.sum_fields.include? f}
+          avg_fields = select.select{|f| @step.index.avg_fields.include? f}
+          max_fields = select.select{|f| @step.index.max_fields.include? f}
+          non_aggregate_fields = select - count_fields - sum_fields - avg_fields - max_fields
+
+          select_fields = []
+          select_fields.append non_aggregate_fields.map { |f| "\"#{f.id}\"" } unless non_aggregate_fields.empty?
+          select_fields.append count_fields.map{|f| "count(\"#{f.id}\")"} unless count_fields.empty?
+          select_fields.append sum_fields.map{|f| "sum(\"#{f.id}\")"} unless sum_fields.empty?
+          select_fields.append avg_fields.map{|f| "avg(\"#{f.id}\")"} unless avg_fields.empty?
+          select_fields.append max_fields.map{|f| "max(\"#{f.id}\")"} unless max_fields.empty?
+
+          # select はどうでもいいが、order by はもとの順序を維持しなければならない
+          select_fields.join ', '
         end
 
         def cql_group_by
           return '' if @step.index.groupby_fields.empty?
+          #' GROUP BY ' + @step.index.groupby_fields.sort_by { |f| @step.index.hash_str.index(f.id)}.map { |f| "\"#{f.id}\"" }.join(', ')
+
+          # groupby_fields should be already ordered in the required order of query
           ' GROUP BY ' + @step.index.groupby_fields.map { |f| "\"#{f.id}\"" }.join(', ')
         end
 
