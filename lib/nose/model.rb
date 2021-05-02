@@ -91,7 +91,13 @@ module NoSE
     def find_field_chain(field)
       # Do a foreign key lookup
       field = field.dup
-      key_field = @entities[field[0]][field[1]]
+
+      unless @entities[field[0]].foreign_keys[field[1]].nil?
+        key_field = @entities[field[0]].foreign_keys[field[1]]
+      else
+        key_field = @entities[field[0]][field[1]]
+      end
+
       field[0..1] = key_field ? key_field.entity.name : field[1]
       find_field field
     end

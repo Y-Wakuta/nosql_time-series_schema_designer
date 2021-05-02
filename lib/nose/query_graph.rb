@@ -65,6 +65,7 @@ module NoSE
         if @from.entity.name > @to.entity.name
           [@from.entity.name, @to.entity.name, @key.name]
         else
+          @key = @from.entity.foreign_keys[@key.name] if @key.instance_of? NoSE::Fields::IDField
           [@to.entity.name, @from.entity.name, @key.reverse.name]
         end
       end
@@ -230,6 +231,10 @@ module NoSE
         @edges[node1] = Set.new unless @edges.key? node1
         @edges[node1].add Edge.new(node1, node2, key)
         @edges[node2] = Set.new unless @edges.key? node2
+
+        if key.instance_of? NoSE::Fields::IDField
+          key = node1.entity.foreign_keys[key.name]
+        end
         @edges[node2].add Edge.new(node2, node1, key.reverse)
 
         @unique_edges = nil
