@@ -230,6 +230,7 @@ module NoSE
               and !later_indexlookup_steps.nil?
             later_indexlookup_steps.each do |later_indexlookup_step|
               select += later_indexlookup_step.index.hash_fields
+              select += later_indexlookup_step.eq_filter
             end
           end
 
@@ -424,12 +425,12 @@ module NoSE
           subclass_step_name = step_class.name.sub \
             'NoSE::Backend::Backend', self.class.name
           step_class = Object.const_get subclass_step_name
-          if step_class == NoSE::Backend::CassandraBackend::IndexLookupStatementStep \
-              and steps.index(next_step) + 2 < steps.size
-            #and steps[steps.index(next_step) + 1].is_a?(NoSE::Backend::CassandraBackend::IndexLookupStatementStep)
-            later_indexlookup_steps = steps[(steps.index(next_step) + 1)..-1].select{|s| s.is_a? Plans::IndexLookupPlanStep}
-            step_class.new client, fields, conditions,
-                           step, next_step, prev_step, later_indexlookup_steps
+          if step_class == NoSE::Backend::CassandraBackend::IndexLookupStatementStep
+              later_indexlookup_steps = steps[[(steps.index(next_step) + 1), steps.size]..-1]
+                                          .select{|s| s.is_a? Plans::IndexLookupPlanStep}
+              later_groupby = steps[steps.index(next_step)..-1].find{|s| s.is_a? Plans::AggregationPlanStep}.groupby
+              step_class.new client, fields, conditions,
+                             step, next_step, prev_step, later_indexlookup_steps, later_groupby
           else
             step_class.new client, fields, conditions,
                            step, next_step, prev_step

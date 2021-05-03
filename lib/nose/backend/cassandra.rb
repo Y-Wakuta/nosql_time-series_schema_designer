@@ -576,7 +576,8 @@ module NoSE
       # A query step to look up data from a particular column family
       class IndexLookupStatementStep < Backend::IndexLookupStatementStep
         # rubocop:disable Metrics/ParameterLists
-        def initialize(client, select, conditions, step, next_step, prev_step, later_indexlookup_steps = [])
+        def initialize(client, select, conditions, step, next_step, prev_step,
+                       later_indexlookup_steps = [], later_groupby = [])
           super(client, select, conditions, step, next_step, prev_step)
 
           @later_indexlookup_steps = later_indexlookup_steps
@@ -584,7 +585,7 @@ module NoSE
           @logger = Logging.logger['nose::backend::cassandra::indexlookupstep']
 
           # TODO: Check if we can apply the next filter via ALLOW FILTERING
-          cql = select_cql(select + conditions.values.map(&:field).to_set + step.index.groupby_fields, conditions)
+          cql = select_cql(select + conditions.values.map(&:field).to_set + step.index.groupby_fields + later_groupby, conditions)
           STDERR.puts "query prepared : #{cql}"
           begin
             @prepared = client.prepare cql

@@ -31,6 +31,7 @@ module NoSE
         ]
 
         Parallel.each(constraints, in_threads: 2) { |constraint| constraint.apply self }
+        @model.update
       end
 
       def add_whole_step_constraints
