@@ -69,6 +69,10 @@ module NoSE
                           [{
                              "Tweets_TweetId" => "0", "Tweets_FollowerId" => "100",
                              "Tweets_Body" => "body", "Tweets_Timestamp" => "12213"
+                           },
+                          {
+                             "Tweets_TweetId" => "2", "Tweets_FollowerId" => "100",
+                             "Tweets_Body" => "body", "Tweets_Timestamp" => "12213"
                            }],
         }
         migrator = Migrator.new nil, nil, nil, nil, false
@@ -84,7 +88,10 @@ module NoSE
             "Tweets_TweetId" => "0", "Tweets_FollowerId" => "101"}, composite_last_index),
           migrator.send(:join_with_empty_record, {
             "User_Username" => "Bob", "User_UserId" => "0",
-            "Tweets_TweetId" => "1", "Tweets_FollowerId" => "200" },composite_last_index)
+            "Tweets_TweetId" => "1", "Tweets_FollowerId" => "200" }, composite_last_index),
+          migrator.send(:join_with_empty_record, {
+                             "Tweets_TweetId" => "2", "Tweets_FollowerId" => "100",
+                             "Tweets_Body" => "body", "Tweets_Timestamp" => "12213" }, composite_parent_index)
         ]
 
         actual_join_result = migrator.send(:full_outer_join, index_values)
