@@ -198,7 +198,7 @@ module NoSE
             # modify condition value for each range operator type
             unless @range_field.nil?
               operator = conditions.each_value.find(&:range?).operator
-              if operator == :>= or operator == :<=
+              if operator == :>= or operator == :<= or not result.has_key? @range_field.id
                 result_condition << Condition.new(@range_field, operator,
                                                   result[@range_field.id])
               elsif operator == :>

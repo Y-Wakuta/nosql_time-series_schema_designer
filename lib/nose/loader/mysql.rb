@@ -104,17 +104,17 @@ module NoSE
       end
 
       def execute_sql(client, sql, fields, index)
-         if @query_options
-           begin
-             STDERR.puts sql
-             client.query(sql, **@query_options)
-           rescue => e
-             STDERR.puts index.inspect
-             #throw e
-           end
-         else
-           client.query(sql).map { |row| hash_from_row row, fields }
-         end.to_a
+        if @query_options
+          begin
+            STDERR.puts sql
+            client.query(sql, **@query_options)
+          rescue => e
+            STDERR.puts index.inspect
+            throw e
+          end
+        else
+          client.query(sql).map { |row| hash_from_row row, fields }
+        end.to_a
       end
 
       # Load a single index into the backend
@@ -126,7 +126,8 @@ module NoSE
           is_index_empty = @backend.index_empty?(index)
         rescue Exception => e
           if tries < 10
-            puts tries
+            puts e.inspect
+            puts "check is the index empty: " + tries.to_s
             tries += 1
             sleep 30
             retry
