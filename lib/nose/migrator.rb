@@ -192,9 +192,6 @@ module NoSE
         results_on_mysql = raw_results.map do |row|
           row.each do |f, v|
             current = index.all_fields.find{|field| field.id == f}
-            if current.is_a?(NoSE::Fields::DateField)
-              row[f] = v.to_time unless v.nil?
-            end
             row[f] = @backend.index_row(row, [current]).first
           end
           row

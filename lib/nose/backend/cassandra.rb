@@ -440,7 +440,7 @@ module NoSE
         when [Fields::StringField]
           :text
         when [Fields::DateField]
-          :timestamp
+          :date
         when [Fields::IDField],
             [Fields::ForeignKeyField], [Fields::CompositeKeyField]
           :uuid
