@@ -172,8 +172,7 @@ module NoSE
 
       # Sample a number of values from the given index
       def index_sample(index, count = nil, is_nullable = false)
-        record_pool_magnification = 100
-        field_list = index.all_fields.map { |f| "\"#{f.id}\"" }
+        field_list = index.key_fields.map { |f| "\"#{f.id}\"" }
         query = "SELECT #{field_list.join ', '} FROM \"#{index.key}\""
         rows = query_index_limit_for_sample query, count
 

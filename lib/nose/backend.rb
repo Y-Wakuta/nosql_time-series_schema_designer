@@ -426,9 +426,10 @@ module NoSE
             'NoSE::Backend::Backend', self.class.name
           step_class = Object.const_get subclass_step_name
           if step_class == NoSE::Backend::CassandraBackend::IndexLookupStatementStep
-              later_indexlookup_steps = steps[[(steps.index(next_step) + 1), steps.size]..-1]
+              later_indexlookup_steps = steps[[(steps.index(next_step) + 1), steps.size].min..-1]
                                           .select{|s| s.is_a? Plans::IndexLookupPlanStep}
-              later_groupby = steps[steps.index(next_step)..-1].find{|s| s.is_a? Plans::AggregationPlanStep}.groupby
+              later_groupby = steps.any?{|s| s.instance_of? Plans::AggregationPlanStep} ?
+                                steps[steps.index(next_step)..-1].find{|s| s.is_a? Plans::AggregationPlanStep}.groupby : []
               step_class.new client, fields, conditions,
                              step, next_step, prev_step, later_indexlookup_steps, later_groupby
           else
