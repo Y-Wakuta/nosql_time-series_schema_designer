@@ -13,7 +13,7 @@ module NoSE
 
       @@value_place_holder = {
           :string => "_",
-          :date => Time.at(0),
+          :date => Time.at(0).to_datetime,
           :numeric => (-1.0e+5).to_i,
           :uuid => Cassandra::Uuid.new("cd9747a1-b59c-4aca-a12e-65915bcd2768")
       }
@@ -185,10 +185,7 @@ module NoSE
           return rows
         end
 
-        r = Object::Random.new(100)
-        (0...(record_pool_magnification * count)).map{|_| r.rand(rows.size)}.uniq.map do |i|
-          rows[i]
-        end.compact.take(count)
+        rows
       end
 
       def index_records(index, required_fields)
@@ -284,6 +281,27 @@ module NoSE
         end
         ending = Time.now.utc
         STDERR.puts "unloading through csv time: #{ending - starting} for #{records.size.to_s} records on #{index.key}"
+        cast_records index, records
+      end
+
+      def cast_records(index, records)
+        records.each do |r|
+          r.keys.each do |k|
+            field = index.all_fields.find{|f| f.id == k}
+            case field
+            when Fields::IntegerField
+              r[k] = r[k].to_i
+            when Fields::FloatField
+              r[k] = r[k].to_f
+            when Fields::DateField
+              r[k] = Date.strptime(r[k], "%Y-%m-%d") unless r[k].instance_of?(Date) or r[k].instance_of?(DateTime)
+            when Fields::IDField || Fields::ForeignKeyField || Fields::CompositeKeyField
+              r[k] = convert_id_2_uuid r[k] unless r[k].instance_of?(Cassandra::Uuid)
+            else
+              r[k] = r[k].to_s
+            end
+          end
+        end
         records
       end
 
@@ -331,27 +349,10 @@ module NoSE
       private
 
       def query_index_limit_for_sample(query, limit)
-        query_tries = 0
-        begin
-          rows = []
-          result = @client.execute(query, page_size: limit * 100 * 3)
-          loop do
-            tmp_rows = CassandraBackend.remove_any_null_place_holder_row(result.to_a)
-            rows = CassandraBackend.remove_any_null_row(tmp_rows)
-
-            break if result.last_page? or rows.size > limit * 100
-            result = result.next_page
-          end
-        rescue
-          STDERR.puts "query error detected for sampling #{query.to_s}"
-          sleep 30
-          all_retries = 10
-          if query_tries < all_retries
-            query_tries += 1
-            retry
-          end
-        end
-        rows.sample(limit)
+        rows = query_index query
+        rows = CassandraBackend.remove_any_null_row(rows)
+        puts "rows collected #{rows.size}"
+        row.sample(limit, random: Object::Random.new(100))
       end
 
       def query_index(query)
