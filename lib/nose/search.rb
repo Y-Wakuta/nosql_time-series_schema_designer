@@ -345,11 +345,15 @@ module NoSE
           planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, useable_indexes, @cost_model, 2
           index_related_tree_hash[base_index].each do |rtree|
             simple_query = MigrateSupportSimplifiedQuery.simple_query rtree.query, base_index
+            next if simple_query.text == migrate_support_query.text
             begin
-              m_plan[base_index][simple_query] = support_query_cost simple_query, planner
+              cost_tree = support_query_cost simple_query, planner,
+                                             existing_tree: m_plan[base_index].has_key?(migrate_support_query) ?
+                                                              m_plan[base_index][migrate_support_query][:tree] : nil
             rescue Plans::NoPlanException => e
-              #puts "#{e.inspect} for #{base_index.key}"
+              next
             end
+            m_plan[base_index][simple_query] = cost_tree
           end
           m_plan
         end.reduce(&:merge)
@@ -410,10 +414,23 @@ module NoSE
         {:costs => costs, :tree => tree}
       end
 
-      def support_query_cost(query, planner)
-        _costs, tree = query_cost planner, query, [1] * @workload.timesteps
+      def support_query_cost(query, planner, existing_tree: nil)
+        tree = planner.find_plans_for_query(query)
+        remove_already_existing_plan planner, tree, existing_tree unless existing_tree.nil?
 
+        _costs, tree = query_cost_4_tree query, [1] * @workload.timesteps, tree
         support_query_cost_4_costs_tree query, _costs, tree
+      end
+
+      def remove_already_existing_plan(planner, target_tree, existing_tree)
+        target_tree.each do |plan|
+          existing_plans = existing_tree.to_a
+          is_already_existed = existing_plans.any? do |existing_plan|
+            existing_plan.indexes == plan.indexes
+          end
+          is_empty_tree = planner.prune_plan plan.steps.last if is_already_existed
+          fail Plans::NoPlanException if is_empty_tree
+        end
       end
 
       def query_cost_4_tree(query, weight, tree)
@@ -455,13 +472,13 @@ module NoSE
 
           # Calculate the cost for just these steps in the plan
           cost = weight.is_a?(Array) ? weight.map{|w| steps.sum_by(&:cost) * w}
-                     : steps.sum_by(&:cost) * weight
+                   : steps.sum_by(&:cost) * weight
 
           # Don't count the cost for sorting at the end
           sort_step = steps.find { |s| s.is_a? Plans::SortPlanStep }
           unless sort_step.nil?
             weight.is_a?(Array) ? weight.map.with_index{|w, i| cost[i] -= sort_step.cost * w}
-                : (cost -= sort_step.cost * weight)
+              : (cost -= sort_step.cost * weight)
           end
 
           if query_costs.key? index_step.index
