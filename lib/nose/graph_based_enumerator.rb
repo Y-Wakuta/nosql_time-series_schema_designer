@@ -83,24 +83,24 @@ module NoSE
     def ignore_cluster_key_order(query, indexes)
       overlapping_index_keys = []
       condition_fields = (query.eq_fields + query.order.to_set + Set.new([query.range_field])).reject(&:nil?)
-      indexes.sort_by(&:key).each_with_index do |base_index, idx|
+      indexes.sort_by!(&:hash_str)
+      indexes.each_with_index do |base_index, idx|
         next if overlapping_index_keys.include? base_index.key # this cf is already removed
         next if (base_index.key_fields.to_set - (query.eq_fields + query.order).to_set).empty?
         cf_condition_fields = condition_fields.select{|f| query.graph.entities.include? f.parent}.to_set
 
+        query_condition_order_fields = ((cf_condition_fields - base_index.hash_fields) & base_index.order_fields).to_set
+        variable_order_fields_size = (query_condition_order_fields.to_set & base_index.order_fields.to_set).size
+
         # TODO: we still distinguish the boundary between suffix order fields and extra,
         # TODO: but this does not affect performance and there are still some space to increase similar_indexes
         similar_indexes = indexes[(idx + 1)..-1].select{|i| base_index.hash_fields == i.hash_fields}
-                                                .select{|i| base_index.order_fields.to_set == i.order_fields.to_set}
-                                                .select{|i| base_index.extra == i.extra}
-                                                .reject{|i| overlapping_index_keys.include? i.key}
-
-        query_condition_order_fields = ((cf_condition_fields - base_index.hash_fields) & base_index.order_fields).to_set
-        variable_order_fields_size = (query_condition_order_fields.to_set & base_index.order_fields.to_set).size
-        overlapping_index_keys += similar_indexes
-                                    .select{|i| base_index.order_fields.take(variable_order_fields_size) == \
-                                                i.order_fields.take(variable_order_fields_size) }
-                                    .map(&:key)
+                            .select{|i| base_index.order_fields.take(variable_order_fields_size) \
+                                          == i.order_fields.take(variable_order_fields_size)}
+                            .select{|i| base_index.order_fields[variable_order_fields_size..].to_set + base_index.extra \
+                                          == i.order_fields[variable_order_fields_size..].to_set + i.extra}
+                            .reject{|i| overlapping_index_keys.include? i.key}
+        overlapping_index_keys += similar_indexes.map(&:key)
       end
       indexes.reject { |i| overlapping_index_keys.include? i.key}
     end
