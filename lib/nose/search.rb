@@ -281,19 +281,59 @@ module NoSE
         [costs, results.map(&:last)]
       end
 
+      # get candidate indexes for each index.
+      # not migrating mv plan to mv plan
+      def get_migrate_preparing_plans_by_trees(trees, indexes)
+        puts "start gathering index candidates for index #{Time.now}"
+
+        decomposed_candidate_indexes = Parallel.map(trees.select{|t| t.query.instance_of? Query},
+                                         in_processes: [Parallel.processor_count / 2, Parallel.processor_count - 5].max()) do |target_tree|
+          candidates = {}
+          related_trees = trees.select{|qt| not (qt.query.graph.entities & target_tree.query.graph.entities).empty?}
+          target_tree.each do |target_plan|
+            if target_plan.indexes.size > 1
+              target_plan.indexes.each do |target_idx|
+                candidates[target_idx] = Set.new unless candidates.has_key? target_idx
+                candidates[target_idx] = indexes
+                                           .reject{|i| i == target_idx || \
+                                                                  is_similar_index?(target_idx, i) || \
+                                                                  (i.graph.entities & target_idx.graph.entities).empty?
+                                           }.to_set
+              end
+            else
+              target_plan.indexes.each do |target_idx|
+                candidates[target_idx] = Set.new unless candidates.has_key? target_idx
+                other_indexes = related_trees.flat_map(&:to_a)
+                                             .reject{|p| p == target_plan || p.indexes.size == 1}
+                                             .flat_map(&:indexes).uniq
+                candidates[target_idx] += other_indexes
+                                                    .reject{|i| i == target_idx || \
+                                                                is_similar_index?(target_idx, i) || \
+                                                                (i.graph.entities & target_idx.graph.entities).empty?
+                                                    }.to_set
+              end
+            end
+          end
+          candidates
+        end
+        candidate_indexes = {}
+        indexes.each {|idx| candidate_indexes[idx] = Set.new}
+        decomposed_candidate_indexes.each {|ci| ci.each {|k, v| candidate_indexes[k] += v}}
+        puts "end gathering index candidates for index #{Time.now}"
+        candidate_indexes
+      end
+
       def get_migrate_preparing_plans(query_trees, indexes)
         query_indexes = query_trees.select{|t| t.query.instance_of? Query}.flat_map{|t| t.flat_map(&:indexes)}.uniq
+        puts "index size: #{indexes.size}, query_index size: #{query_indexes.size}"
+        candidate_indexes = get_migrate_preparing_plans_by_trees query_trees, indexes
         index_related_tree_hash = get_related_query_tree(query_trees, query_indexes)
         # create new migrate_prepare_plan
-        migrate_plans = Parallel.map(query_indexes, in_processes: [Parallel.processor_count / 2, Parallel.processor_count - 5].max()) do |base_index|
-          useable_indexes = indexes
-                                .reject{|i| i == base_index}
-                                .reject{|oi| is_similar_index?(base_index, oi)}
-                                .reject{|oi| (oi.graph.entities & base_index.graph.entities).empty?}
-          puts "indexes: #{indexes.size}  ->  #{useable_indexes.size}"
+        migrate_plans = Parallel.map(query_indexes, in_processes: [Parallel.processor_count / 4, Parallel.processor_count - 5].max()) do |base_index|
+          useable_indexes = candidate_indexes[base_index]
 
           m_plan = {base_index => {}}
-          planner = Plans::PreparingQueryPlanner.new @workload, useable_indexes, @cost_model, base_index,  2
+          planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, useable_indexes, @cost_model, 2
           migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
           begin
             m_plan[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
