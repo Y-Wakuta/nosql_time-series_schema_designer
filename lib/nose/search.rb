@@ -372,11 +372,12 @@ module NoSE
       def is_similar_index?(index, other_index)
         # e.g. index `[f1, f2][f3, f4] -> [f5, f6]`
 
-        # in the case all fields in the column family is same
-        return true if other_index.all_fields.to_set == index.all_fields.to_set
+        # in the case that hash_fields are same and all fields in the column family is also same
+        return true if other_index.hash_fields == index.hash_fields and other_index.all_fields.to_set == index.all_fields.to_set
 
         # if the key fields are same, small field difference can be allowed
-        return true if other_index.key_fields == index.key_fields and \
+        return true if other_index.hash_fields == index.hash_fields and \
+                       other_index.order_fields == index.order_fields and \
                        other_index.extra >= index.extra and \
                        (other_index.extra - index.extra).size < 2
 
