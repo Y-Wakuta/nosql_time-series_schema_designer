@@ -59,7 +59,7 @@ module NoSE
         it 'can generate DDL for a simple index' do
           expect(backend.indexes_ddl).to match_array [
             'CREATE COLUMNFAMILY "TweetIndex" ("User_Username" text, ' \
-            '"Tweet_Timestamp" timestamp, "User_UserId" uuid, '\
+            '"Tweet_Timestamp" date, "User_UserId" uuid, '\
             '"Tweet_TweetId" uuid, ' \
             '"Tweet_Body" text, ' \
             '"value_hash" text, PRIMARY KEY(("User_Username"), ' \
@@ -260,10 +260,8 @@ module NoSE
                                   step, nil, step.parent
         actual = prepared.process query.conditions, results, nil
         expected = [
-          #{["Bob"] => {tweet['Body'] => 3.0, tweet['Retweets'] => 12.0, user['Username'] => "Bob"}},
-          #{["Alice"] => {tweet['Body'] => 7.0, tweet['Retweets'] => 14.0, user['Username'] => "Alice"}}
-          {tweet['Body'] => 3.0, tweet['Retweets'] => 12.0, user['Username'] => "Bob"},
-          {tweet['Body'] => 7.0, tweet['Retweets'] => 14.0, user['Username'] => "Alice"}
+          {'Tweet_Body' => 3.0, 'Tweet_Retweets' => 12.0, 'User_Username' => "Bob"},
+          {'Tweet_Body' => 7.0, 'Tweet_Retweets' => 14.0, 'User_Username' => "Alice"}
         ]
         expect(actual).to eq(expected)
       end

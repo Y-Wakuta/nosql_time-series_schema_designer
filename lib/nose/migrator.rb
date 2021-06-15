@@ -110,15 +110,20 @@ module NoSE
         end]
       end
 
+      def create_hash_table(index, values, key_fields)
+        hash_table = values.reject{|rv| Backend::CassandraBackend.remove_all_null_place_holder_row([rv]).empty? \
+             or Backend::CassandraBackend.remove_all_null_place_holder_row(key_fields.map{|fi| rv.slice(fi.id)}).empty?}.group_by do |right_value|
+          (key_fields.map{|fi| right_value[fi.id].to_s}.join(',')).hash
+        end
+        hash_table.default = Backend::CassandraBackend.create_empty_record(index)
+        hash_table
+      end
+
       def left_outer_join(left_index, left_values, right_index, right_values)
         overlap_key_fields = (left_index.all_fields & right_index.all_fields).select{|f| f.is_a? NoSE::Fields::IDField}
 
         starting = Time.now
-        right_index_hash = right_values.reject{|rv| Backend::CassandraBackend.remove_all_null_place_holder_row([rv]).empty? \
-              or Backend::CassandraBackend.remove_all_null_place_holder_row(overlap_key_fields.map{|fi| rv.slice(fi.id)}).empty?}.group_by do |right_value|
-          (overlap_key_fields.map{|fi| right_value[fi.id].to_s}.join(',')).hash
-        end
-        right_index_hash.default = Backend::CassandraBackend.create_empty_record(right_index)
+        right_index_hash = create_hash_table right_index, right_values, overlap_key_fields
 
         results = left_values.flat_map do |left_value|
           related_key = (overlap_key_fields.map{|fi| left_value[fi.id].to_s}.join(',')).hash
@@ -187,9 +192,6 @@ module NoSE
         results_on_mysql = raw_results.map do |row|
           row.each do |f, v|
             current = index.all_fields.find{|field| field.id == f}
-            if current.is_a?(NoSE::Fields::DateField)
-              row[f] = v.to_time unless v.nil?
-            end
             row[f] = @backend.index_row(row, [current]).first
           end
           row

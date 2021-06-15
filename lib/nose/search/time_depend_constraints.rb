@@ -3,7 +3,7 @@
 module NoSE
   module Search
     class EnumerableConstraint < Constraint
-       def self.apply(problem)
+      def self.apply(problem)
         enumerate_constraints(problem).each {|c| problem.model << c}
       end
     end
@@ -18,8 +18,8 @@ module NoSE
             (0...problem.timesteps).map do |ts|
               name = "q#{q}_#{related_index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
               MIPPeR::Constraint.new problem.query_vars[related_index][query][ts] +
-                                                problem.index_vars[related_index][ts] * -1,
-                                              :<=, 0, name
+                                       problem.index_vars[related_index][ts] * -1,
+                                     :<=, 0, name
 
             end
           end
@@ -32,8 +32,8 @@ module NoSE
             problem.data[:costs][ms_query].keys.uniq.flat_map do |related_index|
               name = "ms_q_#{related_index.key}_avail_#{ts}" if ENV['NOSE_LOG'] == 'debug'
               MIPPeR::Constraint.new problem.prepare_vars[related_index][ms_query][ts] +
-                                                problem.index_vars[related_index][ts] * -1,
-                                              :<=, 0, name
+                                       problem.index_vars[related_index][ts] * -1,
+                                     :<=, 0, name
             end
           end
         end
@@ -41,7 +41,7 @@ module NoSE
       end
     end
 
-     class TimeDependCreationConstraints < EnumerableConstraint
+    class TimeDependCreationConstraints < EnumerableConstraint
       def self.enumerate_constraints(problem)
         problem_constraints = []
         problem.indexes.each do |index|
@@ -156,11 +156,11 @@ module NoSE
         index_var
       end
 
-       # Ensure the previous index is available
+      # Ensure the previous index is available
       def self.ensure_parent_index_available(index, index_var, parent_var, problem, q)
         name = "q#{q}_#{index.key}_parent" if ENV['NOSE_LOG'] == 'debug'
         MIPPeR::Constraint.new index_var * 1.0 + parent_var * -1.0,
-                                        :<=, 0, name
+                               :<=, 0, name
       end
 
       def self.time_depend_complete_plan_constraint(query, q, problem, query_plan_step_vars, timesteps)
@@ -252,17 +252,19 @@ module NoSE
       end
     end
 
-     class TimeDependIndexCreatedAtUsedTimeStepConstraints < EnumerableConstraint
+    class TimeDependIndexCreatedAtUsedTimeStepConstraints < EnumerableConstraint
       def self.enumerate_constraints(problem)
         problem_constraints = []
         problem.query_vars.each do |index, q_vars|
-           q_vars.each do |_, q_var|
-             (1...problem.timesteps).each do |ts|
-               constr = MIPPeR::Constraint.new q_var[ts] * 1.0 + problem.migrate_vars[index][ts] * -1.0, :>=,
-                                               0, "index_created_at_used_ts_#{index.key}"
-               problem_constraints.append constr
-             end
-           end
+          (1...problem.timesteps).each do |ts|
+            plan_expr = q_vars.reduce(MIPPeR::LinExpr.new) {|expr, (_, q_var)| expr.add(q_var[ts]) }
+            # migrate_vars[index][ts]: whether create the index from ts - 1 to ts
+            # plan_expr: aggregated variables that describe index usages in query plans at ts
+            # `plan_expr >= migrate_vars[index][ts]` ensures not-used CFs are not newly created
+            constr = MIPPeR::Constraint.new plan_expr + problem.migrate_vars[index][ts] * -1.0, :>=,
+                                            0, "index_created_at_used_ts_#{index.key}"
+            problem_constraints.append constr
+          end
         end
         problem_constraints
       end

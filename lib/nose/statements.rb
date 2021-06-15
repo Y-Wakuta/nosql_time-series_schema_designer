@@ -369,8 +369,13 @@ module NoSE
       path.each do |key|
         # Search through foreign keys
         last_entity = longest_entity_path.last
-        longest_entity_path << last_entity[key].entity
-        keys << last_entity[key]
+        if last_entity[key].instance_of?(NoSE::Fields::IDField) and not last_entity.foreign_keys[key].nil?
+          longest_entity_path << last_entity.foreign_keys[key].entity
+          keys << last_entity.foreign_keys[key]
+        else
+          longest_entity_path << last_entity[key].entity
+          keys << last_entity[key]
+        end
       end
 
       KeyPath.new(keys)
@@ -389,7 +394,7 @@ module NoSE
       # Expand the graph to include any keys which were found
       field_path[0..-2].prefixes.drop(1).each do |key_path|
         key = params[:model].find_field key_path
-        params[:graph].add_edge key.parent, key.entity, key
+        params[:graph].add_edge key.parent, key.entity, key unless key.parent == key.entity
       end
 
       params[:model].find_field field_path

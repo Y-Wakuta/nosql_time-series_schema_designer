@@ -145,6 +145,23 @@ module NoSE
       class StatementStep
         include Supertype
         attr_reader :index
+
+        def remove_aggregation_function_name(records)
+          regex = Regexp.compile(/(?<=\().*?(?=\))/)
+          records.map do |r|
+            r.map do |k, v|
+              k = regex.match(k).to_s if k.include? '('
+              Hash[k, v]
+            end.inject({}) do |l_hash, r_hash|
+              l_hash.merge(r_hash) do |_, l_v, r_v|
+                fail 'value must be the same' \
+                  if (l_v.instance_of?(Integer) || l_v.instance_of?(Float)) and (l_v - r_v).abs < 0.01
+                l_v
+              end
+            end
+          end
+        end
+
       end
 
       # Look up data on an index in the backend
@@ -178,10 +195,21 @@ module NoSE
               Condition.new field, :'=', result[field.id]
             end
 
+            # modify condition value for each range operator type
             unless @range_field.nil?
               operator = conditions.each_value.find(&:range?).operator
-              result_condition << Condition.new(@range_field, operator,
-                                                result[@range_field.id])
+              if operator == :>= or operator == :<= or not result.has_key? @range_field.id
+                result_condition << Condition.new(@range_field, operator,
+                                                  result[@range_field.id])
+              elsif operator == :>
+                result_condition << Condition.new(@range_field, operator,
+                                                  result[@range_field.id] - 1)
+              elsif operator == :<
+                result_condition << Condition.new(@range_field, operator,
+                                                  result[@range_field.id] + 1)
+              else
+                fail
+              end
             end
 
             result_condition
@@ -196,13 +224,13 @@ module NoSE
           #       It should be sufficient to check what is needed for future
           #       filtering and sorting and use only those + query.select
           select += @next_step.index.hash_fields \
-            unless @next_step.nil? ||
-                   !@next_step.is_a?(Plans::IndexLookupPlanStep)
+            unless @next_step.nil? || !@next_step.is_a?(Plans::IndexLookupPlanStep)
 
           if !@next_step.is_a?(Plans::IndexLookupPlanStep) \
               and !later_indexlookup_steps.nil?
             later_indexlookup_steps.each do |later_indexlookup_step|
               select += later_indexlookup_step.index.hash_fields
+              select += later_indexlookup_step.eq_filter
             end
           end
 
@@ -290,11 +318,9 @@ module NoSE
         # Sort results by a list of fields given in the step
         # @return [Array<Hash>]
         def process(_conditions, results, _ = nil)
-          results.sort_by! do |row|
-            @step.sort_fields.map do |field|
-              row[field.id]
-            end
-          end
+          results = remove_aggregation_function_name results
+
+          results.sort_by! {|row| @step.sort_fields.map {|field| row[field.id]}}
         end
       end
 
@@ -305,26 +331,39 @@ module NoSE
         end
 
         def process(_conditions, results, _ = nil)
+          fail "some group by keys are not provided result keys: #{results.first.keys.map(&:to_s).inspect}, " \
+               "required: #{@step.groupby.map(&:id).inspect}" unless results.first.keys.to_set >= @step.groupby.map(&:id).to_set
+
+          results = remove_aggregation_function_name results
+
           # execute GROUP BY field first
-          grouped_results = results.group_by{|rr| @step.groupby.map(&:id).map{|r| rr[r]} }
+          grouped_results = results.group_by{|rr| @step.groupby.map(&:id).map{|r| rr[r].to_s}.join(',') }
 
           grouped_results.map do |k, group|
             row = {}
-            @step.sums.each do |sum_field|
-              row[sum_field] = group.map{|r| r[sum_field.id].to_f}.sum
+            @step.sums.map(&:id).each do |sum_field|
+              values = group.map{|r| r[sum_field]}
+              fail 'some aggregation value is null' if values.any?(&:nil?)
+              row[sum_field] = values.map(&:to_f).sum
             end
-            @step.counts.each do |count_field|
-              row[count_field] = group.map{|r| r[count_field.id]}.count
+            @step.counts.map(&:id).each do |count_field|
+              values = group.map{|r| r[count_field]}
+              fail 'some aggregation value is null' if values.any?(&:nil?)
+              row[count_field] = values.count
             end
-            @step.maxes.each do |max_field|
-              row[max_field] = group.map{|r| r[max_field.id].to_f}.max
+            @step.maxes.map(&:id).each do |max_field|
+              values = group.map{|r| r[max_field]}
+              fail 'some aggregation value is null' if values.any?(&:nil?)
+              row[max_field] = values.map(&:to_f).max
             end
-            @step.avgs.each do |avg_field|
-              summation = group.map{|r| r[avg_field.id].to_f}.sum.to_f
-              row[avg_field] = summation / group.map{|r| r[avg_field.id].to_f}.count
+            @step.avgs.map(&:id).each do |avg_field|
+              values = group.map{|r| r[avg_field]}
+              fail 'some aggregation value is null' if values.any?(&:nil?)
+              summation = values.map(&:to_f).sum
+              row[avg_field] = summation / group.map{|r| r[avg_field].to_f}.count
             end
-            @step.groupby.each do |groupby_field|
-              row[groupby_field] = group.map{|r| r[groupby_field.id]}.first
+            @step.groupby.map(&:id).each do |groupby_field|
+              row[groupby_field] = group.map{|r| r[groupby_field]}.first
             end
             _conditions.each do |field_name, condition|
               next unless condition.operator == "=".to_sym
@@ -332,17 +371,20 @@ module NoSE
               fail "condition value must be uniq" if condition.operator == "=".to_sym and \
                                                      condition_field_values.size > 1 and \
                                                      condition_field_values.uniq.size > 1
-              row[condition.field] = condition_field_values.first
+              row[condition.field.id] = condition_field_values.first
             end
 
-            unless row.keys.map(&:id).to_set >= @step.state.query.select.map(&:id).to_set
-              puts "result fields " + row.keys.inspect
-              puts "selected fields " + @step.state.query.select.map(&:id).inspect
-              fail 'all selected fields should be aggregated'
-            end
+            validate_all_field_aggregated? row
 
             row
           end
+        end
+
+        def validate_all_field_aggregated?(row)
+          return if row.keys.to_set >= @step.state.query.select.map(&:id).to_set
+          puts "result fields " + row.keys.inspect
+          puts "selected fields " + @step.state.query.select.map(&:id).inspect
+          fail 'all selected fields should be aggregated'
         end
       end
 
@@ -383,12 +425,13 @@ module NoSE
           subclass_step_name = step_class.name.sub \
             'NoSE::Backend::Backend', self.class.name
           step_class = Object.const_get subclass_step_name
-          if step_class == NoSE::Backend::CassandraBackend::IndexLookupStatementStep \
-              and steps.index(next_step) + 2 < steps.size
-            #and steps[steps.index(next_step) + 1].is_a?(NoSE::Backend::CassandraBackend::IndexLookupStatementStep)
-            later_indexlookup_steps = steps[(steps.index(next_step) + 1)..-1].select{|s| s.is_a? Plans::IndexLookupPlanStep}
-            step_class.new client, fields, conditions,
-                           step, next_step, prev_step, later_indexlookup_steps
+          if step_class == NoSE::Backend::CassandraBackend::IndexLookupStatementStep
+              later_indexlookup_steps = steps[[(steps.index(next_step) + 1), steps.size].min..-1]
+                                          .select{|s| s.is_a? Plans::IndexLookupPlanStep}
+              later_groupby = steps.any?{|s| s.instance_of? Plans::AggregationPlanStep} ?
+                                steps[steps.index(next_step)..-1].find{|s| s.is_a? Plans::AggregationPlanStep}.groupby : []
+              step_class.new client, fields, conditions,
+                             step, next_step, prev_step, later_indexlookup_steps, later_groupby
           else
             step_class.new client, fields, conditions,
                            step, next_step, prev_step
@@ -565,8 +608,7 @@ module NoSE
 
         # If we have no query for IDs on the first entity, we must
         # have the fields we need to execute the other support queries
-        if !@statement.nil? &&
-           @support_plans.first.query.entity != @statement.entity
+        if !@statement.nil? && @support_plans.first.query.entity != @statement.entity
           support = @support_plans.map do |plan|
             plan.execute settings
           end

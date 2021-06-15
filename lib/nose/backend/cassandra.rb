@@ -13,7 +13,7 @@ module NoSE
 
       @@value_place_holder = {
           :string => "_",
-          :date => Time.at(0),
+          :date => Time.at(0).to_datetime,
           :numeric => (-1.0e+5).to_i,
           :uuid => Cassandra::Uuid.new("cd9747a1-b59c-4aca-a12e-65915bcd2768")
       }
@@ -171,9 +171,8 @@ module NoSE
       end
 
       # Sample a number of values from the given index
-      def index_sample(index, count = nil)
-        record_pool_magnification = 100
-        field_list = index.all_fields.map { |f| "\"#{f.id}\"" }
+      def index_sample(index, count = nil, is_nullable = false)
+        field_list = index.key_fields.map { |f| "\"#{f.id}\"" }
         query = "SELECT #{field_list.join ', '} FROM \"#{index.key}\""
         rows = query_index_limit_for_sample query, count
 
@@ -182,13 +181,11 @@ module NoSE
 
         return rows if count.nil?
         if rows.size == 0
-          fail "collected record for #{index.key} was empty: #{index.hash_str}"
+          fail "collected record for #{index.key} was empty: #{index.hash_str}" unless is_nullable
+          return rows
         end
 
-        r = Object::Random.new(100)
-        (0...(record_pool_magnification * count)).map{|_| r.rand(rows.size)}.uniq.map do |i|
-          rows[i]
-        end.compact.take(count)
+        rows
       end
 
       def index_records(index, required_fields)
@@ -224,7 +221,7 @@ module NoSE
               ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
               ret = system("./cassandra-loader -badDir /tmp/ -queryTimeout 20 -numRetries 5 -batchSize 20 " \
                            "-dateFormat \"yyyy-MM-dd\" -skipRows 1 -delim \"|\" -f #{file_name} -host #{host_name} " \
-                           "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\"")
+                           "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\" > /dev/null")
 
               fail "  loading error detected: #{index.key}" unless ret
               g.close
@@ -284,6 +281,27 @@ module NoSE
         end
         ending = Time.now.utc
         STDERR.puts "unloading through csv time: #{ending - starting} for #{records.size.to_s} records on #{index.key}"
+        cast_records index, records
+      end
+
+      def cast_records(index, records)
+        records.each do |r|
+          r.keys.each do |k|
+            field = index.all_fields.find{|f| f.id == k}
+            case field
+            when Fields::IntegerField
+              r[k] = r[k].to_i
+            when Fields::FloatField
+              r[k] = r[k].to_f
+            when Fields::DateField
+              r[k] = Date.strptime(r[k], "%Y-%m-%d") unless r[k].instance_of?(Date) or r[k].instance_of?(DateTime)
+            when Fields::IDField || Fields::ForeignKeyField || Fields::CompositeKeyField
+              r[k] = convert_id_2_uuid r[k] unless r[k].instance_of?(Cassandra::Uuid)
+            else
+              r[k] = r[k].to_s
+            end
+          end
+        end
         records
       end
 
@@ -331,27 +349,10 @@ module NoSE
       private
 
       def query_index_limit_for_sample(query, limit)
-        query_tries = 0
-        begin
-          rows = []
-          result = @client.execute(query, page_size: limit * 100 * 3)
-          loop do
-            tmp_rows = CassandraBackend.remove_any_null_place_holder_row(result.to_a)
-            rows = CassandraBackend.remove_any_null_row(tmp_rows)
-
-            break if result.last_page? or rows.size > limit * 100
-            result = result.next_page
-          end
-        rescue
-          STDERR.puts "query error detected for sampling #{query.to_s}"
-          sleep 30
-          all_retries = 10
-          if query_tries < all_retries
-            query_tries += 1
-            retry
-          end
-        end
-        rows.sample(limit)
+        rows = query_index query
+        rows = CassandraBackend.remove_any_null_row(rows)
+        puts "rows collected #{rows.size}"
+        row.sample(limit, random: Object::Random.new(100))
       end
 
       def query_index(query)
@@ -440,7 +441,7 @@ module NoSE
         when [Fields::StringField]
           :text
         when [Fields::DateField]
-          :timestamp
+          :date
         when [Fields::IDField],
             [Fields::ForeignKeyField], [Fields::CompositeKeyField]
           :uuid
@@ -575,7 +576,8 @@ module NoSE
       # A query step to look up data from a particular column family
       class IndexLookupStatementStep < Backend::IndexLookupStatementStep
         # rubocop:disable Metrics/ParameterLists
-        def initialize(client, select, conditions, step, next_step, prev_step, later_indexlookup_steps = [])
+        def initialize(client, select, conditions, step, next_step, prev_step,
+                       later_indexlookup_steps = [], later_groupby = [])
           super(client, select, conditions, step, next_step, prev_step)
 
           @later_indexlookup_steps = later_indexlookup_steps
@@ -583,7 +585,8 @@ module NoSE
           @logger = Logging.logger['nose::backend::cassandra::indexlookupstep']
 
           # TODO: Check if we can apply the next filter via ALLOW FILTERING
-          cql = select_cql(select + conditions.values.map(&:field).to_set, conditions)
+          cql = select_cql(select + conditions.values.map(&:field).to_set + step.index.groupby_fields + later_groupby, conditions)
+          STDERR.puts "query prepared : #{cql}"
           begin
             @prepared = client.prepare cql
           rescue => e
@@ -613,8 +616,10 @@ module NoSE
         # @return [String]
         def select_cql(select, conditions)
           select = expand_selected_fields select, @later_indexlookup_steps
-          cql = "SELECT #{select.map { |f| "\"#{f.id}\"" }.join ', '} FROM " \
+          select_fields = fields_with_aggregations select
+          cql = "SELECT #{select_fields} FROM " \
                 "\"#{@step.index.key}\" WHERE #{cql_where_clause conditions}"
+          cql += cql_group_by
           cql += cql_order_by
 
           # Add an optional limit
@@ -659,12 +664,35 @@ module NoSE
             fail 'order by fields and eq_filter does not match order_fields' \
               unless @step.index.order_fields.take(order_by_fields.size) == order_by_fields
           end
-          ' ORDER BY ' + order_by_fields.map { |f| "\"#{f.id}\"" }.join(', ')
+          ' ORDER BY ' + fields_with_aggregations(order_by_fields)
+        end
+
+        def fields_with_aggregations(select)
+          select = select.to_a
+          count_fields = select.select{|f| @step.index.count_fields.include? f}
+          sum_fields = select.select{|f| @step.index.sum_fields.include? f}
+          avg_fields = select.select{|f| @step.index.avg_fields.include? f}
+          max_fields = select.select{|f| @step.index.max_fields.include? f}
+          non_aggregate_fields = select - count_fields - sum_fields - avg_fields - max_fields
+
+          fields = []
+          non_aggregate_fields.each { |f| fields.append Hash[f, Set.new(["\"#{f.id}\""])]} unless non_aggregate_fields.empty?
+          count_fields.each{|f| fields.append Hash[f, Set.new(["count(\"#{f.id}\")"])]} unless count_fields.empty?
+          sum_fields.each{|f| fields.append Hash[f, Set.new(["sum(\"#{f.id}\")"])]} unless sum_fields.empty?
+          avg_fields.each{|f| fields.append Hash[f, Set.new(["avg(\"#{f.id}\")"])]} unless avg_fields.empty?
+          max_fields.each{|f| fields.append Hash[f, Set.new(["max(\"#{f.id}\")"])]} unless max_fields.empty?
+
+          # field should be ordered in the given order especially for ORDER BY clause
+          fields = fields.inject({}){|l, r| l.merge(r) {|_, l_v, r_v| Set.new([l_v, r_v])}}
+          fields.sort_by{|k, _| select.index k}.flat_map{|_, v| v.map(&:to_s).join(', ')}.join ', '
         end
 
         def cql_group_by
           return '' if @step.index.groupby_fields.empty?
-          ' GROUP BY ' + @step.index.groupby_fields.map { |f| "\"#{f.id}\"" }.join(', ')
+          ' GROUP BY ' + @step.index
+                              .groupby_fields
+                              .sort_by { |f| @step.index.hash_str.index(f.id)}.map { |f| "\"#{f.id}\"" }
+                              .join(', ')
         end
 
         # Lookup values from an index selecting the given

@@ -281,19 +281,59 @@ module NoSE
         [costs, results.map(&:last)]
       end
 
+      # get candidate indexes for each index.
+      # not migrating mv plan to mv plan
+      def get_migrate_preparing_plans_by_trees(trees, indexes)
+        puts "start gathering index candidates for index #{Time.now}"
+
+        decomposed_candidate_indexes = Parallel.map(trees.select{|t| t.query.instance_of? Query},
+                                         in_processes: [Parallel.processor_count / 2, Parallel.processor_count - 5].max()) do |target_tree|
+          candidates = {}
+          related_trees = trees.select{|qt| not (qt.query.graph.entities & target_tree.query.graph.entities).empty?}
+          target_tree.each do |target_plan|
+            if target_plan.indexes.size > 1
+              target_plan.indexes.each do |target_idx|
+                candidates[target_idx] = Set.new unless candidates.has_key? target_idx
+                candidates[target_idx] = indexes
+                                           .reject{|i| i == target_idx || \
+                                                                  is_similar_index?(target_idx, i) || \
+                                                                  (i.graph.entities & target_idx.graph.entities).empty?
+                                           }.to_set
+              end
+            else
+              target_plan.indexes.each do |target_idx|
+                candidates[target_idx] = Set.new unless candidates.has_key? target_idx
+                other_indexes = related_trees.flat_map(&:to_a)
+                                             .reject{|p| p == target_plan || p.indexes.size == 1}
+                                             .flat_map(&:indexes).uniq
+                candidates[target_idx] += other_indexes
+                                                    .reject{|i| i == target_idx || \
+                                                                is_similar_index?(target_idx, i) || \
+                                                                (i.graph.entities & target_idx.graph.entities).empty?
+                                                    }.to_set
+              end
+            end
+          end
+          candidates
+        end
+        candidate_indexes = {}
+        indexes.each {|idx| candidate_indexes[idx] = Set.new}
+        decomposed_candidate_indexes.each {|ci| ci.each {|k, v| candidate_indexes[k] += v}}
+        puts "end gathering index candidates for index #{Time.now}"
+        candidate_indexes
+      end
+
       def get_migrate_preparing_plans(query_trees, indexes)
         query_indexes = query_trees.select{|t| t.query.instance_of? Query}.flat_map{|t| t.flat_map(&:indexes)}.uniq
+        puts "index size: #{indexes.size}, query_index size: #{query_indexes.size}"
+        candidate_indexes = get_migrate_preparing_plans_by_trees query_trees, indexes
         index_related_tree_hash = get_related_query_tree(query_trees, query_indexes)
         # create new migrate_prepare_plan
-        migrate_plans = Parallel.map(query_indexes, in_processes: [Parallel.processor_count / 2, Parallel.processor_count - 5].max()) do |base_index|
-          useable_indexes = indexes
-                                .reject{|i| i == base_index}
-                                .reject{|oi| is_similar_index?(base_index, oi)}
-                                .reject{|oi| (oi.graph.entities & base_index.graph.entities).empty?}
-          puts "indexes: #{indexes.size}  ->  #{useable_indexes.size}"
+        migrate_plans = Parallel.map(query_indexes, in_processes: [Parallel.processor_count / 4, Parallel.processor_count - 5].max()) do |base_index|
+          useable_indexes = candidate_indexes[base_index]
 
           m_plan = {base_index => {}}
-          planner = Plans::PreparingQueryPlanner.new @workload, useable_indexes, @cost_model, base_index,  2
+          planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, useable_indexes, @cost_model, 2
           migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
           begin
             m_plan[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
@@ -305,11 +345,15 @@ module NoSE
           planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, useable_indexes, @cost_model, 2
           index_related_tree_hash[base_index].each do |rtree|
             simple_query = MigrateSupportSimplifiedQuery.simple_query rtree.query, base_index
+            next if simple_query.text == migrate_support_query.text
             begin
-              m_plan[base_index][simple_query] = support_query_cost simple_query, planner
+              cost_tree = support_query_cost simple_query, planner,
+                                             existing_tree: m_plan[base_index].has_key?(migrate_support_query) ?
+                                                              m_plan[base_index][migrate_support_query][:tree] : nil
             rescue Plans::NoPlanException => e
-              #puts "#{e.inspect} for #{base_index.key}"
+              next
             end
+            m_plan[base_index][simple_query] = cost_tree
           end
           m_plan
         end.reduce(&:merge)
@@ -328,11 +372,12 @@ module NoSE
       def is_similar_index?(index, other_index)
         # e.g. index `[f1, f2][f3, f4] -> [f5, f6]`
 
-        # in the case all fields in the column family is same
-        return true if other_index.all_fields.to_set == index.all_fields.to_set
+        # in the case that hash_fields are same and all fields in the column family is also same
+        return true if other_index.hash_fields == index.hash_fields and other_index.all_fields.to_set == index.all_fields.to_set
 
         # if the key fields are same, small field difference can be allowed
-        return true if other_index.key_fields == index.key_fields and \
+        return true if other_index.hash_fields == index.hash_fields and \
+                       other_index.order_fields == index.order_fields and \
                        other_index.extra >= index.extra and \
                        (other_index.extra - index.extra).size < 2
 
@@ -370,10 +415,23 @@ module NoSE
         {:costs => costs, :tree => tree}
       end
 
-      def support_query_cost(query, planner)
-        _costs, tree = query_cost planner, query, [1] * @workload.timesteps
+      def support_query_cost(query, planner, existing_tree: nil)
+        tree = planner.find_plans_for_query(query)
+        remove_already_existing_plan planner, tree, existing_tree unless existing_tree.nil?
 
+        _costs, tree = query_cost_4_tree query, [1] * @workload.timesteps, tree
         support_query_cost_4_costs_tree query, _costs, tree
+      end
+
+      def remove_already_existing_plan(planner, target_tree, existing_tree)
+        target_tree.each do |plan|
+          existing_plans = existing_tree.to_a
+          is_already_existed = existing_plans.any? do |existing_plan|
+            existing_plan.indexes == plan.indexes
+          end
+          is_empty_tree = planner.prune_plan plan.steps.last if is_already_existed
+          fail Plans::NoPlanException if is_empty_tree
+        end
       end
 
       def query_cost_4_tree(query, weight, tree)
@@ -415,13 +473,13 @@ module NoSE
 
           # Calculate the cost for just these steps in the plan
           cost = weight.is_a?(Array) ? weight.map{|w| steps.sum_by(&:cost) * w}
-                     : steps.sum_by(&:cost) * weight
+                   : steps.sum_by(&:cost) * weight
 
           # Don't count the cost for sorting at the end
           sort_step = steps.find { |s| s.is_a? Plans::SortPlanStep }
           unless sort_step.nil?
             weight.is_a?(Array) ? weight.map.with_index{|w, i| cost[i] -= sort_step.cost * w}
-                : (cost -= sort_step.cost * weight)
+              : (cost -= sort_step.cost * weight)
           end
 
           if query_costs.key? index_step.index

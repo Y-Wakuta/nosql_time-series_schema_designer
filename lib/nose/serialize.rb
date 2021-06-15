@@ -106,7 +106,9 @@ module NoSE
 
         # Pull the fields from each entity
         f = lambda do |fields|
-          fields.map { |dict| model[dict['parent']][dict['name']] }
+          fields.map { |dict|
+            model[dict['parent']].foreign_keys[dict['name']] || model[dict['parent']][dict['name']]
+          }
         end
 
         graph_entities = fragment['graph']['nodes'].map { |n| model[n] }

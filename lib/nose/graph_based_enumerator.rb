@@ -1,14 +1,11 @@
 # frozen_string_literal: true
 
 require 'logging'
-require 'benchmark'
-
 
 module NoSE
   # Produces potential indices to be used in schemas
   class GraphBasedIndexEnumerator < IndexEnumerator
-    def initialize(workload, cost_model,
-                   index_plan_step_threshold, choice_limit_size)
+    def initialize(workload, cost_model, index_plan_step_threshold, choice_limit_size)
       @eq_threshold = 1
       @cost_model = cost_model
       @index_steps_threshold = index_plan_step_threshold
@@ -57,48 +54,26 @@ module NoSE
       eq = get_query_eq query
       orderby = get_query_orderby query
 
-      # query.subgrapphs() の中で query.graph に対しては materialized view を返す
-      # query.subgraphs() で分割されたクエリグラフには接点となるエンティティがある。suffix query 側では必ずこのエンティティが partition key の先頭に来る
-      # さらに、prefix query 側でのこの分割点に当たるエンティティが partition key の先頭に来ることはない。
-      # unique なエンティティに対しては、グループ化するというのはこの enumerator でも取り入れても良さそう
-      #
-      # subgraph はエッジ分割で列挙するので、分割した結果のグラフには重複するエンティティはない
-      # しかし、すべてのエンティティに対して列挙するので、重複するペアができる
-      # ここで、entity サイズが1つのサブグラフもできるが、secondary index のように動作する CF とその対象のペアがあるので、全てのエンティティを持つサブグラフに対しても CF を列挙する必要がある
-      # ただし、partition key の先頭の entity の属性順序以外は mv と同じ順番で問題ない。
-      # はじめに graph.subgraphs で全ての subgraph を列挙して、ペアを作る
-      # そして、[1 つ + 残りの全ての entity] のケースでは、全てのエンティティの subgraph では先頭の属性だけを順列列挙して残りの entity の分は MV と同じにする
-      #
-      # prefix graph は先頭の entity の属性の並びはクエリへの応答可能性に影響があるが、suffix graph では関係ない。
-      # ここで、列挙数を減らせるはず
-      #
-      # indexes_for_choices で eq_coices.partitions をやっているが、suffix クエリにおいては、ある程度決め打ちできるはず
-
       indexes = group_subgraph(query.eq_fields, query.graph).flat_map do |subgraph_pair|
         overlapping_entities = subgraph_pair[:prefix].entities & subgraph_pair[:suffix].entities
 
-        prefix_idxes = indexes_for_graph(subgraph_pair[:prefix], query.select, eq, range, orderby, overlapping_entities, is_prefix_graph: true)
-        puts "====== prefix: #{subgraph_pair[:prefix].entities.map(&:name).inspect} ======="
-        puts "prefix: #{prefix_idxes.size} ====="
+        prefix_idxes = indexes_for_graph(subgraph_pair[:prefix], query.select, eq, range, orderby,
+                                         overlapping_entities, is_prefix_graph: true)
 
-        # 一つの entity のみの prefix + 全ての entity を持つ　suffix に対応するための列挙メソッドが必要
         if subgraph_pair[:prefix].entities.size == 1 and subgraph_pair[:suffix].entities == query.graph.entities
-          STDERR.puts query.text
-          suffix_idxes = indexes_for_full_suffix_graph(subgraph_pair[:prefix], subgraph_pair[:suffix], query.materialize_view, eq, range, orderby)
-          puts "====== full suffix: #{subgraph_pair[:suffix].entities.map(&:name).inspect} ======="
-          puts "suffix: #{suffix_idxes.size} ====="
+          suffix_idxes = indexes_for_full_suffix_graph(subgraph_pair[:prefix], subgraph_pair[:suffix],
+                                                       query.materialize_view, eq)
         else
-          suffix_idxes = indexes_for_graph(subgraph_pair[:suffix], query.select, eq, range, orderby, overlapping_entities, is_prefix_graph: false)
-          puts "====== suffix: #{subgraph_pair[:suffix].entities.map(&:name).inspect} ======="
-          puts "suffix: #{suffix_idxes.size} ====="
+          suffix_idxes = indexes_for_graph(subgraph_pair[:suffix], query.select, eq,
+                                           range, orderby, overlapping_entities, is_prefix_graph: false)
         end
 
         [prefix_idxes + suffix_idxes].flatten
       end
       indexes.uniq!
-      STDERR.puts "prune indexes based on clutering key before: #{indexes.size}"
+      index_size = indexes.size
       indexes = ignore_cluster_key_order query, indexes
-      STDERR.puts "prune indexes based on clutering key after: #{indexes.size}"
+      STDERR.puts "prune indexes based on clustering key #{index_size} -> #{indexes.size}"
       indexes << query.materialize_view
       indexes << query.materialize_view_with_aggregation
       puts "#{indexes.size} indexes for #{query.comment}"
@@ -108,28 +83,30 @@ module NoSE
     def ignore_cluster_key_order(query, indexes)
       overlapping_index_keys = []
       condition_fields = (query.eq_fields + query.order.to_set + Set.new([query.range_field])).reject(&:nil?)
+      indexes.sort_by!(&:hash_str)
       indexes.each_with_index do |base_index, idx|
         next if overlapping_index_keys.include? base_index.key # this cf is already removed
         next if (base_index.key_fields.to_set - (query.eq_fields + query.order).to_set).empty?
         cf_condition_fields = condition_fields.select{|f| query.graph.entities.include? f.parent}.to_set
 
-        # クエリに関係の無い order_fields の末尾と extra の境目の区別をしなくていいはずなので、ここの similar_indexes は拡大の余地がある
-        similar_indexes = indexes[(idx + 1)..-1].select{|i| base_index.hash_fields == i.hash_fields}
-                                                .select{|i| base_index.order_fields.to_set == i.order_fields.to_set}
-                                                .select{|i| base_index.extra == i.extra}
-                                                .reject{|i| overlapping_index_keys.include? i.key}
-
         query_condition_order_fields = ((cf_condition_fields - base_index.hash_fields) & base_index.order_fields).to_set
         variable_order_fields_size = (query_condition_order_fields.to_set & base_index.order_fields.to_set).size
-        overlapping_index_keys += similar_indexes
-                                    .select{|i| base_index.order_fields.take(variable_order_fields_size) == \
-                                                i.order_fields.take(variable_order_fields_size) }
-                                    .map(&:key)
+
+        # TODO: we still distinguish the boundary between suffix order fields and extra,
+        # TODO: but this does not affect performance and there are still some space to increase similar_indexes
+        similar_indexes = indexes[(idx + 1)..-1].select{|i| base_index.hash_fields == i.hash_fields}
+                            .select{|i| base_index.order_fields.take(variable_order_fields_size) \
+                                          == i.order_fields.take(variable_order_fields_size)}
+                            .select{|i| base_index.order_fields[variable_order_fields_size..].to_set + base_index.extra \
+                                          == i.order_fields[variable_order_fields_size..].to_set + i.extra}
+                            .reject{|i| overlapping_index_keys.include? i.key}
+        overlapping_index_keys += similar_indexes.map(&:key)
       end
       indexes.reject { |i| overlapping_index_keys.include? i.key}
     end
 
-    def indexes_for_full_suffix_graph(prefix_graph, suffix_graph, materialize_view, eq, range, orderby)
+    # enumerate CFs by changing the field order of the first entity of MV
+    def indexes_for_full_suffix_graph(prefix_graph, suffix_graph, materialize_view, eq)
       prefix_eq_choices = eq_choices prefix_graph, eq
       prefix_eq_choices.map do |eq_choice|
         generate_index(eq_choice, materialize_view.order_fields.reject{|of| eq_choice.include? of},
@@ -137,6 +114,7 @@ module NoSE
       end.compact
     end
 
+    # get subgraph pairs with prefix-graph and suffix-graph
     def group_subgraph(eq, parent_graph)
       subgraphs = parent_graph.subgraphs(recursive = false).to_a
       subgraph_pairs = []
@@ -168,7 +146,6 @@ module NoSE
       subgraph_pairs
     end
 
-    # さらに、prefix query 側でのこの分割点に当たるエンティティが partition key の先頭に来ることはない。
     def indexes_for_graph(graph, select, eq, range, orderby, overlapping_entities, is_prefix_graph: true)
       eq_choices, order_choices, extra_choices = get_graph_choices graph, select, eq, range, orderby, overlapping_entities, is_prefix_graph: is_prefix_graph
       choices = eq_choices.product(extra_choices)
@@ -216,7 +193,8 @@ module NoSE
 
     def order_choices(graph, range, is_prefix_graph)
       return [[]] if is_prefix_graph or range.keys.to_set < graph.entities
-      # order by is not executed partially. Thus, This enumerator only enumerates order fields for graph that has all of required entity
+      # order by is not executed partially.
+      # Thus, This enumerator only enumerates order fields for graph that has all of required entity
       range_fields = graph.entities.map { |entity| range[entity] }.reduce(&:+).uniq
       order_choices = range_fields.permutation.to_a << []
       order_choices
@@ -229,15 +207,16 @@ module NoSE
         key_prefix_entities = (eq_entities & eq_choice_entities).uniq
         next false if key_prefix_entities.empty?
 
-        # overlapping_eq_entities は eq.keys のどれか一つと一致していれば良い
+        # check is any of eq.keys matches overlapping_eq_entities
         overlapping_eq_entities = eq_choice_entities.take(key_prefix_entities.size).to_set
         eq_entities.combination(overlapping_eq_entities.size)
                    .any?{|ek| ek.to_set == overlapping_eq_entities}
       end
 
-      # eq_choices の各属性は、eq, range, orderby, groupby に含まれない限り、id_field が先頭にある必要がない。
+      # As long as each field of eq_choices is not included in any of eq, range, orderby, groupby,
+      # it does not have to be the first place of id_field
       eq_choices = eq_choices.select do |eq_choice|
-        # この CF は集約処理用の MV ではないので、以下のコードでは groupby は考慮しない
+        # Since this CF does not have aggregation, we don't care groupby below
         non_query_specified_id_fields = eq_choice.select(&:primary_key)
                                                  .reject{|f| eq.values.flatten.include?(f) or
                                                    range.values.flatten.include?(f) or
@@ -270,12 +249,6 @@ module NoSE
       order = query.order.group_by(&:parent)
       order.default_proc = ->(*) { [] }
       order
-    end
-
-    def get_query_groupby(query)
-      groupby = query.order.group_by(&:parent)
-      groupby.default_proc = ->(*) { [] }
-      groupby
     end
   end
 end

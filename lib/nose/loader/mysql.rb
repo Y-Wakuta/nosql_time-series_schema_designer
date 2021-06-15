@@ -23,7 +23,7 @@ module NoSE
 
       # Load a generated set of indexes with data from MySQL
       def load(indexes, config, show_progress = false, limit = nil,
-               skip_existing = true)
+               skip_existing = true, num_iterations = 100)
         indexes.map!(&:to_id_graph).uniq! if @backend.by_id_graph
 
         # MySQL query that joins many entites tend to take longer time.
@@ -32,9 +32,16 @@ module NoSE
 
         # XXX Assuming backend is thread-safe
         #indexes.each do |index|
-        Parallel.each(indexes, in_processes: Parallel.processor_count / 3) do |index|
-          load_index index, config, show_progress, limit, skip_existing, false
-        end
+        Parallel.map(indexes, in_processes: Parallel.processor_count / 4) do |index|
+          @backend.initialize_client
+          Hash[index, load_index(index, config, show_progress, limit, skip_existing, num_iterations,false)]
+        end.inject(&:merge)
+      end
+
+      def query_for_indexes(indexes, config)
+        indexes.map do |index|
+          Hash[index, query_for_index(index, config, false)]
+        end.inject(&:merge)
       end
 
       # Read all tables in the database and construct a workload object
@@ -68,7 +75,7 @@ module NoSE
           results += reversed_result
           results.uniq!
         end
-        STDERR.puts "#{Time.now - starting} for #{results.size}"
+        STDERR.puts "collect #{results.size} records with #{Time.now - starting} seconds from MySQL"
 
         results
       end
@@ -77,13 +84,27 @@ module NoSE
         starting = Time.now
         client = new_client config
         sql, fields = index_sql index, limit: limit, reverse_entities: false, full_outer_join: false
-        results = execute_sql client, sql, fields, index
-        STDERR.puts "#{Time.now - starting} query for #{results.size}"
+        begin
+          results = execute_sql client, sql, fields, index
+        rescue Exception => e
+          client = new_client config
+          STDERR.puts "querying fail #{e.inspect}"
+          sleep 10
+          retry
+        end
+
+        STDERR.puts "collect #{results.size} records with #{Time.now - starting} seconds from MySQL"
 
         results
       end
 
       private
+
+      def query_for_index(index, config, does_outer_join)
+        does_outer_join ?
+          query_for_index_full_outer_join(index, nil, config) :
+          query_for_index_inner_join(index, nil, config)
+      end
 
       # Create a new client from the given configuration
       def new_client(config)
@@ -93,7 +114,8 @@ module NoSE
           Mysql2::Client.new host: config[:host],
                              username: config[:username],
                              password: config[:password],
-                             database: config[:database]
+                             database: config[:database],
+                             read_timeout: 2_000
         else
           @query_options = false
           @array_options = false
@@ -103,29 +125,30 @@ module NoSE
       end
 
       def execute_sql(client, sql, fields, index)
-         if @query_options
-           begin
-             STDERR.puts sql
-             client.query(sql, **@query_options)
-           rescue => e
-             STDERR.puts index.inspect
-             #throw e
-           end
-         else
-           client.query(sql).map { |row| hash_from_row row, fields }
-         end.to_a
+        if @query_options
+          begin
+            STDERR.puts sql
+            client.query(sql, **@query_options)
+          rescue => e
+            STDERR.puts index.inspect
+            throw e
+          end
+        else
+          client.query(sql).map { |row| hash_from_row row, fields }
+        end.to_a
       end
 
       # Load a single index into the backend
       # @return [void]
-      def load_index(index, config, show_progress, limit, skip_existing, outer_join = false)
+      def load_index(index, config, show_progress, limit, skip_existing, num_iterations, outer_join = false)
 
         tries = 0
         begin
           is_index_empty = @backend.index_empty?(index)
         rescue Exception => e
           if tries < 10
-            puts tries
+            puts e.inspect
+            puts "check is the index empty: " + tries.to_s
             tries += 1
             sleep 30
             retry
@@ -146,6 +169,7 @@ module NoSE
           results = query_for_index_inner_join index, limit, config
         end
         @backend.load_index_by_cassandra_loader(index, results)
+        results.sample(num_iterations, random: Object::Random.new(100))
       end
 
       # Construct a hash from the given row returned by the client

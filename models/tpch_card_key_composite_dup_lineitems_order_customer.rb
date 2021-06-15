@@ -92,6 +92,51 @@ NoSE::Model.new do
     String 'r_comment', count: 5
   end) * 5
 
+  (Entity 'lineitem_dup' do
+    ID 'l_orderkey', composite: ['l_linenumber']
+    CompositeKey 'l_linenumber', count: 6_000_000
+    #Integer 'l_suppkey'
+    #Integer 'l_partkey'
+    Float 'l_quantity', count: 50
+    Float 'l_extendedprice', count: 933_900
+    Float 'l_discount', count: 11
+    Float 'l_tax', count: 9
+    String 'l_returnflag', count: 3
+    String 'l_linestatus', count: 2
+    Date 'l_shipdate', count: 2_526
+    Date 'l_commitdate', count: 2_466
+    Date 'l_receiptdate', count: 2_554
+    String 'l_shipmode', count: 7
+    String 'l_shipinstruct', count: 4
+    String 'l_comment', count: 4_580_554
+    Integer 'dummy', count: 1
+  end) * 6_000_000
+
+  (Entity 'customer_dup'do
+    ID 'c_custkey', count: 150_000
+    String 'c_name', count: 150_000
+    String 'c_address', count: 150_000
+    String 'c_phone', count: 150_000
+    Float 'c_acctbal', count: 140_187
+    #Integer 'c_nationkey'
+    String 'c_mktsegment', count: 5
+    String 'c_comment', count: 149968
+  end) * 150_000
+
+  (Entity 'orders_dup' do
+    ID 'o_orderkey', count: 1_500_000
+    #Integer 'o_custkey'
+    String 'o_orderstatus', count: 3
+    Float 'o_totalprice', count: 1464556
+    Date 'o_orderdate', count: 2_406
+    String 'o_orderpriority', count: 5
+    String 'o_clerk', count: 1_000
+    Integer 'o_shippriority', count: 1
+    String 'o_comment', count: 1_482_071
+    Integer 'dummy', count: 1
+  end) * 1_500_000
+
+
   HasOne 's_nationkey',       'from_supplier',
          'supplier'      => 'nation'
 
@@ -117,8 +162,26 @@ NoSE::Model.new do
   HasOne 'l_suppkey', 'from_lineitem_supp',
   'lineitem' => 'partsupp'
 
+  # ==============================================
+  # duplicated relationship
+  # ==============================================
+  HasOne 'l_orderkey',       'from_lineitem_dup',
+         'lineitem_dup'      => 'orders_dup'
+
+  HasOne 'o_custkey',       'from_orders_dup',
+         'orders_dup'      => 'customer_dup'
+
+  HasOne 'c_nationkey',       'from_customer',
+         'customer_dup'      => 'nation'
+
+  HasOne 'l_partkey', 'from_lineitem_dup',
+         {'lineitem_dup' => 'partsupp'}, composite: [{"name" => "l_suppkey", "related_key" => "ps_suppkey"}]
+
+  # TODO: currently entities cannot have multiple foreign keys
+  HasOne 'l_suppkey', 'from_lineitem_dup_supp',
+  'lineitem_dup' => 'partsupp'
+
   HasOne 'ps_partkey', 'from_partsupp',
          'partsupp' => 'part'
-
 end
 # rubocop:enable all
