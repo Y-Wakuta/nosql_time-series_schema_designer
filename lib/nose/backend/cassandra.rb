@@ -4,6 +4,7 @@ require 'cassandra'
 require 'zlib'
 require 'tmpdir'
 require 'date'
+require 'open3'
 
 module NoSE
   module Backend
@@ -146,7 +147,11 @@ module NoSE
       # Check if the given index is empty
       def index_empty?(index)
         query = "SELECT count(*) FROM \"#{index.key}\" LIMIT 1"
-        @client.execute(query).first.values.first.zero?
+        is_index_empty = false;
+        retry_when_fail do
+          is_index_empty = @client.execute(query).first.values.first.zero?
+        end
+        is_index_empty
       end
 
       # Check if a given index exists in the target database
@@ -197,18 +202,21 @@ module NoSE
       end
 
       def load_index_by_cassandra_loader(index, results)
+        puts "start loading for #{index.key}"
         starting = Time.now.utc
         fields = index.all_fields.to_a
         columns = fields.map(&:id)
         columns << "value_hash"
+        hoge_start = Time.now
+        puts "start formatting records #{Time.now}"
         formatted_result = format_result index, results
+        puts "formatting record to load done for #{Time.now - hoge_start}"
 
         fail 'no data given to load on cassandra' if formatted_result.size == 0
         inserting_try = 0
         host_name = ""
         begin
-          Parallel.each_with_index(formatted_result.each_slice(1_000_000), in_processes: 5) do |results_chunk, idx|
-            #formatted_result.each_slice(10_000_000).each_with_index do |results_chunk, idx|
+          Parallel.each_with_index(formatted_result.each_slice(1_000_000), in_processes: 6) do |results_chunk, idx|
             host_name = @hosts.sample(1).first
             Dir.mktmpdir do |dir|
               file_name = "#{dir}/#{index.key}_#{idx}.csv"
@@ -219,7 +227,7 @@ module NoSE
               end
               STDERR.puts "  insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
               ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
-              ret = system("./cassandra-loader -badDir /tmp/ -queryTimeout 20 -numRetries 5 -batchSize 20 " \
+              ret = system("./cassandra-loader/build/cassandra-loader -badDir /tmp/ -queryTimeout 20 -numRetries 5 -batchSize 200 " \
                            "-dateFormat \"yyyy-MM-dd\" -skipRows 1 -delim \"|\" -f #{file_name} -host #{host_name} " \
                            "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\" > /dev/null")
 
@@ -229,7 +237,7 @@ module NoSE
           end
         rescue
           STDERR.puts "  loading error detected for #{index.key}"
-          sleep 30 if results.size > 100_000
+          sleep 30 if formatted_result.size > 100_000
           all_retries = 10
           if inserting_try < all_retries
             STDERR.puts "  once truncate record of #{index.key}"
@@ -445,6 +453,24 @@ module NoSE
         when [Fields::IDField],
             [Fields::ForeignKeyField], [Fields::CompositeKeyField]
           :uuid
+        end
+      end
+
+
+      def retry_when_fail(&block)
+        retries = 0
+        begin
+          block.call
+        rescue Exception => e
+          all_retries = 10
+          STDERR.puts e.inspect
+          if retries < all_retries
+            STDERR.puts "  retry #{retries} / #{all_retries}"
+            retries += 1
+            sleep 30
+            retry
+          end
+          raise
         end
       end
 
