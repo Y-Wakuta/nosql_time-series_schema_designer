@@ -291,10 +291,10 @@ module NoSE
           prune_step = prune_step.parent
         end
 
-        # If we reached the root, we have no plan
-        return true if prune_step.is_a? RootPlanStep
-
         prune_step.children.delete prev_step
+
+        # If we reached the root, we have no plan
+        return true if prune_step.is_a? RootPlanStep and prune_step.children.empty?
 
         false
       end
