@@ -13,10 +13,10 @@ module NoSE
       include Subtype
 
       @@value_place_holder = {
-          :string => "_",
-          :date => Time.at(0).to_datetime,
-          :numeric => (-1.0e+5).to_i,
-          :uuid => Cassandra::Uuid.new("cd9747a1-b59c-4aca-a12e-65915bcd2768")
+        :string => "_",
+        :date => Time.at(0).to_datetime,
+        :numeric => (-1.0e+5).to_i,
+        :uuid => Cassandra::Uuid.new("cd9747a1-b59c-4aca-a12e-65915bcd2768")
       }
 
       def initialize(model, indexes, plans, update_plans, config)
@@ -203,6 +203,10 @@ module NoSE
 
       def load_index_by_cassandra_loader(index, results)
         puts "start loading for #{index.key}"
+        if results.empty?
+          STDERR.puts "no record given for loading #{index.key}"
+          return
+        end
         starting = Time.now.utc
         fields = index.all_fields.to_a
         columns = fields.map(&:id)
@@ -216,7 +220,7 @@ module NoSE
         inserting_try = 0
         host_name = ""
         begin
-          Parallel.each_with_index(formatted_result.each_slice(1_000_000), in_processes: 6) do |results_chunk, idx|
+          Parallel.each_with_index(formatted_result.each_slice(1_000_000), in_processes: Parallel.processor_count / 6) do |results_chunk, idx|
             host_name = @hosts.sample(1).first
             Dir.mktmpdir do |dir|
               file_name = "#{dir}/#{index.key}_#{idx}.csv"
@@ -451,7 +455,7 @@ module NoSE
         when [Fields::DateField]
           :date
         when [Fields::IDField],
-            [Fields::ForeignKeyField], [Fields::CompositeKeyField]
+          [Fields::ForeignKeyField], [Fields::CompositeKeyField]
           :uuid
         end
       end
@@ -537,7 +541,7 @@ module NoSE
             rescue ArgumentError => e
               STDERR.puts e.inspect
               STDERR.puts "Possible cause for this problem is too small number of "  +
-                              "records in mysql and some support query gets empty result. target index was #{@index.key} : #{@index.hash_str}"
+                            "records in mysql and some support query gets empty result. target index was #{@index.key} : #{@index.hash_str}"
               throw e
             rescue Cassandra::Errors::InvalidError
               # We hit a value which does not actually need to be
@@ -754,7 +758,7 @@ module NoSE
 
             new_result.concat rows
             break if new_results.last_page? ||
-                (!@step.limit.nil? && result.length >= @step.limit)
+              (!@step.limit.nil? && result.length >= @step.limit)
             new_results = new_results.next_page
             @logger.debug "Fetched #{result.length} results"
           end
@@ -765,7 +769,7 @@ module NoSE
           condition_set.map do |condition|
             begin
               value = condition.value ||
-                  query_conditions[condition.field.id].value
+                query_conditions[condition.field.id].value
               fail "condition not found for #{condition.field.id}" if value.nil?
             rescue => e
               puts e
