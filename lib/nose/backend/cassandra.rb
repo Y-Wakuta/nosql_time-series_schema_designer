@@ -258,75 +258,54 @@ module NoSE
         end
         GC.start
         ending = Time.now.utc
-        STDERR.puts "loading through csv time: #{ending - starting} for #{results.size.to_s} records on #{index.key}"
+        STDERR.puts "loading through csv time: #{ending - starting} for #{formatted_result.size.to_s} records on #{index.key}"
       end
 
       def unload_index_by_cassandra_unloader(index)
         starting = Time.now.utc
         columns = index.all_fields.map(&:id)
 
-        inserting_try = 0
-        records = nil
-        Dir.mktmpdir do |dir|
-          file_name = "#{dir}/#{index.key}.csv"
-          host_name = @hosts.sample(1).first
-          ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
-          begin
-            hoge_time = Time.now
-            ret = system("./cassandra-unloader -f stdout -dateFormat \"yyyy-MM-dd\" -delim \"|\" -host #{host_name} " \
-                         "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\" > #{file_name}")
-            STDERR.puts "  unloading time for #{index.key} was #{Time.now - hoge_time}"
-            fail "data collecting error detected: #{index.key}" unless ret
-          rescue Exception => e
-            puts e
-            STDERR.puts "  query error detected for #{index.key}"
-            #sleep 30 if results.size > 100_000
-            all_retries = 10
-            if inserting_try < all_retries
-              STDERR.puts "  retry query #{inserting_try} / #{all_retries}"
-              inserting_try += 1
-              sleep 30
-              retry
-            end
-          end
-          records = CSV.open(file_name,col_sep: "|", headers: columns).map(&:to_h)
+        ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
+        csv_rows = ""
+        retry_when_fail do
+          start_time = Time.now
+          csv_rows, err, ret = Open3.capture3("./cassandra-loader/build/cassandra-unloader -numThreads 10 -fetchSize 5000 -f stdout -dateFormat \"yyyy-MM-dd\" -delim \"|\" -host #{@hosts.sample(1).first} " \
+                       "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\"")
+          STDERR.puts "  unloading time for #{index.key} was #{Time.now - start_time}"
+          STDERR.puts err
+          fail "data collecting error detected: #{index.key}, #{err}" unless ret
         end
-        ending = Time.now.utc
-        STDERR.puts "unloading through csv time: #{ending - starting} for #{records.size.to_s} records on #{index.key}"
-        cast_records index, records
+        records = str_to_rows csv_rows, index, columns
+        STDERR.puts "unloading through csv time: #{Time.now.utc - starting} for #{records.size.to_s} records on #{index.key}"
+        records
       end
 
       def cast_records(index, records)
-        records.each do |r|
-          r.keys.each do |k|
-            field = index.all_fields.find{|f| f.id == k}
-            case field
-            when Fields::IntegerField
-              r[k] = r[k].to_i
-            when Fields::FloatField
-              r[k] = r[k].to_f
-            when Fields::DateField
-              r[k] = Date.strptime(r[k], "%Y-%m-%d") unless r[k].instance_of?(Date) or r[k].instance_of?(DateTime)
-            when Fields::IDField || Fields::ForeignKeyField || Fields::CompositeKeyField
-              r[k] = convert_id_2_uuid r[k] unless r[k].instance_of?(Cassandra::Uuid)
-            else
-              r[k] = r[k].to_s
-            end
-          end
+        s = Time.now
+        row_index = 0
+        while row_index < records.size
+          records[row_index] = cast_record index, records[row_index]
+          row_index += 1
         end
+        puts "casting :#{Time.now - s}"
         records
       end
 
       # Produce an array of fields in the correct order for a CQL insert
       # @return [Array]
       def index_row(row, fields)
-        fields.map do |field|
+        values = []
+        idx = 0
+        while idx < fields.size
+          field = fields[idx]
           value = row[field.id]
           value = convert_id_2_uuid value if field.is_a?(Fields::IDField)
           value = value.to_f if value.instance_of?(BigDecimal)
           value = CassandraBackend.convert_nil_2_place_holder(field) if value.nil?
-          value
+          values << value
+          idx += 1
         end
+        values
       end
 
       def self.create_empty_record(index)
@@ -359,6 +338,51 @@ module NoSE
       end
 
       private
+
+      def str_to_rows(csv_rows, index, columns)
+        rows = csv_rows.split("\n")
+
+        # create records holder at once
+        f = columns.zip([nil] * columns.size).to_h
+        records = (0...rows.size).map{|_| f.dup}
+
+        idx = 0
+        while idx < rows.size
+          fields = rows[idx].split('|')
+          field_idx = 0
+          while field_idx < fields.size
+            records[idx][columns[field_idx]] = fields[field_idx]
+            field_idx += 1
+          end
+          records[idx] = cast_record index, records[idx]
+          idx += 1
+        end
+        records
+      end
+
+      def cast_record(index, row)
+        field_index = 0
+        fields = index.all_fields.to_a
+        while field_index < fields.size
+          field = fields[field_index]
+          field_id = field.id
+          case field
+          when Fields::IntegerField
+            row[field_id] = row[field_id].to_i
+          when Fields::FloatField
+            row[field_id] = row[field_id].to_f
+          when Fields::DateField
+            row[field_id] = Date.strptime(row[field_id], "%Y-%m-%d") unless row[field_id].nil? or row[field_id].instance_of?(Date) or row[field_id].instance_of?(DateTime)
+            row[field_id] = @@value_place_holder[:date] if row[field_id].nil?
+          when Fields::IDField || Fields::ForeignKeyField || Fields::CompositeKeyField
+            row[field_id] = convert_id_2_uuid row[field_id] unless row[field_id].instance_of?(Cassandra::Uuid)
+          else
+            row[field_id] = row[field_id].to_s unless row[field_id].instance_of? String
+          end
+          field_index+= 1
+        end
+        row
+      end
 
       def query_index_limit_for_sample(query, limit)
         rows = query_index query
@@ -393,9 +417,12 @@ module NoSE
       end
 
       def add_value_hash(index, results)
-        results.each do |r|
-          extra_str = index.extra.sort_by { |e| e.id}.map{|e| r[e.id]}.join(',')
-          r["value_hash"] = Zlib.crc32(extra_str)
+        sorted_extra = index.extra.sort_by { |e| e.id}
+        idx = 0
+        while idx < results.size
+          extra_str = sorted_extra.map{|e| results[idx][e.id]}.join(',')
+          results[idx]["value_hash"] = Zlib.crc32(extra_str)
+          idx += 1
         end
         results
       end
@@ -403,13 +430,17 @@ module NoSE
       def format_result(index, results)
         results = add_value_hash index, results
         fields = index.all_fields.to_a
-        fail 'all record has empty field' if CassandraBackend.remove_all_null_place_holder_row(results).empty?
-        Parallel.map(results, in_processes: 10) do |r|
-          csv_row = index_row(r, fields)
+        fail 'all record has empty field' if not results.empty? and CassandraBackend.remove_all_null_place_holder_row(results).empty?
+        csv_rows = []
+        idx = 0
+        while idx < results.size
+          r = results[idx]
+          csv_row = index_row(r, fields).map{|s| s.is_a?(String) ? s.dump : s} # escape special characters like newline
           csv_row << r["value_hash"]
-          csv_row = csv_row.map{|s| s.is_a?(String) ? s.dump : s} # escape special characters like newline
-          csv_row
-        end
+          csv_rows << csv_row
+          idx += 1
+          end
+          csv_rows.uniq
       end
 
       def convert_id_2_uuid(value)
