@@ -17,7 +17,7 @@ module NoSE
     end
 
     def inspect
-      "#{@field.inspect} #{@operator} #{value}"
+      "#{@field.inspect} #{@operator} #{@value}"
     end
 
     # Compare conditions equal by their field and operator

@@ -98,13 +98,13 @@ module NoSE
         results
       end
 
-      private
-
       def query_for_index(index, config, does_outer_join)
         does_outer_join ?
           query_for_index_full_outer_join(index, nil, config) :
           query_for_index_inner_join(index, nil, config)
       end
+
+      private
 
       # Create a new client from the given configuration
       def new_client(config)
@@ -141,33 +141,15 @@ module NoSE
       # Load a single index into the backend
       # @return [void]
       def load_index(index, config, show_progress, limit, skip_existing, num_iterations, outer_join = false)
-
-        tries = 0
-        begin
-          is_index_empty = @backend.index_empty?(index)
-        rescue Exception => e
-          if tries < 10
-            puts e.inspect
-            puts "check is the index empty: " + tries.to_s
-            tries += 1
-            sleep 30
-            retry
-          end
-          throw e
-        end
-
         # Skip this index if it's not empty
-        if skip_existing && !is_index_empty
+        if skip_existing && !@backend.index_empty?(index)
           @logger.info "Skipping index #{index.inspect}" if show_progress
           return
         end
         @logger.info index.inspect if show_progress
-
-        if outer_join
-          results = query_for_index_full_outer_join index, limit, config
-        else
-          results = query_for_index_inner_join index, limit, config
-        end
+        results = outer_join ?
+                    query_for_index_full_outer_join(index, limit, config)
+                    : query_for_index_inner_join(index, limit, config)
         @backend.load_index_by_cassandra_loader(index, results)
         results.sample(num_iterations, random: Object::Random.new(100))
       end

@@ -29,11 +29,12 @@ module NoSE
         step.state.cardinality * @options[:insert_cost]
       end
 
-      # The cost of aggregating the intermediate results at the last step
-      # @return [Fixnum]
-      def aggregation_cost(_step)
-        # execute each aggregation for each field separately
-        _step.aggregation_fields.size * _step.state.hash_cardinality * @options[:aggregation_cost]
+      def extract_cost(step)
+        @options[:extract_base_cost] + step.index.size * @options[:extract_cost]
+      end
+
+      def load_cost(index)
+        @options[:load_base_cost] + index.size * @options[:load_cost]
       end
     end
   end

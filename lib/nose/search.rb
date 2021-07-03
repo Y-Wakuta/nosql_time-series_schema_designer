@@ -151,9 +151,7 @@ module NoSE
                         update_plans)
         # Solve the LP using MIPPeR
         STDERR.puts "start optimization : #{Time.now}"
-        STDERR.puts "measure runtime: start optimization : #{DateTime.now.strftime('%Q')}"
         result = solve_mipper query_weights.keys, indexes, update_plans, **solver_params
-        STDERR.puts "measure runtime: end optimization : #{DateTime.now.strftime('%Q')}"
 
         setup_result result, solver_params, update_plans
         result

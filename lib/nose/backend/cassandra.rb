@@ -251,7 +251,6 @@ module NoSE
               STDERR.puts "  retry inserting #{inserting_try} / #{all_retries}"
               inserting_try += 1
               sleep 30
-              retry
             end
             retry
           end
