@@ -67,6 +67,14 @@ module NoSE
       def pruned_cost(_step)
         0
       end
+
+      def extract_cost(step)
+        fail NotImplementedError, 'Must be implemented in a subclass'
+      end
+
+      def load_cost(index)
+        fail NotImplementedError, 'Must be implemented in a subclass'
+      end
     end
   end
 end

@@ -28,6 +28,14 @@ module NoSE
           def prepare_delete_cost(_step)
             1
           end
+
+          def extract_cost(step)
+            1
+          end
+
+          def load_cost(index)
+            1
+          end
         end
 
         DummyCost.new

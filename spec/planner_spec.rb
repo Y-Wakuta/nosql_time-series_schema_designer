@@ -701,7 +701,7 @@ module NoSE
       include_context 'dummy cost model'
       include_context 'entities'
 
-      it 'only has IndexLookupSteps' do
+      it 'only has ExtractSteps' do
         tpch_workload = TimeDependWorkload.new do |_|
           TimeSteps 3
           Model 'tpch'
@@ -721,7 +721,7 @@ module NoSE
           tree = search.send(:support_query_cost, query, planner)[:tree]
           tree.each do |plan|
             plan.each do |step|
-              expect(step.class).to be IndexLookupPlanStep
+              expect(step.class).to be ExtractPlanStep
             end
           end
         end

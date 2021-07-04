@@ -208,20 +208,21 @@ module NoSE
         next false if key_prefix_entities.empty?
 
         # check is any of eq.keys matches overlapping_eq_entities
+        # eq_choice_entities start with query-key specified entities
         overlapping_eq_entities = eq_choice_entities.take(key_prefix_entities.size).to_set
-        eq_entities.combination(overlapping_eq_entities.size)
-                   .any?{|ek| ek.to_set == overlapping_eq_entities}
+        eq_entities.to_set >= overlapping_eq_entities
       end
 
       # As long as each field of eq_choices is not included in any of eq, range, orderby, groupby,
       # it does not have to be the first place of id_field
       eq_choices = eq_choices.select do |eq_choice|
+        next true if eq_choice.size <= 1
+
         # Since this CF does not have aggregation, we don't care groupby below
         non_query_specified_id_fields = eq_choice.select(&:primary_key)
                                                  .reject{|f| eq.values.flatten.include?(f) or
                                                    range.values.flatten.include?(f) or
                                                    orderby.values.flatten.include?(f)}
-        next true if eq_choice.size <= 1
         query_specified_fields = eq_choice.to_set - non_query_specified_id_fields.to_set
         next true if non_query_specified_id_fields.empty? or query_specified_fields.empty?
         query_specified_fields.map{|qsf| eq_choice.index(qsf)}.max < non_query_specified_id_fields.map{|nqsif| eq_choice.index(nqsif)}.min
