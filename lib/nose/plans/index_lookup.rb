@@ -6,7 +6,7 @@ module NoSE
     class IndexLookupPlanStep < PlanStep
       extend Forwardable
 
-      attr_reader :index, :eq_filter, :range_filter, :limit, :order_by
+      attr_reader :index, :eq_filter, :range_filter, :limit, :order_by, :fields
       delegate hash: :index
 
       def initialize(index, state = nil, parent = nil)
@@ -50,22 +50,26 @@ module NoSE
       def self.apply(parent, index, state, check_aggregation: true)
         # Validate several conditions which identify if this index is usable
         begin
-          check_joins index, state
-          check_forward_lookup parent, index, state
-          check_parent_index parent, index, state
-          check_all_hash_fields parent, index, state
-          check_graph_fields parent, index, state
-          check_last_fields index, state
-          if check_aggregation
-            check_has_only_required_aggregations index, state
-            check_parent_groupby parent
-            check_parent_aggregation parent
-          end
+          validate_step_state state, parent, index, check_aggregation
         rescue InvalidIndex
           return nil
         end
 
         IndexLookupPlanStep.new(index, state, parent)
+      end
+
+      def self.validate_step_state(state, parent, index, check_aggregation)
+        check_joins index, state
+        check_forward_lookup parent, index, state
+        check_parent_index parent, index, state
+        check_all_hash_fields parent, index, state
+        check_graph_fields parent, index, state
+        check_last_fields index, state
+        if check_aggregation
+          check_has_only_required_aggregations index, state
+          check_parent_groupby parent
+          check_parent_aggregation parent
+        end
       end
 
       def self.check_has_only_required_aggregations(index, state)
@@ -415,6 +419,22 @@ module NoSE
         resolve_order(indexed_by_id)
         strip_graph
         update_cardinality parent, indexed_by_id
+      end
+    end
+
+    class ExtractPlanStep < IndexLookupPlanStep
+      # Check if this step can be applied for the given index,
+      # returning a possible application of the step
+      # @return [IndexLookupPlanStep]
+      def self.apply(parent, index, state, check_aggregation: true)
+        # Validate several conditions which identify if this index is usable
+        begin
+          validate_step_state state, parent, index, check_aggregation
+        rescue InvalidIndex
+          return nil
+        end
+
+        ExtractPlanStep.new(index, state, parent)
       end
     end
 
