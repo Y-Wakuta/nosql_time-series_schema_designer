@@ -155,7 +155,7 @@ module NoSE
             end.inject({}) do |l_hash, r_hash|
               l_hash.merge(r_hash) do |_, l_v, r_v|
                 fail 'value must be the same' \
-                  if (l_v.instance_of?(Integer) || l_v.instance_of?(Float)) and (l_v - r_v).abs < 0.01
+                  if (l_v.instance_of?(Integer) || l_v.instance_of?(Float)) and (l_v - r_v).abs > 0.001
                 l_v
               end
             end
