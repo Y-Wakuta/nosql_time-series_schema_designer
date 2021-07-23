@@ -131,10 +131,6 @@ module NoSE
       @all_fields.include? field
     end
 
-    def creation_cost(creation_coeff)
-      creation_coeff * @size
-    end
-
     def has_aggregation_fields?
       [@count_fields, @sum_fields, @max_fields, @avg_fields, @groupby_fields].any?{|af| not af.empty?}
     end

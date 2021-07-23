@@ -10,8 +10,7 @@ module NoSE
   class TimeDependWorkload < Workload
 
     attr_accessor :timesteps, :interval, :is_static, :is_first_ts, :is_last_ts, :time_depend_statement_weights,
-                  :include_migration_cost, :creation_coeff, :migrate_support_coeff,
-                  :start_workload_set, :end_workload_set, :start_workload_ratio, :end_workload_ratio,
+                  :include_migration_cost, :start_workload_set, :end_workload_set, :start_workload_ratio, :end_workload_ratio,
                   :definition_type
 
     def initialize(model = nil, &block)
@@ -20,13 +19,6 @@ module NoSE
       @mix = :default
       @interval = 60 # set minutes in an hour as default. Hyper Parameter
       warn "The interval should be set in minutes" if @interval > 1000
-
-      # provided 3 migration plans with 3600 interval and (0...6).map{|i| 10 ** i}
-      #@creation_coeff = 1.0e-09 # Hyper Parameter
-      #@migrate_support_coeff = 1.0e-07 # Hyper Parameter
-
-      @creation_coeff = 1.0e-06 # Hyper Parameter
-      @migrate_support_coeff = 1.0e-06 # Hyper Parameter
 
       @is_static = false
       @is_first_ts = false
@@ -71,10 +63,10 @@ module NoSE
 
         @time_depend_statement_weights[@mix] = {} unless @time_depend_statement_weights.key? @mix
         @time_depend_statement_weights[@mix][statement] = calculate_td_frequency_by_ratio(mixes[@start_workload_set],
-                                                                                                  @start_workload_ratio,
-                                                                                                  mixes[@end_workload_set],
-                                                                                                  @end_workload_ratio,
-                                                                                                  @timesteps)
+                                                                                          @start_workload_ratio,
+                                                                                          mixes[@end_workload_set],
+                                                                                          @end_workload_ratio,
+                                                                                          @timesteps)
       else
         fail "DEFINITION_TYPE is required"
       end
@@ -199,16 +191,6 @@ module NoSE
       puts "ignore migration cost. NOTE: This option does not literally ignore migration cost. "\
            "This option changes each migration cost drastically smaller" unless include_migration_cost
       @workload.include_migration_cost = include_migration_cost
-    end
-
-    # cost for creating new column family in migration process
-    def CreationCoeff(creation_coeff)
-      @workload.creation_coeff = creation_coeff
-    end
-
-    # cost for preparing data for new column families
-    def MigrateSupportCoeff(migrate_support_coeff)
-      @workload.migrate_support_coeff = migrate_support_coeff
     end
 
     def StartWorkloadSet(start_workload_set, first_ratio)
