@@ -133,6 +133,22 @@ module NoSE
       @interval = new_interval
     end
 
+    def set_frequency_type(frequencyType)
+      fail "frequency type is already set" if @is_static or @is_first_ts or @is_last_ts
+
+      case FrequencyType.status(frequencyType)
+      when FrequencyType::TimeDepend
+        return
+      when FrequencyType::Static
+        @is_static, @is_first_ts, @is_last_ts = true, false, false
+      when FrequencyType::FirstTs
+        @is_static, @is_first_ts, @is_last_ts = false, true, false
+      when FrequencyType::LastTs
+        @is_static, @is_first_ts, @is_last_ts = false, false, true
+      end
+      sync_statement_weights
+    end
+
     private
 
     def average_array(values)
@@ -147,6 +163,24 @@ module NoSE
       (0...timestep).map do |t|
         t * step_size + start_freq
       end.to_a.map{|f| BigDecimal((f * @interval).to_s).ceil(3).to_f}
+    end
+
+    module FrequencyType
+      TimeDepend = 0,
+        Static = 1,
+        FirstTs = 2,
+        LastTs = 3
+
+      STATUS_TYPE = {
+        'time_depend' => FrequencyType::TimeDepend,
+        'static' => FrequencyType::Static,
+        'firstTs' => FrequencyType::FirstTs,
+        'lastTs' => FrequencyType::LastTs,
+      }
+
+      def self.status(name)
+        STATUS_TYPE[name]
+      end
     end
   end
 
