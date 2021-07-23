@@ -132,7 +132,11 @@ module NoSE
     end
 
     def has_aggregation_fields?
-      [@count_fields, @sum_fields, @max_fields, @avg_fields, @groupby_fields].any?{|af| not af.empty?}
+      has_select_aggregation_fields? and not @groupby_fields.empty?
+    end
+
+    def has_select_aggregation_fields?
+      [@count_fields, @sum_fields, @max_fields, @avg_fields].any?{|af| not af.empty?}
     end
 
     private
