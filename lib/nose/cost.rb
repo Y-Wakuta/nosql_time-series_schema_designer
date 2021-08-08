@@ -80,6 +80,7 @@ module NoSE
 end
 
 require_relative 'cost/cassandra'
+require_relative 'cost/cassandra_io'
 require_relative 'cost/entity_count'
 require_relative 'cost/field_size'
 require_relative 'cost/request_count'
