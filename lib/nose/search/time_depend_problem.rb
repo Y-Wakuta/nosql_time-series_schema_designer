@@ -366,6 +366,9 @@ module NoSE
           TimeDependIndexCreatedAtUsedTimeStepConstraints,
         ]
 
+        # if the workload is static or firstTs or lastTs, disable all migrations
+        constraints << TimeDependDisableMigrationConstraints if @is_static
+
         constraints.each do |constraint|
           constraint.apply self
         end

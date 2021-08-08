@@ -268,6 +268,20 @@ module NoSE
         end
         problem_constraints
       end
-     end
+    end
+
+    class TimeDependDisableMigrationConstraints < EnumerableConstraint
+      def self.enumerate_constraints(problem)
+        problem_constraints = []
+        problem.migrate_vars.each do |index, migrate_vars|
+          migrate_vars.each do |ts, var|
+            constr = MIPPeR::Constraint.new var * 1.0, :==,
+                                            0, "disable_migration_#{ts}_#{index.key}"
+            problem_constraints.append constr
+          end
+        end
+        problem_constraints
+      end
+    end
   end
 end
