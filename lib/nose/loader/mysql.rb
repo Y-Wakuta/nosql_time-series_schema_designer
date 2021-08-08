@@ -98,10 +98,20 @@ module NoSE
         results
       end
 
-      def query_for_index(index, config, does_outer_join)
+      def query_for_index(index, config, does_outer_join, limit = nil)
         does_outer_join ?
-          query_for_index_full_outer_join(index, nil, config) :
-          query_for_index_inner_join(index, nil, config)
+          query_for_index_full_outer_join(index, limit, config) :
+          query_for_index_inner_join(index, limit, config)
+      end
+
+      def choose_sample_records(index, results, num_iterations)
+        results = Backend::CassandraBackend.remove_any_null_place_holder_row results
+        key_records = results.sort_by{|r| r.values.to_s}.sample(num_iterations, random: Object::Random.new(100))
+        s = Time.now
+        interquartile_results = get_records_in_interquartile_range index, results, key_records
+        puts "get interquatile range records: #{Time.now - s}"
+
+        interquartile_results.sort_by{|r| r.values.to_s}.sample(num_iterations, random: Object::Random.new(100))
       end
 
       private
@@ -140,18 +150,18 @@ module NoSE
 
       # Load a single index into the backend
       # @return [void]
-      def load_index(index, config, show_progress, limit, skip_existing, num_iterations, outer_join = false)
+      def load_index(index, config, show_progress, limit, skip_existing, num_iterations, does_outer_join = false)
         # Skip this index if it's not empty
         if skip_existing && !@backend.index_empty?(index)
           @logger.info "Skipping index #{index.inspect}" if show_progress
           return
         end
         @logger.info index.inspect if show_progress
-        results = outer_join ?
-                    query_for_index_full_outer_join(index, limit, config)
-                    : query_for_index_inner_join(index, limit, config)
+        results = query_for_index index, config, does_outer_join, limit
         @backend.load_index_by_cassandra_loader(index, results)
-        results.sample(num_iterations, random: Object::Random.new(100))
+
+        return results if num_iterations < 0
+        choose_sample_records index, results, num_iterations
       end
 
       # Construct a hash from the given row returned by the client
@@ -319,6 +329,21 @@ module NoSE
         when /(tiny)?int/
           Fields::IntegerField
         end
+      end
+
+      def get_records_in_interquartile_range(index, records, key_records)
+        records_within_interquartile = []
+        key_related_records = key_records.map{|kr| records.select{|r| index.hash_fields.all?{|hf| r[hf.id] == kr[hf.id]}}}
+        key_related_records.each do |rows|
+          if rows.size < 100
+            records_within_interquartile += rows
+            next
+          end
+
+          left_quartile, right_quartile = rows.size * 0.25, rows.size * 0.75
+          records_within_interquartile += rows.sort_by{|r| index.order_fields.map{|of| r[of.id]}}[left_quartile..right_quartile]
+        end
+        records_within_interquartile
       end
     end
   end
