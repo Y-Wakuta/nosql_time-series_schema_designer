@@ -664,8 +664,8 @@ module NoSE
           Hash[q, plan_indexes]
         end.inject(&:merge)
 
-        used_indexes = query_indexes_hash.values.map(&:uniq).flatten
-        expect(used_indexes.size - used_indexes.uniq.size).to be 10
+        shared_indexes = query_indexes_hash.values.first & query_indexes_hash.values.last
+        expect(shared_indexes.size).to be 20
       end
 
       it 'enumerates only allowed depth query plan' do
