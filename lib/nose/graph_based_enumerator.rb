@@ -168,7 +168,7 @@ module NoSE
     private
 
     def limit_choices(choices)
-      return choices if choices.size < @choice_limit_size
+      return choices if @choice_limit_size.nil? or choices.size < @choice_limit_size
 
       base_size = choices.size
       # sort choices to always get the same reduced-choices

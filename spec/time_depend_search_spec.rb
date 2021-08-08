@@ -98,22 +98,11 @@ module NoSE
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
         result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
 
-        increase_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_increase}.flatten(1)
-        decrease_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_decrease}.flatten(1)
+        increase_plans = result.plans.select{|plan_all| plan_all.first.query.text == query_increase}.flatten(1)
+        decrease_plans = result.plans.select{|plan_all| plan_all.first.query.text == query_decrease}.flatten(1)
 
-        expect(increase_steps.first.steps.size).to be > increase_steps.last.steps.size
-        expect(decrease_steps.first.steps.size).to be < decrease_steps.last.steps.size
-      end
-
-      it 'the query plan does not change when the creation cost is too large' do
-        indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
-        result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
-
-        increase_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_increase}.flatten(1)
-        decrease_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_decrease}.flatten(1)
-
-        expect(increase_steps.first.steps.size).to eq increase_steps.last.steps.size
-        expect(decrease_steps.first.steps.size).to eq decrease_steps.last.steps.size
+        expect(increase_plans.first.steps.size).to be > increase_plans.last.steps.size
+        expect(decrease_plans.first.steps.size).to be < decrease_plans.last.steps.size
       end
 
       it 'is able to treat with update' do
