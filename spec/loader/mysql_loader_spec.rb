@@ -114,6 +114,31 @@ module NoSE
           )
           loader.load([index], config, false, 1)
         end
+
+        it 'selects condition values in interquartile range' do
+          user = workload.model['users']
+          item = workload.model['items']
+          index = Index.new [user['id']], [item['id']], [item['name']],
+                            QueryGraph::Graph.from_path(
+                              [user['id'], user['items_sold']]
+                            )
+          values = (0...1000).map do |i|
+              {
+                'users_id' => 1,
+                'items_id' => i,
+                'items_name' => 'repellat alias consequatur'
+              }
+          end
+
+          key_record = [{
+                'users_id' => 1,
+                'items_id' => 60,
+                'items_name' => 'repellat alias consequatur'
+          }]
+
+          interquartile = loader.send(:get_records_in_interquartile_range, index, values, key_record)
+          expect(interquartile.size).to be 500
+        end
       end
     end
   end

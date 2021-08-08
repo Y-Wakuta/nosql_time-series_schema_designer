@@ -341,7 +341,7 @@ module NoSE
           end
 
           left_quartile, right_quartile = rows.size * 0.25, rows.size * 0.75
-          records_within_interquartile += rows.sort_by{|r| index.order_fields.map{|of| r[of.id]}}[left_quartile..right_quartile]
+          records_within_interquartile += rows.sort_by{|r| index.order_fields.map{|of| r[of.id]}}[left_quartile...right_quartile]
         end
         records_within_interquartile
       end
