@@ -157,7 +157,6 @@ module NoSE
       indexes = indexes.map(&:to_id_graph).uniq if by_id_graph
 
       queries = support_queries indexes
-      puts "support queries: " + queries.size.to_s
       support_indexes = indexes_for_queries queries, []
       STDERR.puts "end enumerating support indexes"
       support_indexes

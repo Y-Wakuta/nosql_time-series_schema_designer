@@ -51,6 +51,7 @@ module NoSE
     # Produce all possible indices for a given workload
     # @return [Set<Index>]
     def indexes_for_workload(additional_indexes = [], by_id_graph = false)
+      RunningTimeLogger.info(RunningTimeLogger::Headers::START_CF_ENUMERATION)
       queries = @workload.queries
       indexes = indexes_for_queries queries, additional_indexes
       #puts("basic query enumeration done : " + indexes.size.to_s)
@@ -73,7 +74,7 @@ module NoSE
           "#{i} #{index.inspect}"
         end.join("\n")
       end
-
+      RunningTimeLogger.info(RunningTimeLogger::Headers::END_CF_ENUMERATION)
       indexes
     end
 
