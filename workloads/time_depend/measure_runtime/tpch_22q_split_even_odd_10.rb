@@ -4,6 +4,7 @@
 NoSE::TimeDependWorkload.new do
   #Model 'tpch'
   Model 'tpch_card'
+  #Model 'tpch_card_key_composite'
 
   def step_freq(start_ratio, end_ratio, timesteps)
     timesteps -= 1
