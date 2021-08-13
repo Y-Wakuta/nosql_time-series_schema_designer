@@ -105,6 +105,10 @@ module NoSE
       end
 
       def choose_sample_records(index, results, num_iterations)
+        # reduce the total record size, since choosing inter-quartile records from whole records takes long time.
+        reduced_record_size = [num_iterations * 1_000, results.size / 10].max
+        results = results.sample(reduced_record_size, random: Object::Random.new(100))
+
         results = Backend::CassandraBackend.remove_any_null_place_holder_row results
         key_records = results.sort_by{|r| r.values.to_s}.sample(num_iterations, random: Object::Random.new(100))
         s = Time.now
