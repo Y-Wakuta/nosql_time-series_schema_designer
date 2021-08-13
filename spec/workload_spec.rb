@@ -192,5 +192,74 @@ module NoSE
       expect((weights.first - expected_first_freq).abs).to be < 0.01
       expect((weights.last - expected_last_freq).abs).to be < 0.01
     end
+
+    it 'changes frequency type afterwards as static' do
+      q = query
+      fa = freq_array
+      ts = time_steps
+      workload_static = TimeDependWorkload.new do
+        TimeSteps ts
+        DefaultMix :default
+        Interval 60
+        Static true
+
+        Entity 'Foo' do
+          ID 'Id'
+          String 'Bar'
+        end
+
+        Group 'Test1', 0.5, default: fa do
+          Q q
+        end
+      end
+      td_workload_float_array.set_frequency_type("static")
+      expect(workload_static).to eq(td_workload_float_array)
+    end
+
+    it 'changes frequency type afterwards as first' do
+      q = query
+      fa = freq_array
+      ts = time_steps
+      workload_first = TimeDependWorkload.new do
+        TimeSteps ts
+        DefaultMix :default
+        Interval 60
+        FirstTs true
+
+        Entity 'Foo' do
+          ID 'Id'
+          String 'Bar'
+        end
+
+        Group 'Test1', 0.5, default: fa do
+          Q q
+        end
+      end
+      td_workload_float_array.set_frequency_type("firstTs")
+      expect(workload_first).to eq(td_workload_float_array)
+    end
+
+    it 'changes frequency type afterwards as last' do
+      q = query
+      fa = freq_array
+      ts = time_steps
+      workload_last = TimeDependWorkload.new do
+        TimeSteps ts
+        DefaultMix :default
+        Interval 60
+        LastTs true
+
+        Entity 'Foo' do
+          ID 'Id'
+          String 'Bar'
+        end
+
+        Group 'Test1', 0.5, default: fa do
+          Q q
+        end
+      end
+      td_workload_float_array.set_frequency_type("lastTs")
+      expect(workload_last).to eq(td_workload_float_array)
+    end
   end
 end
