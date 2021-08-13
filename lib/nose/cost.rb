@@ -24,8 +24,9 @@ module NoSE
       # @return [Fixnum]
       def aggregation_cost(_step)
         # aggregation is done by sorting and grouping
-        #sort_cost(_step) + 0.00001
-        0.0001
+        # estimate aggregation function (e.g. sums(), maxes(), avgs(), counts()) cost to be 0.
+        # estimate GROUP BY cost is proportional to the number of GROUP BY fields and sort_cost of each GROUP BY field.
+        _step.groupby.size * sort_cost(_step)
       end
 
       # The cost of limiting a result set
