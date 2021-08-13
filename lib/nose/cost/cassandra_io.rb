@@ -12,8 +12,7 @@ module NoSE
         return nil if step.state.nil?
         rows = step.state.cardinality
         parts = step.state.hash_cardinality
-        full_fields_size = step.fields.sum_by(&:size)
-        fields_size = step.minimum_select_fields.sum_by(&:size)
+        fields_size = step.required_select_fields.sum_by(&:size)
 
         #if rows > 5_000
         #  #puts "slow query cost model"

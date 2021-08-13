@@ -5,8 +5,7 @@ module NoSE
     # Superclass for steps using indices
     class IndexLookupPlanStep < PlanStep
       extend Forwardable
-
-      attr_reader :index, :eq_filter, :range_filter, :limit, :order_by, :fields
+      attr_reader :index, :eq_filter, :range_filter, :limit, :order_by, :fields, :required_select_fields
       delegate hash: :index
 
       def initialize(index, state = nil, parent = nil)
@@ -22,8 +21,10 @@ module NoSE
         end
 
         return if state.nil?
+        current_left_required_fields = state.fields # this should be kept before update_dstate()
         @state = state.dup
         update_state parent
+        @required_select_fields = get_only_required_select_field_for_step current_left_required_fields
         @state.freeze
       end
 
@@ -261,6 +262,18 @@ module NoSE
       private_class_method :check_last_fields
 
       private
+
+      # select only necessary fields for each query processing.
+      def get_only_required_select_field_for_step(current_status_fields)
+        required_fields = (current_status_fields & @index.all_fields) + @eq_filter
+
+        is_last_step = @state.answered?(check_limit: false, check_aggregate: false, check_orderby: false)
+        return required_fields if is_last_step
+
+        fields_for_join = (@index.order_fields.to_set + @index.extra).to_a.select(&:primary_key?).to_set
+        composite_fields = (@index.order_fields.to_set + @index.extra) & fields_for_join.flat_map{|fj| fj.composite_keys}.compact.to_set
+        required_fields + fields_for_join + composite_fields
+      end
 
       # Get the set of fields which can be filtered by the ordered keys
       # @return [Array<Fields::Field>]
