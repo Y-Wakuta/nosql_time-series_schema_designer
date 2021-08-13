@@ -350,6 +350,7 @@ module NoSE
 
         # Filter the total number of rows by filtering on non-hash fields
         cardinality = @index.per_hash_count * @state.hash_cardinality
+        cardinality = update_cardinality_for_aggregation cardinality
 
         # cassandra requires all prefix order_fields to be specified to use fields in order_fields
         eq_fields = @eq_filter - @index.hash_fields
@@ -382,6 +383,107 @@ module NoSE
             @state.hash_cardinality = parent.state.cardinality
           end
         end
+      end
+
+      def update_cardinality_for_aggregation(cardinality)
+        return cardinality unless @state.query.instance_of? Query
+
+        # GROUP BY がある場合はグループの数に基づいて返却されるレコード数が変化する．
+        # 集約関数がある場合でも返されるレコード数はグループ数に一致する．
+
+        #return update_cardinality_for_groupby(cardinality)
+        #return update_cardinality_for_groupby_using_relationship_type(cardinality)
+        return update_cardinality_for_groupby_entity_cardinality(cardinality)
+
+        # Only 1 row returned if the query has aggregation functions and does not have GROUP BY
+        return 1 if @index.has_select_aggregation_fields?
+
+        cardinality
+      end
+
+      # GROUP BY を使うことで，GROUP BY に含まれる属性の中で最も大きいカーディナリティに相当する行数のレコードが得られる
+      # 既に hash 属性によってテーブルから 1/n 行に絞られている場合，(最大のカーディナリティ) / n のレコード数が帰ることになる
+      # per_hash_count はハッシュ一件について何件の結果が得られるかであるから，
+      # (per_hash_count / 全体のレコード数) * (GROUP BY に含まれる属性のカーディナリティの最大値) でGROUP BY の結果返るレコード数が推定できる
+      # If the query is migration support query, it does not execute aggregation.
+      def update_cardinality_for_groupby(cardinality)
+        return cardinality if @index.groupby_fields.empty?
+        #return [cardinality * (@index.groupby_fields.map(&:cardinality).max.to_f / @index.entries), 1].max
+
+        entity_groupby_fields_hash = {}
+        @index.graph.entities.each {|e| entity_groupby_fields_hash[e] = []}
+        @index.groupby_fields.each {|groupby_field| entity_groupby_fields_hash[groupby_field.parent] << groupby_field}
+
+        primary_keys_in_groupby = @index.groupby_fields.select{|gf| gf.primary_key?}
+        primary_keys_in_groupby.each do |p_key_in_groupby|
+          related_foreign_keys = @index.graph.entities.flat_map{|e| e.foreign_keys.values}.select{|fk| p_key_in_groupby.name == fk.primary_key_name and fk.relationship == :one}
+          next if related_foreign_keys.empty?
+          entity_groupby_fields_hash[related_foreign_keys.first.parent] << p_key_in_groupby
+        end
+
+        returned_card = entity_groupby_fields_hash.map do |entity, fields|
+          base_card = 1
+          fields.each {|f| base_card = base_card * f.cardinality}
+          [base_card, entity.count].min
+        end.max
+        return [cardinality * (returned_card.to_f / @index.entries), 1].max
+      end
+
+      def update_cardinality_for_groupby_using_relationship_type(cardinality)
+        return cardinality if @index.groupby_fields.empty?
+
+        entity_groupby_fields_hash = {}
+        @index.graph.entities.each {|e| entity_groupby_fields_hash[e] = []}
+        @index.groupby_fields.each {|groupby_field| entity_groupby_fields_hash[groupby_field.parent] << groupby_field}
+
+        joined_entities = index.graph.join_order(@state.query.eq_fields).reject{|je| entity_groupby_fields_hash[je].empty?}
+
+        intermediate_cardinality = entity_groupby_fields_hash[joined_entities.first].map(&:cardinality).max.to_f
+        intermediate_record_size = joined_entities.first.count
+        joined_entities[1...-1].each do |entity|
+          current_cardinality = entity_groupby_fields_hash[entity].map(&:cardinality).max
+          if entity.count > intermediate_record_size
+            larger_entry_size = entity.count.to_f
+            larger_cardinality = current_cardinality
+            smaller_entry_size = intermediate_record_size
+            smaller_cardinality = intermediate_cardinality
+          else
+            larger_entry_size = intermediate_record_size
+            larger_cardinality = intermediate_cardinality
+            smaller_entry_size = entity.count.to_f
+            smaller_cardinality = current_cardinality
+            #intermediate_cardinality = [intermediate_cardinality, current_cardinality].max
+          end
+
+          record_ratio = larger_entry_size / smaller_entry_size
+          larger_entity_group_size = larger_entry_size / larger_cardinality
+          intermediate_cardinality = smaller_cardinality * record_ratio / larger_entity_group_size
+          intermediate_record_size = larger_entry_size
+        end
+        return [cardinality * (intermediate_cardinality.to_f / @index.entries), 1].max
+      end
+
+      def update_cardinality_for_groupby_entity_cardinality(cardinality)
+        return cardinality if @index.groupby_fields.empty?
+
+        entity_groupby_fields_hash = {}
+        @index.graph.entities.each {|e| entity_groupby_fields_hash[e] = []}
+        @index.groupby_fields.each {|groupby_field| entity_groupby_fields_hash[groupby_field.parent] << groupby_field}
+
+        entity_groupby_cardinality = entity_groupby_fields_hash.reject{|_, fields| fields.empty?}.map do |e, fields|
+          Hash[e, fields.map{|fs| fs.cardinality}.max]
+        end.inject(&:merge)
+
+        base_card = 1
+        intermediate_record_size = 0
+
+        #entity 毎に GROUP BY の最大値を求めて，エンティティのレコード数を上限に掛け合わせる方法を使おうかと思う
+        entity_groupby_cardinality.each do |entity, entity_cardinality|
+          entity_cardinality = base_card if entity_cardinality.nil?
+          intermediate_record_size = [intermediate_record_size, entity.count].max
+          base_card = [base_card * entity_cardinality, intermediate_record_size].min
+        end
+        return [cardinality * (base_card.to_f / @index.entries), 1].max
       end
 
       # Modify the state to reflect the fields looked up by the index
