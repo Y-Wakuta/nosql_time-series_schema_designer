@@ -20,15 +20,13 @@ NoSE::TimeDependWorkload.new do
   step = step_freq(0.01, 0.99, ts)
 
   Group 'Test1', 1.0, default: step.reverse do
-    Q 'SELECT users.* FROM users WHERE users.id=? -- 1'
-    Q 'SELECT users.* FROM users WHERE users.lastname = ? -- 0'
-    Q 'INSERT INTO users SET id = ?, firstname=?, lastname = ?, nickname=?, password=?,email=?,rating=?,balance=?,creation_date=? -- 2'
+    Q 'SELECT count(users.firstname), count(users.email), count(users.lastname) FROM users WHERE users.id=? GROUP BY users.id -- 1'
+    Q 'SELECT count(users.firstname), count(users.email), users.lastname FROM users WHERE users.lastname = ? GROUP BY users.lastname -- 0'
   end
 
   Group 'Test2', 1.0, default: step do
-    Q 'SELECT items.* FROM items WHERE items.id=? -- 4'
-    Q 'SELECT items.* FROM items WHERE items.name = ? -- 3'
-    Q 'INSERT INTO items SET id = ?, name=?, description = ?, initial_price=?,quantity=?, reserve_price=?, buy_now=?, nb_of_bids=?, max_bid=?,start_date=?,end_date=? -- 5.size'
+    Q 'SELECT count(items.name), count(items.initial_price), count(items.quantity) FROM items WHERE items.id=? -- 4'
+    Q 'SELECT items.name, count(items.initial_price), count(items.quantity) FROM items WHERE items.name = ? GROUP BY items.name -- 3'
   end
 end
 

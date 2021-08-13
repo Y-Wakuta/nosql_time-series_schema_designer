@@ -3,8 +3,8 @@
 
 NoSE::TimeDependWorkload.new do
   #Model 'tpch'
-  Model 'tpch_card'
-  #Model 'tpch_card_key_composite'
+  #Model 'tpch_card'
+  Model 'tpch_card_key_composite'
 
   def step_freq(start_ratio, end_ratio, timesteps)
     timesteps -= 1
@@ -20,7 +20,7 @@ NoSE::TimeDependWorkload.new do
 
   TimeSteps frequencies.size
   Interval 7200 # specify interval in minutes
-  #Static true
+  Static true
   #FirstTs true
   #LastTs true
 
@@ -51,15 +51,15 @@ NoSE::TimeDependWorkload.new do
        'ORDER BY lineitem.l_extendedprice, lineitem.l_discount ' \
        'GROUP BY o_custkey.c_custkey, o_custkey.c_name, o_custkey.c_acctbal, o_custkey.c_phone, c_nationkey.n_name, o_custkey.c_address, o_custkey.c_comment -- Q10'
 
-     Q 'SELECT lineitem.l_shipmode, sum(l_orderkey.o_orderpriority) '\
+     Q 'SELECT lineitem.l_shipmode, l_orderkey.o_orderpriority '\
       'FROM lineitem.l_orderkey '\
-      'WHERE lineitem.l_shipmode = ? AND lineitem.l_receiptdate < ? ' \
+      'WHERE lineitem.l_shipmode = ? AND l_orderkey.o_orderpriority = ? AND lineitem.l_receiptdate < ? ' \
       'ORDER BY lineitem.l_shipmode ' \
       'GROUP BY lineitem.l_shipmode -- Q12'
 
-    Q 'SELECT sum(ps_partkey.p_type), sum(from_lineitem.l_extendedprice), sum(from_lineitem.l_discount) '\
+    Q 'SELECT ps_partkey.p_type, sum(from_lineitem.l_extendedprice), sum(from_lineitem.l_discount) '\
       'FROM orders.from_lineitem.l_partkey.ps_partkey '\
-      'WHERE orders.o_orderkey = ? AND from_lineitem.l_shipdate < ? -- Q14'
+      'WHERE orders.o_orderkey = ? AND ps_partkey.p_type = ? AND from_lineitem.l_shipdate < ? -- Q14'
 
     Q 'SELECT supplier.s_suppkey FROM supplier WHERE supplier.s_comment = ? -- Q16_inner'
     Q 'SELECT ps_partkey.p_brand, ps_partkey.p_type, ps_partkey.p_size, count(supplier.s_suppkey) ' \
