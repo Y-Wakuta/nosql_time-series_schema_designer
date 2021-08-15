@@ -98,13 +98,27 @@ module NoSE
         results
       end
 
-      private
-
-      def query_for_index(index, config, does_outer_join)
+      def query_for_index(index, config, does_outer_join, limit = nil)
         does_outer_join ?
-          query_for_index_full_outer_join(index, nil, config) :
-          query_for_index_inner_join(index, nil, config)
+          query_for_index_full_outer_join(index, limit, config) :
+          query_for_index_inner_join(index, limit, config)
       end
+
+      def choose_sample_records(index, results, num_iterations)
+        # reduce the total record size, since choosing inter-quartile records from whole records takes long time.
+        reduced_record_size = [num_iterations * 1_000, results.size / 10].max
+        results = results.sample(reduced_record_size, random: Object::Random.new(100))
+
+        results = Backend::CassandraBackend.remove_any_null_place_holder_row results
+        key_records = results.sort_by{|r| r.values.to_s}.sample(num_iterations, random: Object::Random.new(100))
+        s = Time.now
+        interquartile_results = get_records_in_interquartile_range index, results, key_records
+        puts "get interquatile range records: #{Time.now - s}"
+
+        interquartile_results.sort_by{|r| r.values.to_s}.sample(num_iterations, random: Object::Random.new(100))
+      end
+
+      private
 
       # Create a new client from the given configuration
       def new_client(config)
@@ -140,36 +154,18 @@ module NoSE
 
       # Load a single index into the backend
       # @return [void]
-      def load_index(index, config, show_progress, limit, skip_existing, num_iterations, outer_join = false)
-
-        tries = 0
-        begin
-          is_index_empty = @backend.index_empty?(index)
-        rescue Exception => e
-          if tries < 10
-            puts e.inspect
-            puts "check is the index empty: " + tries.to_s
-            tries += 1
-            sleep 30
-            retry
-          end
-          throw e
-        end
-
+      def load_index(index, config, show_progress, limit, skip_existing, num_iterations, does_outer_join = false)
         # Skip this index if it's not empty
-        if skip_existing && !is_index_empty
+        if skip_existing && !@backend.index_empty?(index)
           @logger.info "Skipping index #{index.inspect}" if show_progress
           return
         end
         @logger.info index.inspect if show_progress
-
-        if outer_join
-          results = query_for_index_full_outer_join index, limit, config
-        else
-          results = query_for_index_inner_join index, limit, config
-        end
+        results = query_for_index index, config, does_outer_join, limit
         @backend.load_index_by_cassandra_loader(index, results)
-        results.sample(num_iterations, random: Object::Random.new(100))
+
+        return results if num_iterations < 0
+        choose_sample_records index, results, num_iterations
       end
 
       # Construct a hash from the given row returned by the client
@@ -220,14 +216,15 @@ module NoSE
           tables << index.path.each_cons(2).map do |_prev_key, key|
             key = key.reverse if key.relationship == :many
             next unless Set.new([key.parent, key.entity]) ==  Set.new([ep[:from], ep[:to]])
-            "#{key.parent.name}.#{key.name}=" \
+            cond = "#{key.parent.name}.#{key.name}=" \
               "#{key.entity.name}.#{key.entity.id_field.name}"
+            get_condition_for_composite_key cond, key
           end.compact.join(' AND ')
         end
         tables
       end
 
-      def index_sql_table_inner_join(index)
+      def index_sql_tables_inner_join(index)
         # Create JOIN statements
         tables = index.graph.entities.map(&:name).join ' JOIN '
         return tables if index.graph.size == 1
@@ -235,11 +232,22 @@ module NoSE
         tables << ' WHERE '
         tables << index.path.each_cons(2).map do |_prev_key, key|
           key = key.reverse if key.relationship == :many
-          "#{key.parent.name}.#{key.name}=" \
+          cond = "#{key.parent.name}.#{key.name}=" \
           "#{key.entity.name}.#{key.entity.id_field.name}"
+          get_condition_for_composite_key cond, key
         end.join(' AND ')
 
         tables
+      end
+
+      def get_condition_for_composite_key(cond, key)
+          if not key.composite_keys.nil? and not key.composite_keys.empty?
+            key.composite_keys.each do |composite_key|
+              cond += " AND #{composite_key["name"].parent.name}.#{composite_key["name"].name} =" \
+                      " #{composite_key["related_key"].parent.name}.#{composite_key["related_key"].name}"
+            end
+          end
+          cond
       end
 
       def reorder_dimension_tables(entity_pairs, current_table)
@@ -288,7 +296,7 @@ module NoSE
         # Construct the join condition
         tables = full_outer_join ?
                    index_sql_tables_outer_join(index, reverse_entities) :
-                   index_sql_table_inner_join(index)
+                   index_sql_tables_inner_join(index)
 
         # if all field have the same value, the value will distinguished.
         # Therefore reduce the number of records here
@@ -337,6 +345,21 @@ module NoSE
         when /(tiny)?int/
           Fields::IntegerField
         end
+      end
+
+      def get_records_in_interquartile_range(index, records, key_records)
+        records_within_interquartile = []
+        key_related_records = key_records.map{|kr| records.select{|r| index.hash_fields.all?{|hf| r[hf.id] == kr[hf.id]}}}
+        key_related_records.each do |rows|
+          if rows.size < 100
+            records_within_interquartile += rows
+            next
+          end
+
+          left_quartile, right_quartile = rows.size * 0.25, rows.size * 0.75
+          records_within_interquartile += rows.sort_by{|r| index.order_fields.map{|of| r[of.id]}}[left_quartile...right_quartile]
+        end
+        records_within_interquartile
       end
     end
   end

@@ -30,6 +30,23 @@ module NoSE
         end
       }
 
+      let(:no_mig_cost_model) {
+        class NoMigrationCostModel < NoSE::Cost::CassandraCost
+          def index_lookup_cost(step)
+            1
+          end
+
+          def extract_cost(step)
+            100_000_000
+          end
+
+          def load_cost(index)
+            100_000_000
+          end
+        end
+        NoMigrationCostModel.new
+      }
+
       it 'updates migration-preparing index during executing migration' do
         update_user = 'UPDATE users SET rating=?, firstname = ?, lastname = ? WHERE users.id=? -- 27'
         td_workload.add_statement update_user, frequency: [0.001, 0.5, 9]
@@ -60,17 +77,14 @@ module NoSE
       end
 
       it 'gives migration plan if we ignore migration cost even when given high migration cost' do
-        td_workload.creation_coeff = 1000
-        td_workload.migrate_support_coeff = 1000
-
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
-        result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
+        result = Search.new(td_workload, no_mig_cost_model).search_overlap indexes, 12250000
         expect(result.migrate_plans.size).to be(0)
 
         td_workload.include_migration_cost = false
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
-        result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
-        expect(result.migrate_plans.size).to be(2)
+        result = Search.new(td_workload, no_mig_cost_model).search_overlap indexes, 12250000
+        expect(result.migrate_plans.size).to be(3)
       end
 
       it 'correct number of timesteps in output' do
@@ -84,23 +98,11 @@ module NoSE
         indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
         result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
 
-        increase_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_increase}.flatten(1)
-        decrease_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_decrease}.flatten(1)
+        increase_plans = result.plans.select{|plan_all| plan_all.first.query.text == query_increase}.flatten(1)
+        decrease_plans = result.plans.select{|plan_all| plan_all.first.query.text == query_decrease}.flatten(1)
 
-        expect(increase_steps.first.steps.size).to be > increase_steps.last.steps.size
-        expect(decrease_steps.first.steps.size).to be < decrease_steps.last.steps.size
-      end
-
-      it 'the query plan does not change when the creation cost is too large' do
-        indexes = IndexEnumerator.new(td_workload).indexes_for_workload.to_a
-        td_workload.creation_coeff = 1000
-        result = Search.new(td_workload, cost_model).search_overlap indexes, 12250000
-
-        increase_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_increase}.flatten(1)
-        decrease_steps = result.plans.select{|plan_all| plan_all.first.query.text == query_decrease}.flatten(1)
-
-        expect(increase_steps.first.steps.size).to eq increase_steps.last.steps.size
-        expect(decrease_steps.first.steps.size).to eq decrease_steps.last.steps.size
+        expect(increase_plans.first.steps.size).to be > increase_plans.last.steps.size
+        expect(decrease_plans.first.steps.size).to be < decrease_plans.last.steps.size
       end
 
       it 'is able to treat with update' do

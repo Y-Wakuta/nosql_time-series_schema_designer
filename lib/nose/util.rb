@@ -5,6 +5,7 @@ require 'formatador'
 require 'parallel'
 require 'pp'
 require 'stringio'
+require 'logger'
 
 # Reopen to add utility methods
 module Enumerable
@@ -168,7 +169,7 @@ class Cardinality
   # Update the cardinality based on filtering implicit to the index
   # @return [Fixnum]
   def self.filter(cardinality, eq_filter, range_filter)
-    range_selectivity = 3.0
+    range_selectivity = 2.0
     filtered = (range_filter.nil? ? 1.0 : (1.0 / range_selectivity)) * cardinality
     filtered *= eq_filter.map do |field|
       1.0 / field.cardinality
@@ -329,5 +330,89 @@ class Time
     # fraction of a day.
     offset = Rational(utc_offset, 60 * 60 * 24)
     DateTime.new(year, month, day, hour, min, seconds, offset)
+  end
+end
+
+module RunningTimeLogger
+
+  module Headers
+    START_RUNNING                     = 1
+    START_CF_ENUMERATION              = 2
+    END_CF_ENUMERATION                = 3
+    START_QUERY_PLAN_ENUMERATION      = 4
+    END_QUERY_PLAN_ENUMERATION        = 5
+    START_MIGRATION_PLAN_ENUMERATION  = 6
+    END_MIGRATION_PLAN_ENUMERATION    = 7
+    START_PRUNING                     = 8
+    END_PRUNING                       = 9
+    START_WHOLE_OPTIMIZATION          = 10
+    END_WHOLE_OPTIMIZATION            = 11
+    END_RUNNING                       = 12
+  end
+
+  class RunTimeLogger < Logger
+    attr_accessor :time_array
+
+    BASE_COLUMN_HEADERS = {
+      Headers::START_RUNNING                     => "START",
+      Headers::START_CF_ENUMERATION              => "START_CF_ENUMERATION",
+      Headers::END_CF_ENUMERATION                => "END_CF_ENUMERATION",
+      Headers::START_QUERY_PLAN_ENUMERATION      => "START_QUERY_PLAN_ENUMERATION",
+      Headers::END_QUERY_PLAN_ENUMERATION        => "END_QUERY_PLAN_ENUMERATION",
+      Headers::START_MIGRATION_PLAN_ENUMERATION  => "START_MIGRATION_PLAN_ENUMERATION",
+      Headers::END_MIGRATION_PLAN_ENUMERATION    => "END_MIGRATION_PLAN_ENUMERATION",
+      Headers::START_WHOLE_OPTIMIZATION          => "START_WHOLE_OPTIMIZATION",
+      Headers::END_WHOLE_OPTIMIZATION            => "END_WHOLE_OPTIMIZATION",
+      Headers::END_RUNNING                       => "END",
+    }
+
+    COLUMN_HEADERS = BASE_COLUMN_HEADERS.merge({
+      Headers::START_PRUNING                     => "START_PRUNING",
+      Headers::END_PRUNING                       => "END_PRUNING",
+    })
+
+    def initialize(cmd_name, _options, local_options, config)
+      logdev = "running_time_#{DateTime.now().strftime("%F")}__#{_options.map{|o| o.gsub("/", "-")}.join("_")}" \
+                  "__#{local_options.map{|lo| lo.gsub("--", "")}.join("_")}.log"
+      @time_array = {}
+      super(logdev)
+      info(cmd_name)
+      [_options, local_options, config].flatten(1).each {|o| info(o)}
+    end
+
+    def log(header, message = "")
+      info(COLUMN_HEADERS[header] + ": " + message + Time.now.to_s)
+      fail "the logging point is already set" if @time_array.has_key? COLUMN_HEADERS[header]
+      @time_array[COLUMN_HEADERS[header]] = DateTime.now.strftime('%Q')
+    end
+
+    def write_running_times
+      fail "some logging point is not set : #{BASE_COLUMN_HEADERS.values.to_set - @time_array.keys.to_set}" \
+          unless BASE_COLUMN_HEADERS.values.to_set < @time_array.keys.to_set
+
+      info COLUMN_HEADERS.values.join(",")
+      info COLUMN_HEADERS.keys.map {|k| @time_array[COLUMN_HEADERS[k]]}.join(",")
+
+      puts "<running time log> ==========================="
+      puts COLUMN_HEADERS.values.join(",")
+      puts COLUMN_HEADERS.keys.map {|k| @time_array[COLUMN_HEADERS[k]]}.join(",")
+      puts "</running time log> ==========================="
+    end
+  end
+
+  def self.initialize_logger(cmd_name, _options, local_options, config)
+    @logger = RunTimeLogger.new cmd_name, _options, local_options, config
+  end
+
+  def self.info(header, message = "")
+    @logger.log header, message unless @logger.nil?
+  end
+
+  def self.clear
+    @logger.time_array = {}
+  end
+
+  def self.write_running_times
+    @logger.write_running_times unless @logger.nil?
   end
 end

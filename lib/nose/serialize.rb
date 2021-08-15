@@ -330,6 +330,10 @@ module NoSE
       property :limit
     end
 
+    # Represent the index for index lookup plan steps
+    class ExtractStepRepresenter < IndexLookupStepRepresenter
+    end
+
     class AggregationStepRepresenter < PlanStepRepresenter
       collection :counts, decorator: FieldRepresenter
       collection :sums, decorator: FieldRepresenter
@@ -369,6 +373,7 @@ module NoSE
       collection :each, as: :steps, decorator: (lambda do |options|
         {
           index_lookup: IndexLookupStepRepresenter,
+          extract: ExtractStepRepresenter,
           filter: FilterStepRepresenter,
           sort: SortStepRepresenter,
           limit: LimitStepRepresenter,
@@ -833,6 +838,21 @@ module NoSE
         index_key = step_hash['index']['key']
         step_index = indexes.find { |i| i.key == index_key }
         step = Plans::IndexLookupPlanStep.new step_index, state, parent
+        add_index_lookup_filters step, step_hash, f
+
+        order_by = (step_hash['order_by'] || []).map(&f)
+        step.instance_variable_set(:@order_by, order_by)
+
+        limit = step_hash['limit']
+        step.instance_variable_set(:@limit, limit.to_i) unless limit.nil?
+
+        step
+      end
+
+      def build_extract_step(step_hash, state, parent, indexes, f)
+        index_key = step_hash['index']['key']
+        step_index = indexes.find { |i| i.key == index_key }
+        step = Plans::ExtractPlanStep.new step_index, state, parent
         add_index_lookup_filters step, step_hash, f
 
         order_by = (step_hash['order_by'] || []).map(&f)

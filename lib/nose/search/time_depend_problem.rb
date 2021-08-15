@@ -15,15 +15,12 @@ module NoSE
     # A representation of a search problem as an ILP
     class TimeDependProblem < Problem
       attr_reader :timesteps, :migrate_vars, :prepare_vars, :trees,
-                  :creation_coeff, :migrate_support_coeff,
                   :migrate_prepare_plans, :prepare_tree_vars, :is_static
 
       def initialize(queries, workload, data, objective = Objective::COST)
         fail if workload.timesteps.nil?
 
         @timesteps = workload.timesteps
-        @creation_coeff = workload.creation_coeff
-        @migrate_support_coeff = workload.migrate_support_coeff
         @trees = data[:trees]
         @migrate_prepare_plans = data[:migrate_prepare_plans]
         migrate_support_queries = @migrate_prepare_plans.values.flat_map(&:keys)
@@ -106,7 +103,7 @@ module NoSE
       def add_creation_cost(schema_cost)
         @indexes.each do |index|
           (1...@timesteps).each do |ts|
-            cost = @include_migration_cost ? index.creation_cost(@creation_coeff) : @MIGRATE_COST_DUMMY_CONST
+            cost = @include_migration_cost ? @data[:cost_model].load_cost(index) : @MIGRATE_COST_DUMMY_CONST
             schema_cost.add @migrate_vars[index][ts] * cost
           end
         end
@@ -116,8 +113,7 @@ module NoSE
       # calculate cf creation cost that exist from the start timestep
       def add_initial_index_loading_cost(schema_cost)
         @indexes.each do |index|
-          cost = @include_migration_cost ? index.creation_cost(@creation_coeff) : @MIGRATE_COST_DUMMY_CONST
-          schema_cost.add @index_vars[index][0] * cost
+          schema_cost.add @index_vars[index][0] * @data[:cost_model].load_cost(index)
         end
         schema_cost
       end
@@ -369,6 +365,9 @@ module NoSE
           TimeDependIndexesWithoutPreparePlanNotMigrated,
           TimeDependIndexCreatedAtUsedTimeStepConstraints,
         ]
+
+        # if the workload is static or firstTs or lastTs, disable all migrations
+        constraints << TimeDependDisableMigrationConstraints if @is_static
 
         constraints.each do |constraint|
           constraint.apply self

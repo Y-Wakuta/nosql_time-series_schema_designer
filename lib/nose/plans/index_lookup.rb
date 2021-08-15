@@ -5,8 +5,7 @@ module NoSE
     # Superclass for steps using indices
     class IndexLookupPlanStep < PlanStep
       extend Forwardable
-
-      attr_reader :index, :eq_filter, :range_filter, :limit, :order_by
+      attr_reader :index, :eq_filter, :range_filter, :limit, :order_by, :fields, :required_select_fields
       delegate hash: :index
 
       def initialize(index, state = nil, parent = nil)
@@ -22,8 +21,10 @@ module NoSE
         end
 
         return if state.nil?
+        current_left_required_fields = state.fields # this should be kept before update_dstate()
         @state = state.dup
         update_state parent
+        @required_select_fields = get_only_required_select_field_for_step current_left_required_fields
         @state.freeze
       end
 
@@ -50,22 +51,26 @@ module NoSE
       def self.apply(parent, index, state, check_aggregation: true)
         # Validate several conditions which identify if this index is usable
         begin
-          check_joins index, state
-          check_forward_lookup parent, index, state
-          check_parent_index parent, index, state
-          check_all_hash_fields parent, index, state
-          check_graph_fields parent, index, state
-          check_last_fields index, state
-          if check_aggregation
-            check_has_only_required_aggregations index, state
-            check_parent_groupby parent
-            check_parent_aggregation parent
-          end
+          validate_step_state state, parent, index, check_aggregation
         rescue InvalidIndex
           return nil
         end
 
         IndexLookupPlanStep.new(index, state, parent)
+      end
+
+      def self.validate_step_state(state, parent, index, check_aggregation)
+        check_joins index, state
+        check_forward_lookup parent, index, state
+        check_parent_index parent, index, state
+        check_all_hash_fields parent, index, state
+        check_graph_fields parent, index, state
+        check_last_fields index, state
+        if check_aggregation
+          check_has_only_required_aggregations index, state
+          check_parent_groupby parent
+          check_parent_aggregation parent
+        end
       end
 
       def self.check_has_only_required_aggregations(index, state)
@@ -258,6 +263,18 @@ module NoSE
 
       private
 
+      # select only necessary fields for each query processing.
+      def get_only_required_select_field_for_step(current_status_fields)
+        required_fields = (current_status_fields & @index.all_fields) + @eq_filter
+
+        is_last_step = @state.answered?(check_limit: false, check_aggregate: false, check_orderby: false)
+        return required_fields if is_last_step
+
+        fields_for_join = (@index.order_fields.to_set + @index.extra).to_a.select(&:primary_key?).to_set
+        composite_fields = (@index.order_fields.to_set + @index.extra) & fields_for_join.flat_map{|fj| fj.composite_keys}.compact.to_set
+        required_fields + fields_for_join + composite_fields
+      end
+
       # Get the set of fields which can be filtered by the ordered keys
       # @return [Array<Fields::Field>]
       def range_order_prefix
@@ -346,6 +363,7 @@ module NoSE
 
         # Filter the total number of rows by filtering on non-hash fields
         cardinality = @index.per_hash_count * @state.hash_cardinality
+        cardinality = update_cardinality_for_aggregation cardinality
 
         # cassandra requires all prefix order_fields to be specified to use fields in order_fields
         eq_fields = @eq_filter - @index.hash_fields
@@ -378,6 +396,42 @@ module NoSE
             @state.hash_cardinality = parent.state.cardinality
           end
         end
+      end
+
+      def update_cardinality_for_aggregation(cardinality)
+        return cardinality unless @state.query.instance_of? Query
+
+        # the # of returned record depends on the GROUP num of GROUP BY.
+        # Even if the SELECT clause has aggregation function, e.g. SUM(), COUNT(), the # of returned record matches the number of GROUP.
+        return update_cardinality_for_groupby(cardinality)
+
+        # Only 1 row returned if the query has aggregation functions and does not have GROUP BY
+        return 1 if @index.has_select_aggregation_fields?
+
+        cardinality
+      end
+
+      def update_cardinality_for_groupby(cardinality)
+        return cardinality if @index.groupby_fields.empty?
+
+        entity_groupby_fields_hash = {}
+        @index.graph.entities.each {|e| entity_groupby_fields_hash[e] = []}
+        @index.groupby_fields.each {|groupby_field| entity_groupby_fields_hash[groupby_field.parent] << groupby_field}
+
+        entity_groupby_cardinality = entity_groupby_fields_hash.reject{|_, fields| fields.empty?}.map do |e, fields|
+          Hash[e, fields.map{|fs| fs.cardinality}.max]
+        end.inject(&:merge)
+
+        base_card = 1
+        intermediate_record_size = 0
+
+        # get max cardinality of GROUP BY fields for each entity, and then, multiply them up to intermediate record size
+        entity_groupby_cardinality.each do |entity, entity_cardinality|
+          entity_cardinality = base_card if entity_cardinality.nil?
+          intermediate_record_size = [intermediate_record_size, entity.count].max
+          base_card = [base_card * entity_cardinality, intermediate_record_size].min
+        end
+        return [cardinality * (base_card.to_f / @index.entries), 1].max
       end
 
       # Modify the state to reflect the fields looked up by the index
@@ -415,6 +469,22 @@ module NoSE
         resolve_order(indexed_by_id)
         strip_graph
         update_cardinality parent, indexed_by_id
+      end
+    end
+
+    class ExtractPlanStep < IndexLookupPlanStep
+      # Check if this step can be applied for the given index,
+      # returning a possible application of the step
+      # @return [IndexLookupPlanStep]
+      def self.apply(parent, index, state, check_aggregation: true)
+        # Validate several conditions which identify if this index is usable
+        begin
+          validate_step_state state, parent, index, check_aggregation
+        rescue InvalidIndex
+          return nil
+        end
+
+        ExtractPlanStep.new(index, state, parent)
       end
     end
 

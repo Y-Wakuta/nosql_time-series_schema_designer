@@ -43,7 +43,9 @@ module NoSE
 
         # Get the costs of all queries and updates
         query_weights = combine_query_weights indexes
+        RunningTimeLogger.info(RunningTimeLogger::Headers::START_QUERY_PLAN_ENUMERATION)
         costs, trees = query_costs query_weights, indexes
+        RunningTimeLogger.info(RunningTimeLogger::Headers::END_QUERY_PLAN_ENUMERATION)
 
         show_tree trees
 
@@ -63,6 +65,7 @@ module NoSE
         }
 
         if @workload.is_a? TimeDependWorkload
+          RunningTimeLogger.info(RunningTimeLogger::Headers::START_MIGRATION_PLAN_ENUMERATION)
           STDERR.puts("set migration query plans")
 
           if @workload.is_static or @workload.is_first_ts or @workload.is_last_ts
@@ -78,9 +81,9 @@ module NoSE
           end
 
           solver_params[:migrate_prepare_plans] = migrate_prepare_plans
+          RunningTimeLogger.info(RunningTimeLogger::Headers::END_MIGRATION_PLAN_ENUMERATION)
         end
 
-        STDERR.puts "measure runtime: end enumeration: #{DateTime.now.strftime('%Q')}"
         search_result query_weights, indexes, solver_params, trees,
                       update_plans
       end
@@ -151,9 +154,7 @@ module NoSE
                         update_plans)
         # Solve the LP using MIPPeR
         STDERR.puts "start optimization : #{Time.now}"
-        STDERR.puts "measure runtime: start optimization : #{DateTime.now.strftime('%Q')}"
         result = solve_mipper query_weights.keys, indexes, update_plans, **solver_params
-        STDERR.puts "measure runtime: end optimization : #{DateTime.now.strftime('%Q')}"
 
         setup_result result, solver_params, update_plans
         result
@@ -198,9 +199,9 @@ module NoSE
                       TimeDependProblem.new(queries, @workload, data, @objective)
                       : Problem.new(queries, @workload.updates, data, @objective)
 
-        STDERR.puts "start solving"
+        RunningTimeLogger.info(RunningTimeLogger::Headers::START_WHOLE_OPTIMIZATION)
         problem.solve
-        STDERR.puts "solving is done"
+        RunningTimeLogger.info(RunningTimeLogger::Headers::END_WHOLE_OPTIMIZATION)
 
         # We won't get here if there's no valdi solution
         @logger.debug 'Found solution with total cost ' \
@@ -330,10 +331,10 @@ module NoSE
         index_related_tree_hash = get_related_query_tree(query_trees, query_indexes)
         # create new migrate_prepare_plan
         migrate_plans = Parallel.map(query_indexes, in_processes: [Parallel.processor_count / 4, Parallel.processor_count - 5].max()) do |base_index|
-          useable_indexes = candidate_indexes[base_index]
+          usable_indexes = candidate_indexes[base_index]
 
           m_plan = {base_index => {}}
-          planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, useable_indexes, @cost_model, 2
+          planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, usable_indexes, @cost_model, 2
           migrate_support_query = MigrateSupportQuery.migrate_support_query_for_index(base_index)
           begin
             m_plan[base_index][migrate_support_query] = support_query_cost migrate_support_query, planner
@@ -403,13 +404,6 @@ module NoSE
             fail "ms_support query does not get required fields : " + lacked_fields.inspect
           end
         end
-
-        # calculate cost
-        costs = costs.map do |index, (step, costs)|
-          # query execution cost already considers record width.
-          # Therefore the cost is multiplied by index.entries not by index.size
-          {index =>  [step, costs.map{|cost| @workload.migrate_support_coeff * cost * index.entries}]}
-        end.reduce(&:merge)
 
         costs = Hash[query, costs]
         {:costs => costs, :tree => tree}

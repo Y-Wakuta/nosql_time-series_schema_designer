@@ -291,10 +291,10 @@ module NoSE
           prune_step = prune_step.parent
         end
 
-        # If we reached the root, we have no plan
-        return true if prune_step.is_a? RootPlanStep
-
         prune_step.children.delete prev_step
+
+        # If we reached the root, we have no plan
+        return true if prune_step.is_a? RootPlanStep and prune_step.children.empty?
 
         false
       end
@@ -376,13 +376,13 @@ module NoSE
         steps
       end
 
-      def find_indexed_steps(parent, state, indexes_by_joins, check_aggregation: true)
+      def find_indexed_steps(parent, state, indexes_by_joins, step_class, check_aggregation: true)
         steps = []
         # Don't allow indices to be used multiple times
         indexes = (indexes_by_joins[state.joins.first] || Set.new).to_set
         used_indexes = parent.parent_steps.indexes.to_set
         Parallel.map(indexes - used_indexes, in_threads: Parallel.processor_count / 4) do |index|
-          new_step = IndexLookupPlanStep.apply parent, index, state, check_aggregation: check_aggregation
+          new_step = step_class.apply parent, index, state, check_aggregation: check_aggregation
           next if new_step.nil?
 
           new_step.add_fields_from_index index
@@ -397,7 +397,7 @@ module NoSE
         steps = find_nonindexed_steps parent, state
         return steps unless steps.empty?
 
-        steps += find_indexed_steps parent, state, indexes_by_joins
+        steps += find_indexed_steps parent, state, indexes_by_joins, IndexLookupPlanStep
         steps
       end
     end
@@ -452,7 +452,7 @@ module NoSE
 
     class MigrateSupportSimpleQueryPlanner < PrunedQueryPlanner
       def find_steps_for_state(parent, state, indexes_by_joins)
-        find_indexed_steps parent, state, indexes_by_joins, check_aggregation: false
+        find_indexed_steps parent, state, indexes_by_joins, ExtractPlanStep, check_aggregation: false
       end
     end
   end

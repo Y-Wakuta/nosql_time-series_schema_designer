@@ -25,6 +25,7 @@ module NoSE
       # Solve the index selection problem using MIPPeR
       # @return [Results]
       def solve_mipper(queries, indexes, update_plans, data)
+        RunningTimeLogger.info(RunningTimeLogger::Headers::START_PRUNING)
         puts "solve iteratively"
         @update_plans = update_plans
         @workload_timesteps = @workload.timesteps - 1
@@ -40,9 +41,11 @@ module NoSE
         problem = TimeDependIterativeProblem.new(queries, @base_workload, data, ts_indexes, @objective)
         problem.add_whole_step_constraints
 
+        RunningTimeLogger.info(RunningTimeLogger::Headers::END_PRUNING)
         STDERR.puts "execute whole optimization"
-        STDERR.puts "measure runtime: end pruning and start whole optimization: #{DateTime.now.strftime('%Q')}"
+        RunningTimeLogger.info(RunningTimeLogger::Headers::START_WHOLE_OPTIMIZATION)
         problem.solve
+        RunningTimeLogger.info(RunningTimeLogger::Headers::END_WHOLE_OPTIMIZATION)
 
         problem.result
       end

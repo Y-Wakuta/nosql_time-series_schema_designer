@@ -11,7 +11,6 @@ module NoSE
         fixed_tss.each do |ts|
           problem.ts_indexes[ts].each do |idx|
             name = "#{idx.key}_fixed_#{ts}" if ENV['NOSE_LOG'] == 'debug'
-            puts "force #{idx.key} to be 1 at #{ts} of #{target_tss}"
             constr = MIPPeR::Constraint.new problem.index_vars[idx][target_tss.index(ts)] * 1.0,
                                             :==, 1, name
             problem.model << constr

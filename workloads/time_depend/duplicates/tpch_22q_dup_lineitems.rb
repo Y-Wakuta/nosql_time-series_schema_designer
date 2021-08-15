@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 NoSE::TimeDependWorkload.new do
-  Model 'tpch_card_key_composite_dup_lineitems_order_customer'
+  Model 'tpch_card_key_composite_2_lineitems'
 
   def step_freq(start_ratio, end_ratio, timesteps)
     timesteps -= 1
@@ -215,14 +215,14 @@ NoSE::TimeDependWorkload.new do
       'ORDER BY lineitem_dup.l_shipmode ' \
       'GROUP BY lineitem_dup.l_shipmode -- Q12-dup'
 
-    Q 'SELECT o_custkey.c_custkey, count(orders_dup.o_orderkey) ' \
-      'FROM orders_dup.o_custkey ' \
-      'WHERE orders_dup.o_comment = ? ' \
-      'GROUP BY o_custkey.c_custkey, orders_dup.o_orderkey -- Q13-dup'
+    Q 'SELECT o_custkey.c_custkey, count(orders.o_orderkey) ' \
+      'FROM orders.o_custkey ' \
+      'WHERE orders.o_comment = ? ' \
+      'GROUP BY o_custkey.c_custkey, orders.o_orderkey -- Q13-dup'
 
     Q 'SELECT ps_partkey.p_type, sum(from_lineitem_dup.l_extendedprice), sum(from_lineitem_dup.l_discount) '\
-      'FROM orders_dup.from_lineitem_dup.l_partkey.ps_partkey '\
-      'WHERE orders_dup.o_orderkey = ? AND ps_partkey.p_type = ? AND from_lineitem_dup.l_shipdate < ? -- Q14-dup'
+      'FROM orders.from_lineitem_dup.l_partkey.ps_partkey '\
+      'WHERE orders.o_orderkey = ? AND ps_partkey.p_type = ? AND from_lineitem_dup.l_shipdate < ? -- Q14-dup'
 
     Q 'SELECT supplier.s_suppkey FROM supplier WHERE supplier.s_comment = ? -- Q16_inner-dup'
     Q 'SELECT ps_partkey.p_brand, ps_partkey.p_type, ps_partkey.p_size, count(supplier.s_suppkey) ' \
@@ -234,6 +234,7 @@ NoSE::TimeDependWorkload.new do
     Q 'SELECT sum(lineitem_dup.l_extendedprice) ' \
       'FROM lineitem_dup.l_partkey.ps_partkey ' \
       'WHERE ps_partkey.p_brand = ? AND ps_partkey.p_container = ? AND lineitem_dup.l_quantity < ? -- Q17-dup'
+
 
     Q 'SELECT o_custkey.c_name, o_custkey.c_custkey, l_orderkey.o_orderkey, ' \
       'l_orderkey.o_orderdate, l_orderkey.o_totalprice, sum(lineitem_dup.l_quantity) ' \
@@ -254,19 +255,19 @@ NoSE::TimeDependWorkload.new do
       'WHERE supplier.s_suppkey = ? AND s_nationkey.n_name = ? ' \
       'ORDER BY supplier.s_name -- Q20-dup'
 
-    Q 'SELECT ps_suppkey.s_name, count(orders_dup.o_orderkey) ' \
-      'FROM orders_dup.from_lineitem_dup.l_partkey.ps_suppkey.s_nationkey ' \
-      'WHERE orders_dup.o_orderstatus = ? AND orders_dup.o_orderkey = ? AND s_nationkey.n_name = ? '\
+    Q 'SELECT ps_suppkey.s_name, count(orders.o_orderkey) ' \
+      'FROM orders.from_lineitem_dup.l_partkey.ps_suppkey.s_nationkey ' \
+      'WHERE orders.o_orderstatus = ? AND orders.o_orderkey = ? AND s_nationkey.n_name = ? '\
       'AND from_lineitem_dup.l_receiptdate > ? ' \
       'ORDER BY ps_suppkey.s_name ' \
       'GROUP BY ps_suppkey.s_name -- Q21-dup'
 
-    Q 'SELECT avg(customer_dup.c_acctbal) FROM customer_dup ' \
-      'WHERE customer_dup.c_phone = ? AND customer_dup.c_acctbal > ? -- Q22_inner_inner-dup'
-    Q 'SELECT customer_dup.c_phone, sum(customer_dup.c_acctbal), count(customer_dup.c_custkey) ' \
-      'FROM customer_dup ' \
-      'WHERE customer_dup.c_phone = ? AND customer_dup.c_custkey = ? AND customer_dup.c_acctbal > ? ' \
-      'ORDER BY customer_dup.c_phone ' \
-      'GROUP BY customer_dup.c_phone -- Q22-dup'
+    Q 'SELECT avg(customer.c_acctbal) FROM customer ' \
+      'WHERE customer.c_phone = ? AND customer.c_acctbal > ? -- Q22_inner_inner-dup'
+    Q 'SELECT customer.c_phone, sum(customer.c_acctbal), count(customer.c_custkey) ' \
+      'FROM customer ' \
+      'WHERE customer.c_phone = ? AND customer.c_custkey = ? AND customer.c_acctbal > ? ' \
+      'ORDER BY customer.c_phone ' \
+      'GROUP BY customer.c_phone -- Q22-dup'
   end
 end

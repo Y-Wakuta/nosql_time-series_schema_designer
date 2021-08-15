@@ -14,7 +14,7 @@ module NoSE
         @thread = nil
       end
 
-      def migrate(timestep)
+      def migrate(timestep, does_migrate_async = true)
         return unless timestep < @result.timesteps - 1
         migration_plans = @result.migrate_plans.select{|mp| mp.start_time == timestep}
 
@@ -23,8 +23,8 @@ module NoSE
           index_loaded_hash[new_index] = false
         end
 
-        #Parallel.each(migration_plans, in_processes: Parallel.processor_count / 3) do |migration_plan|
-        migration_plans.each do |migration_plan|
+        parallelism = does_migrate_async ?  Parallel.processor_count / 3 : 0
+        Parallel.each(migration_plans, in_processes: parallelism) do |migration_plan|
           @backend.initialize_client
           prepare_next_indexes(migration_plan, index_loaded_hash)
         end
@@ -37,8 +37,8 @@ module NoSE
         end
       end
 
-      def migrate_async(timestep)
-        @worker = NoSE::Worker.new {|_| migrate(timestep)}
+      def migrate_async(timestep, does_migrate_async)
+        @worker = NoSE::Worker.new {|_| migrate(timestep, does_migrate_async)}
         [@worker].map(&:run).each(&:join)
         @thread = @worker.execute
         @thread.join
