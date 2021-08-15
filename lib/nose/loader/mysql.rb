@@ -216,14 +216,15 @@ module NoSE
           tables << index.path.each_cons(2).map do |_prev_key, key|
             key = key.reverse if key.relationship == :many
             next unless Set.new([key.parent, key.entity]) ==  Set.new([ep[:from], ep[:to]])
-            "#{key.parent.name}.#{key.name}=" \
+            cond = "#{key.parent.name}.#{key.name}=" \
               "#{key.entity.name}.#{key.entity.id_field.name}"
+            get_condition_for_composite_key cond, key
           end.compact.join(' AND ')
         end
         tables
       end
 
-      def index_sql_table_inner_join(index)
+      def index_sql_tables_inner_join(index)
         # Create JOIN statements
         tables = index.graph.entities.map(&:name).join ' JOIN '
         return tables if index.graph.size == 1
@@ -231,11 +232,22 @@ module NoSE
         tables << ' WHERE '
         tables << index.path.each_cons(2).map do |_prev_key, key|
           key = key.reverse if key.relationship == :many
-          "#{key.parent.name}.#{key.name}=" \
+          cond = "#{key.parent.name}.#{key.name}=" \
           "#{key.entity.name}.#{key.entity.id_field.name}"
+          get_condition_for_composite_key cond, key
         end.join(' AND ')
 
         tables
+      end
+
+      def get_condition_for_composite_key(cond, key)
+          if not key.composite_keys.nil? and not key.composite_keys.empty?
+            key.composite_keys.each do |composite_key|
+              cond += " AND #{composite_key["name"].parent.name}.#{composite_key["name"].name} =" \
+                      " #{composite_key["related_key"].parent.name}.#{composite_key["related_key"].name}"
+            end
+          end
+          cond
       end
 
       def reorder_dimension_tables(entity_pairs, current_table)
@@ -284,7 +296,7 @@ module NoSE
         # Construct the join condition
         tables = full_outer_join ?
                    index_sql_tables_outer_join(index, reverse_entities) :
-                   index_sql_table_inner_join(index)
+                   index_sql_tables_inner_join(index)
 
         # if all field have the same value, the value will distinguished.
         # Therefore reduce the number of records here

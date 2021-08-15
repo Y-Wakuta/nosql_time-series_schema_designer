@@ -139,6 +139,23 @@ module NoSE
           interquartile = loader.send(:get_records_in_interquartile_range, index, values, key_record)
           expect(interquartile.size).to be 500
         end
+
+        it 'selects records using composite keys' do
+          workload_composite = Workload.new{|_| Model('tpch_card_key_composite_dup_lineitems_order_customer')}
+          query = Statement.parse 'SELECT l_orderkey.o_orderdate, sum(from_lineitem.l_extendedprice), sum(from_lineitem.l_discount) '\
+                          'FROM partsupp.from_lineitem.l_orderkey ' \
+                          'WHERE from_lineitem.l_linenumber = ?', workload_composite.model
+          workload_composite.add_statement query
+          idx = query.materialize_view
+          sql_inner_tables = loader.send(:index_sql_tables_inner_join, idx)
+          expect(sql_inner_tables).to be == "partsupp JOIN lineitem JOIN orders WHERE lineitem.l_partkey=partsupp.ps_partkey "\
+                                            "AND lineitem.l_suppkey = partsupp.ps_suppkey AND lineitem.l_orderkey=orders.o_orderkey"
+
+          sql_inner_tables = loader.send(:index_sql_tables_outer_join, idx, false)
+          expect(sql_inner_tables).to be == "partsupp LEFT OUTER JOIN lineitem ON lineitem.l_partkey=partsupp.ps_partkey "\
+                                            "AND lineitem.l_suppkey = partsupp.ps_suppkey "\
+                                            "RIGHT OUTER JOIN orders ON lineitem.l_orderkey=orders.o_orderkey"
+        end
       end
     end
   end
