@@ -226,7 +226,10 @@ module NoSE
               file_name = "#{dir}/#{index.key}_#{idx}.csv"
               g = File.open(file_name, "w") do |f|
                 f.puts(columns.join('|').to_s)
-                results_chunk.each {|row| f.puts(row.join('|'))}
+
+                # When the beginning of the line is white space, the space is ignored when loaded onto Casandra.
+                # Thus, explicitly add the quotation to keep the space on Cassandra.
+                results_chunk.each {|row| f.puts(row.map{|f| f.instance_of?(String) ? '"' + f + '"' : f}.join('|'))}
                 f
               end
               STDERR.puts "  insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
