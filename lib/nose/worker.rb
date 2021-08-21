@@ -7,6 +7,7 @@ module NoSE
       @child_read, @parent_write = create_pipe
       @parent_read, @child_write = create_pipe
       @block = block
+      @ppid = Process.ppid
     end
 
     def create_pipe
@@ -108,6 +109,10 @@ module NoSE
       # exit the child by Kernel#at_exit
       at_exit do
         next unless alive?
+
+        # return unless parent process of migrator calls at_exit
+        next unless Process.ppid == @ppid
+
         begin
           Process.kill("KILL", @pid)
           Process.wait(@pid)
