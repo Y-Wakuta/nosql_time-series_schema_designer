@@ -34,7 +34,7 @@ module NoSE
           "#{super} #{@index.to_color}"
         else
           "#{super} #{@index.to_color} * " \
-            "#{@state.cardinality}/#{@state.hash_cardinality} eq_filter: {#{@eq_filter}}, order by: #{@order_by} "
+            "#{@state.cardinality}/#{@state.hash_cardinality} eq_filter: {#{@eq_filter}}, order by: #{@order_by}, range_filter: #{@range_filter} "
         end
       end
       # :nocov:
@@ -403,7 +403,7 @@ module NoSE
 
         # the # of returned record depends on the GROUP num of GROUP BY.
         # Even if the SELECT clause has aggregation function, e.g. SUM(), COUNT(), the # of returned record matches the number of GROUP.
-        return update_cardinality_for_groupby(cardinality)
+        return update_cardinality_for_groupby(cardinality) unless @index.groupby_fields.empty?
 
         # Only 1 row returned if the query has aggregation functions and does not have GROUP BY
         return 1 if @index.has_select_aggregation_fields?
