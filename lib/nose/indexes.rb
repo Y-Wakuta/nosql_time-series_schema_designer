@@ -320,8 +320,9 @@ module NoSE
       order_fields = @eq_fields.select do |field|
         field.parent != hash_entity
       end
-      if @range_field && !@order.include?(@range_field)
-        order_fields << @range_field
+      if @range_fields.size > 0 && Set.new(@order) < Set.new(@range_fields)
+        # append range field which is used for GROUP BY first
+        order_fields += @range_fields.sort_by{|rf| @groupby.include?(rf) ? 0 : 1}
       end
       order_fields += @groupby.select{|g| not order_fields.include? g}
       order_fields += @order

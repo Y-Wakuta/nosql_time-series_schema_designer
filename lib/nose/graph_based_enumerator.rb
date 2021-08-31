@@ -82,7 +82,7 @@ module NoSE
 
     def ignore_cluster_key_order(query, indexes)
       overlapping_index_keys = []
-      condition_fields = (query.eq_fields + query.order.to_set + Set.new([query.range_field])).reject(&:nil?)
+      condition_fields = (query.eq_fields + query.order.to_set + query.range_fields.to_set).reject(&:nil?)
       indexes.sort_by!(&:hash_str)
       indexes.each_with_index do |base_index, idx|
         next if overlapping_index_keys.include? base_index.key # this cf is already removed

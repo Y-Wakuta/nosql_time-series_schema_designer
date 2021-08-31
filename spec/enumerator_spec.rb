@@ -152,5 +152,41 @@ module NoSE
         end
       end
     end
+
+    it 'enumerates CFs that deal with multi range condition efficiently' do
+      query = Statement.parse 'SELECT Tweet.Body, Tweet.TweetId, User.UserId, Tweet.Retweets FROM Tweet.User ' \
+                              'WHERE User.City = ? AND Tweet.TweetId > ? AND User.UserId > ?', workload.model
+      indexes = enum.indexes_for_query query
+
+      expect(indexes.map(&:order_fields)).to include([user['UserId'], tweet['TweetId']])
+      expect(indexes.map(&:order_fields)).to include([tweet['TweetId'], user['UserId']])
+    end
+
+    it 'materialized view utilizes multi range condition ' do
+      query = Statement.parse 'SELECT Tweet.Body, Tweet.TweetId, User.UserId, Tweet.Retweets FROM Tweet.User ' \
+                              'WHERE User.City = ? AND Tweet.TweetId > ? AND User.UserId > ?', workload.model
+      # simple query
+      mv = query.materialize_view
+      expect(mv.order_fields.take(2).to_set).to eq(Set.new([tweet['TweetId'], user['UserId']]))
+
+      # get mv with aggregation for query without aggregation
+      mv_aggregation = query.materialize_view_with_aggregation
+      expect(mv_aggregation.order_fields.take(2).to_set).to eq(Set.new([tweet['TweetId'], user['UserId']]))
+
+      query = Statement.parse 'SELECT Tweet.Body, Tweet.TweetId, User.UserId, Tweet.Retweets FROM Tweet.User ' \
+                              'WHERE User.City = ? AND Tweet.TweetId > ? AND User.UserId > ? GROUP BY Tweet.TweetId', workload.model
+      mv_aggregation = query.materialize_view_with_aggregation
+      expect(mv_aggregation.order_fields.take(2)).to eq([tweet['TweetId'], user['UserId']])
+
+      query = Statement.parse 'SELECT Tweet.Body, Tweet.TweetId, User.UserId, Tweet.Retweets FROM Tweet.User ' \
+                              'WHERE User.City = ? AND Tweet.TweetId > ? AND User.UserId > ? GROUP BY Tweet.TweetId', workload.model
+      mv_aggregation = query.materialize_view_with_aggregation
+      expect(mv_aggregation.order_fields.take(2)).to eq([tweet['TweetId'], user['UserId']])
+
+      query = Statement.parse 'SELECT Tweet.Body, Tweet.TweetId, User.UserId, Tweet.Retweets FROM Tweet.User ' \
+                              'WHERE User.City = ? AND Tweet.TweetId > ? AND User.UserId > ? GROUP BY User.UserId', workload.model
+      mv_aggregation = query.materialize_view_with_aggregation
+      expect(mv_aggregation.order_fields.take(2)).to eq([user['UserId'], tweet['TweetId']])
+    end
   end
 end

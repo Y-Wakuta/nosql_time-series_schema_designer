@@ -18,10 +18,10 @@ module NoSE
     end
 
     def get_query_range(query)
-      range = if query.range_field.nil?
+      range = if query.range_fields.empty?
                 query.order
               else
-                [query.range_field] + query.order
+                query.range_fields + query.order
               end
       range = range.group_by(&:parent)
       range.default_proc = ->(*) { [] }

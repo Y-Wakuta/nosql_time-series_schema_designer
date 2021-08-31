@@ -138,7 +138,7 @@ module NoSE
         indexes[(idx + 1)..-1].select{|i| target_index.hash_fields == i.hash_fields and \
                            target_index.order_fields.to_set == i.order_fields.to_set and \
                            target_index.extra == i.extra}.each do |other_index|
-          worth_order_fields_candidates = ((query.eq_fields + query.order + query.groupby + [query.range_field]).to_set & target_index.key_fields).to_set
+          worth_order_fields_candidates = ((query.eq_fields + query.order + query.groupby + query.range_fields).to_set & target_index.key_fields).to_set
           variable_order_fields_size = [worth_order_fields_candidates.size - target_index.hash_fields.size, 0].max
           if target_index.order_fields.take(variable_order_fields_size) == other_index.order_fields.take(variable_order_fields_size)
             pruned_indexes = pruned_indexes.reject{|pi| pi == other_index}
