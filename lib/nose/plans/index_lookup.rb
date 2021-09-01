@@ -279,7 +279,8 @@ module NoSE
       # @return [Array<Fields::Field>]
       def range_order_prefix
         order_prefix = (@state.eq - @index.hash_fields) & @index.order_fields
-        order_prefix << @state.range unless @state.range.nil?
+        order_prefix += (@state.ranges & @index.order_fields).sort_by{|r| @index.order_fields.index(r)}
+
         order_prefix = order_prefix.zip(@index.order_fields)
         order_prefix.take_while { |x, y| x == y }.map(&:first)
       end
@@ -445,12 +446,12 @@ module NoSE
         # composite key should be added only if the keys are used for join.
         # Therefore, the first step of the plan does not have to have composite keys to its eq_filter
         @eq_filter += @eq_filter.select(&:primary_key?).flat_map(&:composite_keys).compact unless parent.instance_of?(Plans::RootPlanStep)
-        if order_prefix.include?(@state.range) \
-          or @index.hash_fields.include?(@state.range) # range_filter also could be adapted to hash_fields
-          @range_filter = @state.range
-          @state.range = nil
+
+        if (order_prefix & @state.ranges.to_set).size > 0
+          @range_filter = ((@index.hash_fields + order_prefix) & @state.ranges.to_set).to_a
+          @state.ranges -= @range_filter
         else
-          @range_filter = nil
+          @range_filter = []
         end
 
         # Remove fields resolved by this index
