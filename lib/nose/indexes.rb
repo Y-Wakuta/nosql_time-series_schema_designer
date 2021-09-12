@@ -132,7 +132,7 @@ module NoSE
     end
 
     def has_aggregation_fields?
-      has_select_aggregation_fields? and not @groupby_fields.empty?
+      has_select_aggregation_fields? or not @groupby_fields.empty?
     end
 
     def has_select_aggregation_fields?

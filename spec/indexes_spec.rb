@@ -163,6 +163,24 @@ module NoSE
       end
     end
 
+    context 'when checking aggregation' do
+      it 'detects aggregation on CF' do
+        cf_select_aggregation = Index.new [tweet['TweetId']], [tweet['Retweets']], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), count_fields: Set.new(),
+                                                sum_fields: Set.new([tweet['Retweets']]), avg_fields: Set.new(),
+                                                groupby_fields: Set.new()
+        expect(cf_select_aggregation.has_aggregation_fields?).to be true
+        expect(cf_select_aggregation.has_select_aggregation_fields?).to be true
+
+        cf_groupby = Index.new [tweet['TweetId']], [tweet['Retweets']], [tweet['Body']],
+                    QueryGraph::Graph.from_path([tweet.id_field]), count_fields: Set.new(),
+                                                sum_fields: Set.new(), avg_fields: Set.new(),
+                                                groupby_fields: Set.new([tweet['Retweets']])
+        expect(cf_groupby.has_aggregation_fields?).to be true
+        expect(cf_groupby.has_select_aggregation_fields?).to be false
+      end
+    end
+
     context 'when reducing to an ID graph' do
       it 'moves non-ID fields to extra data' do
         index = Index.new [user['City']], [user['UserId']], [],
