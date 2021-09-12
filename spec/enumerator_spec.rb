@@ -188,5 +188,15 @@ module NoSE
       mv_aggregation = query.materialize_view_with_aggregation
       expect(mv_aggregation.order_fields.take(2)).to eq([user['UserId'], tweet['TweetId']])
     end
+
+    it 'materialized view utilizes multi range condition even with ORDER BY' do
+      query = Statement.parse 'SELECT Tweet.Body, Tweet.TweetId, User.UserId, Tweet.Retweets FROM Tweet.User ' \
+                              'WHERE User.City = ? AND Tweet.TweetId > ? AND User.UserId > ? ORDER BY Tweet.Retweets GROUP BY Tweet.Body', workload.model
+
+      mv_aggregation = query.materialize_view_with_aggregation
+      expect(mv_aggregation.order_fields.take(2)).to eq([tweet['TweetId'], user['UserId']]) # filtering should be set before aggregation
+      expect(mv_aggregation.order_fields[2]).to eq(tweet['Body']) # aggregation is set before ordering, since ordering has few performance benefit than aggregation on DB.
+      expect(mv_aggregation.order_fields[3]).to eq(tweet['Retweets'])
+    end
   end
 end

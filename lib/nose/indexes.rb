@@ -275,7 +275,6 @@ module NoSE
         groupby_in_eq = eq.to_set & @groupby.to_set
         eq = eq.delete_if { |e| groupby_in_eq.include? e}
       end
-      #order_fields = @groupby.to_a + materialized_view_order(join_order.first) - eq
       order_fields = materialized_view_order(join_order.first) - eq
       order_fields.uniq!
 
@@ -320,12 +319,9 @@ module NoSE
       order_fields = @eq_fields.select do |field|
         field.parent != hash_entity
       end
-      if @range_fields.size > 0 && Set.new(@order) < Set.new(@range_fields)
-        # append range field which is used for GROUP BY first
-        order_fields += @range_fields.sort_by{|rf| @groupby.include?(rf) ? 0 : 1}
-      end
+      order_fields += @range_fields.sort_by{|rf| @groupby.include?(rf) ? 0 : 1}
       order_fields += @groupby.select{|g| not order_fields.include? g}
-      order_fields += @order
+      order_fields += @order.select{|g| not order_fields.include? g}
 
       # Ensure we include IDs of the final entity
       order_fields += join_order.map(&:id_field)
