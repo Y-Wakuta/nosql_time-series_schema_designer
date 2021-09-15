@@ -77,8 +77,17 @@ module NoSE
 
       def recreate_index(index, execute = false, skip_existing = false,
                          drop_existing = false)
-        drop_index(index) if drop_existing && index_exists?(index)
-        create_index(index, execute, skip_existing)
+        try_counter = 0
+        begin
+          drop_index(index) if drop_existing && index_exists?(index)
+          create_index(index, execute, skip_existing)
+        rescue Exception => e
+          sleep 30
+          initialize_client
+          try_counter += 1
+          retry if try_counter < 10
+          throw e
+        end
       end
 
       # Produce the DDL necessary for column families for the given indexes
@@ -220,7 +229,7 @@ module NoSE
         inserting_try = 0
         host_name = ""
         begin
-          Parallel.each_with_index(formatted_result.each_slice(1_000_000), in_processes: Parallel.processor_count / 6) do |results_chunk, idx|
+          Parallel.each_with_index(formatted_result.each_slice(700_000), in_processes: Parallel.processor_count / 5) do |results_chunk, idx|
             host_name = @hosts.sample(1).first
             Dir.mktmpdir do |dir|
               file_name = "#{dir}/#{index.key}_#{idx}.csv"
@@ -235,7 +244,7 @@ module NoSE
               STDERR.puts "  insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
               ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
               ret = system("./cassandra-loader/build/cassandra-loader -badDir /tmp/ -queryTimeout 20 -numRetries 5 -batchSize 200 " \
-                           "-dateFormat \"yyyy-MM-dd\" -skipRows 1 -delim \"|\" -f #{file_name} -host #{host_name} " \
+                           "-localDateFormat \"yyyy-MM-dd\" -skipRows 1 -delim \"|\" -f #{file_name} -host #{host_name} " \
                            "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\" > /dev/null")
 
               fail "  loading error detected: #{index.key}" unless ret
@@ -271,7 +280,7 @@ module NoSE
         csv_rows = ""
         retry_when_fail do
           start_time = Time.now
-          csv_rows, err, ret = Open3.capture3("./cassandra-loader/build/cassandra-unloader -numThreads 10 -fetchSize 5000 -f stdout -dateFormat \"yyyy-MM-dd\" -delim \"|\" -host #{@hosts.sample(1).first} " \
+          csv_rows, err, ret = Open3.capture3("./cassandra-loader/build/cassandra-unloader -numThreads 10 -fetchSize 5000 -f stdout -localDateFormat \"yyyy-MM-dd\" -delim \"|\" -host #{@hosts.sample(1).first} " \
                        "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\"")
           STDERR.puts "  unloading time for #{index.key} was #{Time.now - start_time}"
           STDERR.puts err
@@ -283,13 +292,11 @@ module NoSE
       end
 
       def cast_records(index, records)
-        s = Time.now
         row_index = 0
         while row_index < records.size
           records[row_index] = cast_record index, records[row_index]
           row_index += 1
         end
-        puts "casting :#{Time.now - s}"
         records
       end
 
@@ -441,8 +448,8 @@ module NoSE
           csv_row << r["value_hash"]
           csv_rows << csv_row
           idx += 1
-          end
-          csv_rows.uniq
+        end
+        csv_rows.uniq
       end
 
       def convert_id_2_uuid(value)
