@@ -179,7 +179,7 @@ module NoSE
           @next_step = next_step
 
           @eq_fields = step.eq_filter
-          @range_field = step.range_filter
+          @range_fields = step.range_filter
         end
 
         protected
@@ -200,19 +200,22 @@ module NoSE
             end
 
             # modify condition value for each range operator type
-            unless @range_field.nil?
-              operator = conditions.each_value.find(&:range?).operator
-              if operator == :>= or operator == :<= or not result.has_key? @range_field.id
-                result_condition << Condition.new(@range_field, operator,
-                                                  result[@range_field.id])
-              elsif operator == :>
-                result_condition << Condition.new(@range_field, operator,
-                                                  result[@range_field.id] - 1)
-              elsif operator == :<
-                result_condition << Condition.new(@range_field, operator,
-                                                  result[@range_field.id] + 1)
-              else
-                fail
+            unless @range_fields.empty?
+              conditions.select{|_, v| v.range?}.each do |field_name, range_condition|
+                operator = range_condition.operator
+                range_field = @range_fields.find{|rf| rf.id == field_name}
+                if operator == :>= or operator == :<= or not result.has_key? range_field.id
+                  result_condition << Condition.new(range_field, operator,
+                                                    result[range_field.id])
+                elsif operator == :>
+                  result_condition << Condition.new(range_field, operator,
+                                                    result[range_field.id] - 1)
+                elsif operator == :<
+                  result_condition << Condition.new(range_field, operator,
+                                                    result[range_field.id] + 1)
+                else
+                  fail
+                end
               end
             end
 
