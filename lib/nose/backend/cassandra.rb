@@ -61,6 +61,7 @@ module NoSE
       end
 
       def create_index(index, execute = false, skip_existing = false)
+        puts "create #{index.key}"
         ddl = index_cql index
         begin
           @client.execute(ddl) if execute
@@ -171,6 +172,7 @@ module NoSE
 
       # Check if a given index exists in the target database
       def drop_index(index)
+        puts "drop #{index.key}"
         @client.execute "DROP TABLE \"#{index.key}\""
       end
 
@@ -694,6 +696,9 @@ module NoSE
 
           # Add an optional limit
           cql += " LIMIT #{@step.limit}" unless @step.limit.nil?
+
+          # Cassandra does not allow multi range condition without this option
+          cql += " ALLOW FILTERING " if @step.range_filter.size > 1
 
           cql
         end
