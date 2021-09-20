@@ -277,9 +277,9 @@ module NoSE
 
           # XXX: This assumes that the range filter step is the same as
           #      the one in the query, which is always true for now
-          range = @step.range && conditions.each_value.find(&:range?)
+          ranges = @step.ranges && conditions.each_value.select(&:range?)
 
-          results.select! { |row| include_row?(row, eq_conditions, range) }
+          results.select! { |row| include_row?(row, eq_conditions, ranges) }
 
           results
         end
@@ -288,22 +288,24 @@ module NoSE
 
         # Check if the row should be included in the result
         # @return [Boolean]
-        def include_row?(row, eq_conditions, range)
+        def include_row?(row, eq_conditions, ranges)
           select = eq_conditions.all? do |condition|
             row[condition.field.id] == condition.value
           end
 
-          if range
-            if row[range.field.id].nil?
-              # if range condition field is null, remove the row from the result
-              select = false
-            else
-              range_check = row[range.field.id].method(range.operator)
-              begin
-                select &&= range_check.call range.value
-              rescue Exception => e
-                puts e
-                throw e
+          if ranges
+            ranges.each do |range|
+              if row[range.field.id].nil?
+                # if range condition field is null, remove the row from the result
+                select = false
+              else
+                range_check = row[range.field.id].method(range.operator)
+                begin
+                  select &&= range_check.call range.value
+                rescue Exception => e
+                  puts e
+                  throw e
+                end
               end
             end
           end
