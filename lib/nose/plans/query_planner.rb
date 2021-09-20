@@ -7,7 +7,7 @@ module NoSE
   module Plans
     # Ongoing state of a query throughout the execution plan
     class QueryState
-      attr_accessor :fields, :eq, :range, :order_by, :graph,
+      attr_accessor :fields, :eq, :ranges, :order_by, :graph,
                     :joins, :cardinality, :hash_cardinality, :given_fields, :counts, :sums, :avgs, :maxes, :groupby
       attr_reader :query, :model
 
@@ -16,7 +16,7 @@ module NoSE
         @model = model
         @fields = query.select
         @eq = query.eq_fields.dup
-        @range = query.range_field
+        @ranges = query.range_fields
         @graph = query.graph
         @joins = query.materialize_view.graph.join_order(@eq)
         @order_by = query.order.dup
@@ -38,7 +38,7 @@ module NoSE
       # All the fields referenced anywhere in the query
       def all_fields
         all_fields = @fields + @eq
-        all_fields << @range unless @range.nil?
+        all_fields += @ranges
         all_fields
       end
 
@@ -47,7 +47,7 @@ module NoSE
         @query.text +
           "\n  fields: " + @fields.map(&:to_color).to_a.to_color +
           "\n      eq: " + @eq.map(&:to_color).to_a.to_color +
-          "\n   range: " + (@range.nil? ? '(nil)' : @range.name) +
+          "\n   range: " + (@ranges.empty? ? '(empty)' : @ranges.map(&:name).to_color) +
           "\n   order: " + @order_by.map(&:to_color).to_a.to_color +
           "\n    graph: " + @graph.inspect
       end
@@ -56,7 +56,7 @@ module NoSE
       # Check if the query has been fully answered
       # @return [Boolean]
       def answered?(check_limit: true, check_aggregate: true, check_orderby: true)
-        done = @fields.empty? && @eq.empty? && @range.nil? &&
+        done = @fields.empty? && @eq.empty? && @ranges.empty? &&
                @joins.empty? && @graph.empty?
         done &= @order_by.empty? if check_orderby
 
@@ -74,8 +74,7 @@ module NoSE
       # graph, optionally including selected fields
       # @return [Array<Field>]
       def fields_for_graph(graph, include_entity, select: false)
-        graph_fields = @eq + @order_by
-        graph_fields << @range unless @range.nil?
+        graph_fields = @eq + @order_by + @ranges
 
         # If necessary, include ALL the fields which should be selected,
         # otherwise we can exclude fields from leaf entity sets since
@@ -303,15 +302,37 @@ module NoSE
 
       def validate_query_plans(tree)
         tree.each do |plan|
-          required_groupby_fields = plan.query.groupby.to_set
-          last_aggregatable_step = plan.steps.select{|s| s.is_a?(Plans::IndexLookupPlanStep) or s.is_a?(Plans::AggregationPlanStep)}.last
-          if last_aggregatable_step.is_a?(Plans::IndexLookupPlanStep)
-            given_groupby_fields = last_aggregatable_step.index.groupby_fields
-          elsif last_aggregatable_step.is_a?(Plans::AggregationPlanStep)
-            given_groupby_fields = last_aggregatable_step.groupby
-          end
-          fail "candidate plans has more groupby fields than required: required #{required_groupby_fields.map(&:id)}, given: #{given_groupby_fields.flatten.map(&:id)}, query: #{plan.query.comment}, plan: #{plan.inspect}" if given_groupby_fields > required_groupby_fields
+          validate_query_plan_has_required_field_for_groupby plan
+          validate_query_plan_does_filtering_before_aggregation plan
         end
+      end
+
+      def validate_query_plan_has_required_field_for_groupby(plan)
+        required_groupby_fields = plan.query.groupby.to_set
+        last_aggregatable_step = plan.steps.select{|s| s.is_a?(Plans::IndexLookupPlanStep) or s.is_a?(Plans::AggregationPlanStep)}.last
+        if last_aggregatable_step.is_a?(Plans::IndexLookupPlanStep)
+          given_groupby_fields = last_aggregatable_step.index.groupby_fields
+        elsif last_aggregatable_step.is_a?(Plans::AggregationPlanStep)
+          given_groupby_fields = last_aggregatable_step.groupby
+        end
+        fail "candidate plans has more groupby fields than required: required #{required_groupby_fields.map(&:id)}, given: #{given_groupby_fields.flatten.map(&:id)}, query: #{plan.query.comment}, plan: #{plan.inspect}" if given_groupby_fields > required_groupby_fields
+      end
+
+      def validate_query_plan_does_filtering_before_aggregation(plan)
+        return unless plan.steps.any?{|s| s.instance_of?(Plans::FilterPlanStep)}
+        last_filter_step_idx = 0
+
+        plan.each_with_index do |step, idx|
+          if step.instance_of?(Plans::FilterPlanStep)
+            last_filter_step_idx = idx
+          end
+        end
+
+        fail "any filtering should be done before aggregation #{plan.query.comment}: #{plan.inspect}" \
+          if plan.steps[0...last_filter_step_idx].any? do |s|
+            s.instance_of?(Plans::AggregationPlanStep) or \
+                  (s.instance_of?(Plans::IndexLookupPlanStep) and s.index.has_aggregation_fields?)
+          end
       end
 
       # Produce indexes possibly useful for this query
