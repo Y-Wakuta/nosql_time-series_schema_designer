@@ -162,6 +162,10 @@ module NoSE
           end
         end
 
+        def is_already_aggregated?(row)
+          row.keys.any?{|c| c.include? '('}
+        end
+
       end
 
       # Look up data on an index in the backend
@@ -318,9 +322,13 @@ module NoSE
         # Sort results by a list of fields given in the step
         # @return [Array<Hash>]
         def process(_conditions, results, _ = nil)
-          results = remove_aggregation_function_name results
 
-          results.sort_by! {|row| @step.sort_fields.map {|field| row[field.id]}}
+          # if results is already aggregated, use its aggregated column name like system.sum(column_name)
+          sort_fields = @step.sort_fields.map do |sf|
+            results.first.keys.select{|k| k.include? sf.id}.first
+          end
+
+          results.sort_by! {|row| sort_fields.map {|field| row[field]}}
         end
       end
 
