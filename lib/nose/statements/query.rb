@@ -217,7 +217,7 @@ module NoSE
     # Support queries must also have their statement and index checked
     def ==(other)
       other.is_a?(SupportQuery) && @statement == other.statement &&
-          @index == other.index && @comment == other.comment
+          @index == other.index && @comment == other.comment && @text == other.text
     end
     alias eql? ==
 
@@ -243,7 +243,7 @@ module NoSE
 
     # Migrate support queries must also have their statement and index checked
     def ==(other)
-      other.is_a?(MigrateSupportQuery) && @statement == other.statement &&
+      other.instance_of?(MigrateSupportQuery) && @statement == other.statement &&
           @index == other.index && @comment == other.comment
     end
     alias eql? ==
@@ -299,5 +299,12 @@ module NoSE
       q.set_text
       q
     end
+
+    # Migrate support queries must also have their statement and index checked
+    def ==(other)
+      other.instance_of?(MigrateSupportSimplifiedQuery) && @statement == other.statement &&
+          @index == other.index && @comment == other.comment
+    end
+    alias eql? ==
   end
 end
