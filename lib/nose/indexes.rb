@@ -305,7 +305,7 @@ module NoSE
     # @return [Array<Fields::Field>]
     def materialized_view_eq(hash_entity)
       eq = @eq_fields.select { |field| field.parent == hash_entity }
-      eq = [join_order.last.id_field] if eq.empty?
+      eq = [@eq_fields.sort_by{|ef| ef.cardinality}.last] if eq.empty?
 
       eq
     end
