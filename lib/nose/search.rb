@@ -168,11 +168,11 @@ module NoSE
 
         if result.is_a? TimeDependResults
           STDERR.puts "set migration plans"
-          result.calculate_cost_each_timestep
           result.set_time_depend_plans
           result.set_time_depend_indexes
           result.set_time_depend_update_plans
-          result.set_migrate_preparing_plans solver_params[:migrate_prepare_plans]
+          result.set_migrate_preparing_plans solver_params[:migrate_prepare_plans] unless solver_params[:migrate_prepare_plans].nil?
+          result.calculate_cost_each_timestep
         end
         result.validate
         result
@@ -343,7 +343,6 @@ module NoSE
           end
 
           # convert existing other trees into migrate_prepare_tree
-          planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, useable_indexes, @cost_model, 2
           index_related_tree_hash[base_index].each do |rtree|
             simple_query = MigrateSupportSimplifiedQuery.simple_query rtree.query, base_index
             next if simple_query.text == migrate_support_query.text

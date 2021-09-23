@@ -124,7 +124,7 @@ module NoSE
       # @raise [InvalidResultsException]
       def select_plan(tree)
         query = tree.query
-        plan_all_times = (0...@problem.timesteps).map do |ts|
+        plan_all_times = (0...@timesteps).map do |ts|
           tree.find do |tree_plan|
             tree_plan.indexes.to_set == @query_indexes.select{|q, idxes| q == query}.values.first[ts]
           end
