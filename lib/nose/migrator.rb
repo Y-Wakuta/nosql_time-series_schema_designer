@@ -130,7 +130,7 @@ module NoSE
           [right_index_hash[related_key]].flatten.map {|rv| rv.merge(left_value)}
         end.uniq
 
-        puts "  new impl ruby original: hash join done results #{results.size} records:  #{Time.now - starting}"
+        puts "hash join results #{results.size} records:  #{Time.now - starting}, #{left_index.key} <-> #{right_index.key}"
         results
       end
 
@@ -180,14 +180,14 @@ module NoSE
         STDERR.puts "validating migration process for #{index.key}"
         results_on_mysql = data_on_mysql index
         results_on_cassandra = data_on_cassandra index
-        compare_two_results(index, results_on_mysql, results_on_cassandra)
+        compare_two_results(index,"mysql", results_on_mysql, "cassandra", results_on_cassandra)
       end
 
       private
 
       def data_on_mysql(index)
-        raw_results = @loader.query_for_index_full_outer_join index, nil, @loader_config
-        #raw_results = @loader.query_for_index_inner_join index, nil, @loader_config
+        #raw_results = @loader.query_for_index_full_outer_join index, nil, @loader_config
+        raw_results = @loader.query_for_index_inner_join index, nil, @loader_config
 
         results_on_mysql = raw_results.map do |row|
           row.each do |f, v|
@@ -196,93 +196,88 @@ module NoSE
           end
           row
         end
-        results_on_mysql
+        load_and_unload index, results_on_mysql
+      end
+
+      def load_and_unload(index, records)
+        index_tmp = index.dup
+        index_tmp.key = "tmp_#{rand(0..100)}"
+        @backend.create_index(index_tmp, true)
+        @backend.load_index_by_cassandra_loader(index_tmp, records)
+        @backend.unload_index_by_cassandra_unloader(index_tmp)
       end
 
       def data_on_cassandra(index)
-        #results_on_backend = @backend.unload_index_by_cassandra_unloader(index)
-        results_on_backend = @backend.index_records(index, index.all_fields)
+        results_on_backend = @backend.unload_index_by_cassandra_unloader(index)
         results_on_backend.each {|r| r.delete('value_hash')}
         results_on_backend
       end
 
-      def compare_two_results(index, left_hash, right_hash)
+      def compare_two_results(index, left_label, left_hash, right_label, right_hash)
         fail 'result field does not match' unless left_hash.first.keys.to_set == right_hash.first.keys.to_set
+        left_hash = @backend.cast_records index, left_hash
+        right_hash = @backend.cast_records index, right_hash
 
-        left_hash.first.keys.each do |field_name|
+        Parallel.each(left_hash.first.keys, in_processes: Parallel.processor_count / 3) do |field_name|
+          puts "start comparing #{field_name}: #{Time.now}"
+          start_time = Time.now
+
           left_values = left_hash.map{|lh| lh[field_name]}
           right_values = right_hash.map{|rh| rh[field_name]}
 
-          if compare_values left_values.compact, right_values
+          left_values = format_values left_values
+          right_values = format_values right_values
+
+          if left_values == right_values
             STDERR.puts "    #{field_name} in #{index.key} matches"
           else
             if compare_approximately_values left_values, right_values
               STDERR.puts "    === #{field_name} in #{index.key} approximately match #{left_values.size} <-> #{right_values.size}==="
 
               if left_values.first.class == Float
-                if left_values.size > right_values.size
-                  STDERR.puts "      left_values is larger than right_values : #{
-                    left_values.sort.zip(right_values.sort).select{|l, r| (l - r).abs < 0.001}.map{|l, r| l}.take(100)
-                  }"
-                else
-                  STDERR.puts "      right_values is larger than left_values : #{
-                    left_values.sort.zip(right_values.sort).select{|l, r| (l - r).abs < 0.001}.map{|l, r| r}.take(100)
-                  }"
-                end
+                 STDERR.puts "     value size is different for #{field_name} (left_values: #{left_values.size}, right_values: #{right_values.size}): #{
+                    left_values.take(500).zip(right_values.take(500))
+                               .select{|l, r| (l - r).abs > 0.001}.map{|l, _| l}.uniq.take(10)
+                 }"
               else
-                if left_values.size > right_values.size
-                  STDERR.puts "      left_values is larger than right_values : #{left_values.difference(right_values).map(&:to_s)}"
-                else
-                  STDERR.puts "      right_values is larger than left_values : #{right_values.difference(left_values).map(&:to_s)}"
+                if left_values.size != right_values.size
+                  STDERR.puts "     value size is different for #{field_name} (left_values: #{left_values.size}," \
+                                " right_values: #{right_values.size}): #{
+                    left_values.size > right_values ?
+                      left_values.diff(right_values).uniq.map(&:to_s)
+                      : right_values.diff(left_values).uniq.map(&:to_s)
+                  }"
                 end
               end
             else
               # this possibly happen if there are INSERT or UPDATE
               STDERR.puts "    === #{field_name} in #{index.key} does not match ==="
-              STDERR.puts "      #{left_values.size}: #{left_values.map(&:to_s).sort.take(10)}"
-              STDERR.puts "      #{right_values.size}: #{right_values.map(&:to_s).sort.take(10)}"
+              STDERR.puts "     #{left_label} #{left_values.size}: #{left_values.take(10).map(&:to_s)}"
+              STDERR.puts "     #{right_label} #{right_values.size}: #{right_values.take(10).map(&:to_s)}"
               STDERR.puts "    ==========================================="
             end
           end
+          puts "comparing #{field_name} took: #{Time.now - start_time}"
         end
-      end
-
-      def compare_values(left_values, right_values)
-        target_class = left_values.first.class
-        if target_class == Cassandra::Uuid
-          left_values = left_values.map(&:to_s).sort
-          right_values = right_values.map(&:to_s).sort
-          return left_values == right_values
-        end
-
-        left_values.sort!
-        right_values.sort!
-
-        if target_class == Float
-          return left_values.sort.zip(right_values.sort).map{|l, r| l - r}.all?{|i| i.abs < 0.001}
-        elsif target_class == Time
-          # TODO: fix: due to difference of timezone, the datetime value changes at each insertion and query. In this case, at least the time difference of all records are same
-
-          return left_values.zip(right_values).map{|l, r| l - r}.uniq.size == 1
-        end
-        return left_values == right_values
       end
 
       def compare_approximately_values(left_values, right_values)
         return false if (left_values.size - right_values.size).abs > left_values.size * 0.1
-        if left_values.first.class == Float
-          difference = left_values.reject{|lv| right_values.any?{|rv| (lv - rv).abs < 0.01}}
-          return false if difference.size > left_values.size * 0.1
-          difference = right_values.reject{|lv| left_values.any?{|rv| (lv - rv).abs < 0.01}}
-          return false if difference.size > left_values.size * 0.1
-          return true
-        end
 
-        difference = left_values.difference(right_values)
-        return false if difference.size > left_values.size * 0.1
-        difference = right_values.difference(left_values)
-        return false if difference.size > right_values.size * 0.1
+        return false if left_values.diff(right_values).size > left_values.size * 0.1 \
+                      or right_values.diff(left_values).size > right_values.size * 0.1
         true
+      end
+
+      def format_values(values)
+        target_class = values.first.class
+        if target_class == Cassandra::Uuid
+          values.map!(&:to_s)
+        elsif values.first.class == Float
+          values.map!{|l| (l * 1_000).to_i}
+        end
+        values.sort!
+        values
       end
     end
   end

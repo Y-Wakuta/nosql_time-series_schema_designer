@@ -54,6 +54,10 @@ module NoSE
       @key ||= "i#{Zlib.crc32 hash_str}"
     end
 
+    def key=(key_suffix)
+      @key += "_" + key_suffix
+    end
+
     def key_fields
       @hash_fields + @order_fields
     end

@@ -53,6 +53,11 @@ class Array
     fail TypeError unless other.is_a? Array
     (prefixes.to_a & other.prefixes.to_a).max_by(&:length) || []
   end
+
+  def diff(other)
+    h = other.each_with_object(Hash.new(0)) { |e,h| h[e] += 1 }
+    reject { |e| h[e] > 0 && h[e] -= 1 }
+  end
 end
 
 # Reopen to present as finite as with Float
