@@ -140,7 +140,6 @@ module NoSE
             {"User_Username" => "Bob", "Tweets_TweetId" => "1", "Tweets_FollowerId" => "100"},
             {"User_Username" => "Bob", "Tweets_TweetId" => "2", "Tweets_FollowerId" => "101"}
         ]
-        allow(CassandraBackend).to receive(:remove_any_null_place_holder_row).and_return(results)
 
         def results.last_page?
           true
