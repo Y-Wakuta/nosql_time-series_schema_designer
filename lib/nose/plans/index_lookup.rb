@@ -142,14 +142,22 @@ module NoSE
         has_ids = parent_ids.subset? parent_index.all_fields
 
         hash_order_prefix = index.hash_fields + index.order_fields.take((parent_ids - index.hash_fields).size)
-        # If the last step gave an ID, we must use it
-        # XXX This doesn't cover all cases
-        return true if has_ids && hash_order_prefix.to_set != parent_ids
 
-        # If we're looking up from a previous step, only allow lookup by ID
-        return true unless (index.graph.size == 1 &&
-          parent_index.graph != index.graph) ||
-          hash_order_prefix == parent_ids
+        # GROUP BY clause affect the hash_fields.
+        if index.groupby_fields.empty? # if this index is not for GROUP BY,
+          # If the last step gave an ID, we must use it
+          # XXX This doesn't cover all cases
+          return true if has_ids && hash_order_prefix.to_set != parent_ids
+
+          # If we're looking up from a previous step, only allow lookup by ID
+          return true unless (index.graph.size == 1 &&
+            parent_index.graph != index.graph) ||
+            hash_order_prefix == parent_ids
+        else
+          # if this index is for GROUP BY, the hash_fields does not necessary to have ID.
+          return true unless has_ids && (index.hash_fields + index.order_fields) >= parent_ids
+        end
+
 
         return true if is_useless_parent?(state, index, parent_index)
 
