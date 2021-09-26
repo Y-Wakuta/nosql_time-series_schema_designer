@@ -478,6 +478,20 @@ module NoSE
           if query_costs.key? index_step.index
             current_cost = query_costs[index_step.index].last
 
+            unless is_same_cost current_cost, cost
+              if is_larger_cost current_cost, cost
+                # if the new cost value is bigger than the current value,
+                # delete newly created query plan
+                planner = Plans::QueryPlanner.new(@workload, nil, @cost_model)
+                planner.prune_plan index_step
+              else
+                # if the new cost value is smaller than the current value,
+                # overwrite costly plan and update the cost value
+                query_costs[index_step.index] = [steps, cost]
+              end
+              next
+            end
+
             # We must always have the same cost
             # WARNING: fix this invalid conditions.
             # Ignoring steps that have filtering steps just overwrites the cost value of step in another query plan.
