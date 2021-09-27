@@ -720,10 +720,11 @@ module NoSE
           where = @eq_fields.map do |field|
             "\"#{field.id}\" = ?"
           end.join ' AND '
-          unless @range_field.nil?
-            # TODO: allow several range fields
-            condition = conditions.each_value.find(&:range?)
-            where << " AND \"#{condition.field.id}\" #{condition.operator} ?"
+          unless @range_fields.empty?
+            @range_fields.each do |range_field|
+              condition = conditions.find{|n, _| n == range_field.id}.last
+              where << " AND \"#{condition.field.id}\" #{condition.operator} ?"
+            end
           end
 
           where
