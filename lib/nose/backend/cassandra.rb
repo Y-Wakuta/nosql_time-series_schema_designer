@@ -683,9 +683,14 @@ module NoSE
         # Perform a column family lookup in Cassandra
         def process(conditions, results, query_conditions)
           results = initial_results(conditions) if results.nil?
+
+          # この処理は Q(result.size * row.width) であり，ある程度時間がかかる
+          # この位置に置くことで MV プランの結果に対してこの処理をすることを避けているが，最終的な結果に null_place_holder が含まれることになる
+          # (現在は inner join でロードしているため関係無い)
+          results = CassandraBackend.remove_any_null_place_holder_row(results) unless results.nil?
+
           condition_list = result_conditions conditions, results
           new_result = fetch_all_queries condition_list, results, query_conditions
-          new_result = CassandraBackend.remove_any_null_place_holder_row(new_result)
           fail "no result given" if new_result.size == 0 and not @step.children.empty?
 
           # Limit the size of the results in case we fetched multiple keys
