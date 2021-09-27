@@ -875,6 +875,7 @@ module NoSE
         step.instance_variable_set(:@eq_filter, eq_filter)
 
         range_filters = step_hash['range_filter']
+        decoded_range_filters = []
         unless range_filters.nil? or range_filters.empty?
           decoded_range_filters = range_filters.map{|rf| f.call(rf)}
         end
