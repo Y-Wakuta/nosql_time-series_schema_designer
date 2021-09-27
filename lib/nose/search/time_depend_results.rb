@@ -91,10 +91,8 @@ module NoSE
         @total_cost = query_cost + update_cost
       end
 
-      # calculate cost in each timestep for output
-      # @return [void]
-      def calculate_cost_each_timestep
-        query_cost = (@plans || []).transpose.each_with_index.map do |plan_each_times, ts|
+      def calculate_workload_cost
+         query_cost = (@plans || []).transpose.each_with_index.map do |plan_each_times, ts|
           plan_each_times.map do |plan|
             plan.cost * @workload.statement_weights[plan.query][ts]
           end.sum
@@ -110,6 +108,31 @@ module NoSE
         @each_total_cost = query_cost.zip(update_cost.transpose.map(&:sum)).map do |l, r|
           (l.nil? ? 0 : l) + (r.nil? ? 0 : r)
         end
+      end
+
+      # calculate cost in each timestep for output
+      # @return [void]
+      def calculate_cost_each_timestep
+        calculate_workload_cost
+
+        # TODO: まだ，extract, load のコストしか計上していないので，途中更新のコストも含めなければならない
+        migrate_extract_cost = (0...@timesteps).map do |ts|
+          @migrate_plans.select{|mp| mp.start_time == ts}.map(&:cost).inject(0, &:+)
+        end
+        puts "extracting cost for migration: #{migrate_extract_cost.inspect}"
+        @each_total_cost = @each_total_cost.zip(migrate_extract_cost).map {|l, r| l + r}
+
+        loading_cost = [0] * @timesteps
+        @problem.migrate_vars.each do |index, vars_each_ts|
+          vars_each_ts.each do |ts, var|
+            next unless var.value
+            loading_cost[ts] += cost_model.load_cost(index)
+          end
+        end
+        puts "loading cost for migration: #{loading_cost.inspect}"
+        @each_total_cost = @each_total_cost.zip(loading_cost).map {|l, r| l + r}
+
+        @each_total_cost
       end
 
       # @return [void]
