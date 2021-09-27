@@ -155,6 +155,16 @@ module NoSE
       end
 
       # Check if the given index is empty
+      def index_count(index)
+        query = "SELECT count(1) FROM \"#{index.key}\""
+        record_count = -1
+        retry_when_fail do
+          record_count = @client.execute(query, ).first.values.first
+        end
+        record_count
+      end
+
+      # Check if the given index is empty
       def index_empty?(index)
         query = "SELECT count(*) FROM \"#{index.key}\" LIMIT 1"
         is_index_empty = false;
@@ -222,16 +232,15 @@ module NoSE
         fields = index.all_fields.to_a
         columns = fields.map(&:id)
         columns << "value_hash"
-        hoge_start = Time.now
+        formatting_start = Time.now
         puts "start formatting records #{Time.now}"
         formatted_result = format_result index, results
-        puts "formatting record to load done for #{Time.now - hoge_start}"
+        puts "formatting record to load #{index.key} done for #{Time.now - formatting_start}"
 
         fail 'no data given to load on cassandra' if formatted_result.size == 0
         inserting_try = 0
-        host_name = ""
         begin
-          Parallel.each_with_index(formatted_result.each_slice(700_000), in_processes: Parallel.processor_count / 5) do |results_chunk, idx|
+          Parallel.each_with_index(formatted_result.each_slice(1_000_000), in_processes: Parallel.processor_count / 8) do |results_chunk, idx|
             host_name = @hosts.sample(1).first
             Dir.mktmpdir do |dir|
               file_name = "#{dir}/#{index.key}_#{idx}.csv"
@@ -240,38 +249,38 @@ module NoSE
 
                 # When the beginning of the line is white space, the space is ignored when loaded onto Casandra.
                 # Thus, explicitly add the quotation to keep the space on Cassandra.
-                results_chunk.each {|row| f.puts(row.map{|f| f.instance_of?(String) ? '"' + f + '"' : f}.join('|'))}
+                # Avoid adding double quotations by checking it is already quoted
+                results_chunk.each {|row| f.puts(row.map {|f| (f.instance_of?(String) and f[0] != '"' and f[-1] != '"') ? '"' + f + '"' : f }.join('|'))}
                 f
               end
               STDERR.puts "  insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
               ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
-              ret = system("./cassandra-loader/build/cassandra-loader -badDir /tmp/ -queryTimeout 20 -numRetries 5 -batchSize 200 " \
+              ret = system("./cassandra-loader/build/cassandra-loader -badDir /tmp/ -queryTimeout 20 -maxErrors 1 -maxInsertErrors 1 -numRetries 5 -batchSize 200 " \
                            "-localDateFormat \"yyyy-MM-dd\" -skipRows 1 -delim \"|\" -f #{file_name} -host #{host_name} " \
                            "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\" > /dev/null")
+
+              puts ">>>>>>>>>>>>>>>>>>>>> does current loading success: #{ret}"
 
               fail "  loading error detected: #{index.key}" unless ret
               g.close
             end
           end
-        rescue
+        rescue => e
           STDERR.puts "  loading error detected for #{index.key}"
           sleep 30 if formatted_result.size > 100_000
           all_retries = 10
           if inserting_try < all_retries
-            STDERR.puts "  once truncate record of #{index.key}"
-            ret = system("cqlsh --request-timeout=10000 #{host_name} -k #{@keyspace} -e \"TRUNCATE #{index.key}\"")
-            if ret
-              STDERR.puts "  truncate succeeded"
-              STDERR.puts "  retry inserting #{inserting_try} / #{all_retries}"
-              inserting_try += 1
-              sleep 30
-            end
+            puts "recreate index"
+            recreate_index index, true, false,  true
             retry
           end
+          throw e
         end
+        index_records_count = index_count index
+        fail "not enough records loaded original: #{formatted_result.size}, loaded: #{index_records_count}" unless index_records_count == formatted_result.size
         GC.start
         ending = Time.now.utc
-        STDERR.puts "loading through csv time: #{ending - starting} for #{formatted_result.size.to_s} records on #{index.key}"
+        STDERR.puts "loading through csv time: #{ending - starting} for #{formatted_result.size.to_s} records on #{index.key}, loaded: #{index_records_count}"
       end
 
       def unload_index_by_cassandra_unloader(index)
@@ -446,7 +455,8 @@ module NoSE
         idx = 0
         while idx < results.size
           r = results[idx]
-          csv_row = index_row(r, fields).map{|s| s.is_a?(String) ? s.dump : s} # escape special characters like newline
+          csv_row = index_row(r, fields)
+          #csv_row = index_row(r, fields).map{|s| s.is_a?(String) ? s.dump : s} # escape special characters like newline
           csv_row << r["value_hash"]
           csv_rows << csv_row
           idx += 1
@@ -787,6 +797,8 @@ module NoSE
             break if !@step.limit.nil? && new_result.length >= @step.limit
           end
           @logger.debug "Total result size = #{new_result.size}"
+          puts "lookup row size = #{new_result.size}, #{@step.state.query.comment}, #{@step.inspect}, "\
+               "#{@prepared.instance_of?(String) ? @prepared : @prepared.cql}"
 
           new_result
         end
