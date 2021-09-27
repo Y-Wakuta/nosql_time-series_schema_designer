@@ -26,6 +26,13 @@ module NoSE
         end
       end
 
+      # calculate cost in each timestep for output
+      # @return [void]
+      def calculate_cost_each_timestep
+        calculate_workload_cost
+        @each_total_cost
+      end
+
       private
 
       # Check that the indexes selected were actually enumerated

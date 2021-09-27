@@ -440,7 +440,14 @@ module NoSE
           intermediate_record_size = [intermediate_record_size, entity.count].max
           base_card = [base_card * entity_cardinality, intermediate_record_size].min
         end
-        return [cardinality * (base_card.to_f / @index.entries), 1].max
+        reduced_cardinality = [cardinality * (base_card.to_f / @index.entries), 1].max
+
+        # When many entity has GROUP BY, the returned cardinality gets the same cardinality as non-GROUP BY index lookup step.
+        # This result in un-stable optimization result.
+        # Therefore, slightly reduce the cardinality for MV with GROUP BY for the stability of the result.
+        formality_groupby_reduction_ratio = 0.999 ** (entity_groupby_fields_hash.select{|_, v| not v.empty?}.map{|k, _| k}.size)
+
+        reduced_cardinality * formality_groupby_reduction_ratio
       end
 
       # Modify the state to reflect the fields looked up by the index
