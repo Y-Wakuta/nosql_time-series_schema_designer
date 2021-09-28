@@ -303,6 +303,14 @@ module NoSE
         # if all field have the same value, the value will distinguished.
         # Therefore reduce the number of records here
         query = "SELECT DISTINCT #{select.join ', '} FROM #{tables}"
+
+        # add ORDER BY to keep record order
+        primary_keys_for_orderby = index.graph.entities.map(&:fields).reduce(&:merge)
+                            .select{|_, v| v.primary_key? or v.instance_of?(Fields::CompositeKeyField)}
+                            .map{|_, v| v.id}
+                            .sort_by{|v| v}
+        query += " ORDER BY #{primary_keys_for_orderby.join(", ")} "
+
         query += " LIMIT #{limit}" unless limit.nil?
 
         @logger.debug query

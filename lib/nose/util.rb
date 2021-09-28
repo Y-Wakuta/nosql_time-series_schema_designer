@@ -393,7 +393,7 @@ module RunningTimeLogger
 
     def write_running_times
       fail "some logging point is not set : #{BASE_COLUMN_HEADERS.values.to_set - @time_array.keys.to_set}" \
-          unless BASE_COLUMN_HEADERS.values.to_set < @time_array.keys.to_set
+          unless BASE_COLUMN_HEADERS.values.to_set <= @time_array.keys.to_set
 
       info COLUMN_HEADERS.values.join(",")
       info COLUMN_HEADERS.keys.map {|k| @time_array[COLUMN_HEADERS[k]]}.join(",")

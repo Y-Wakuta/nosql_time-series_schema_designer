@@ -177,6 +177,7 @@ module NoSE
                                                @model[to_entity],
                                                **options
 
+      options.delete(:composite)
       # Add the key in the opposite direction
       options[:count] = @model[from_entity].count
       options[:relationship] = :many

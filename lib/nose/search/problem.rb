@@ -48,7 +48,7 @@ module NoSE
       def solve(previous_type = nil)
         return unless @status.nil?
 
-        outputed_path = log_model 'Model'
+        #outputed_path = log_model 'Model'
         @model.update
         STDERR.puts "model variables: " + @model.variables.size.to_s
         STDERR.puts "model constraints: " + @model.constraints.size.to_s
