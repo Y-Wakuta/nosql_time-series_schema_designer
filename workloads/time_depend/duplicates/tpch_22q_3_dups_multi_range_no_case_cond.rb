@@ -57,7 +57,7 @@ NoSE::TimeDependWorkload.new do
 
     Q 'SELECT l_orderkey.o_orderdate, sum(from_lineitem.l_extendedprice), sum(from_lineitem.l_discount) '\
       'FROM part.from_partsupp.from_lineitem.l_orderkey.o_custkey.c_nationkey.n_regionkey ' \
-      'WHERE c_nationkey.n_name = ? AND n_regionkey.r_name = ? AND part.p_type = ? AND l_orderkey.o_orderdate < ? ' \
+      'WHERE n_regionkey.r_name = ? AND part.p_type = ? AND l_orderkey.o_orderdate < ? ' \
       'ORDER BY l_orderkey.o_orderdate ' \
       'GROUP BY l_orderkey.o_orderdate -- Q8'
 
@@ -87,9 +87,10 @@ NoSE::TimeDependWorkload.new do
       'FROM partsupp.ps_suppkey.s_nationkey '\
       'WHERE s_nationkey.n_name = ? -- Q11_inner'
 
-    Q 'SELECT lineitem.l_shipmode, l_orderkey.o_orderpriority '\
+    # case が sum() に包含されていたので，そこで使用されたいた l_orderkey.o_orderpriority をそのまま sum に追加した
+    Q 'SELECT lineitem.l_shipmode, count(l_orderkey.o_orderpriority) '\
       'FROM lineitem.l_orderkey '\
-      'WHERE lineitem.l_shipmode = ? AND l_orderkey.o_orderpriority = ? AND lineitem.l_receiptdate < ? ' \
+      'WHERE lineitem.l_shipmode = ? AND lineitem.l_receiptdate < ? ' \
       'ORDER BY lineitem.l_shipmode ' \
       'GROUP BY lineitem.l_shipmode -- Q12'
 
@@ -98,9 +99,9 @@ NoSE::TimeDependWorkload.new do
       'WHERE orders.o_comment = ? ' \
       'GROUP BY o_custkey.c_custkey, orders.o_orderkey -- Q13'
 
-    Q 'SELECT ps_partkey.p_type, sum(lineitem.l_extendedprice), sum(lineitem.l_discount) '\
-      'FROM lineitem.l_partkey.ps_partkey '\
-      'WHERE ps_partkey.p_type = ? AND lineitem.l_shipdate < ? -- Q14'
+    #Q 'SELECT ps_partkey.p_type, sum(lineitem.l_extendedprice), sum(lineitem.l_discount) '\
+    #  'FROM lineitem.l_partkey.ps_partkey '\
+    #  'WHERE ps_partkey.p_type = ? AND lineitem.l_shipdate < ? -- Q14'
 
     Q 'SELECT supplier.s_suppkey FROM supplier WHERE supplier.s_comment = ? -- Q16_inner'
     Q 'SELECT ps_partkey.p_brand, ps_partkey.p_type, ps_partkey.p_size, count(supplier.s_suppkey) ' \
@@ -180,7 +181,7 @@ NoSE::TimeDependWorkload.new do
 
     Q 'SELECT l_orderkey.o_orderdate, sum(from_lineitem_dup.l_extendedprice), sum(from_lineitem_dup.l_discount) '\
       'FROM part.from_partsupp.from_lineitem_dup.l_orderkey.o_custkey.c_nationkey.n_regionkey ' \
-      'WHERE c_nationkey.n_name = ? AND n_regionkey.r_name = ? AND part.p_type = ? AND l_orderkey.o_orderdate < ? ' \
+      'WHERE n_regionkey.r_name = ? AND part.p_type = ? AND l_orderkey.o_orderdate < ? ' \
       'ORDER BY l_orderkey.o_orderdate ' \
       'GROUP BY l_orderkey.o_orderdate -- Q8-dup'
 
@@ -210,9 +211,10 @@ NoSE::TimeDependWorkload.new do
       'FROM partsupp.ps_suppkey.s_nationkey '\
       'WHERE s_nationkey.n_name = ? -- Q11_inner-dup'
 
-    Q 'SELECT lineitem_dup.l_shipmode, l_orderkey.o_orderpriority '\
+    # case が sum() に包含されていたので，そこで使用されたいた l_orderkey.o_orderpriority をそのまま sum に追加した．しかし，sum は string の属性に使えないので，count に変更した
+    Q 'SELECT lineitem_dup.l_shipmode, count(l_orderkey.o_orderpriority) '\
       'FROM lineitem_dup.l_orderkey '\
-      'WHERE lineitem_dup.l_shipmode = ? AND l_orderkey.o_orderpriority = ? AND lineitem_dup.l_receiptdate < ? ' \
+      'WHERE lineitem_dup.l_shipmode = ? AND lineitem_dup.l_receiptdate < ? ' \
       'ORDER BY lineitem_dup.l_shipmode ' \
       'GROUP BY lineitem_dup.l_shipmode -- Q12-dup'
 
@@ -221,9 +223,9 @@ NoSE::TimeDependWorkload.new do
       'WHERE orders_dup.o_comment = ? ' \
       'GROUP BY o_custkey.c_custkey, orders_dup.o_orderkey -- Q13-dup'
 
-    Q 'SELECT ps_partkey.p_type, sum(lineitem_dup.l_extendedprice), sum(lineitem_dup.l_discount) '\
-      'FROM lineitem_dup.l_partkey.ps_partkey '\
-      'WHERE ps_partkey.p_type = ? AND lineitem_dup.l_shipdate < ? -- Q14'
+    #Q 'SELECT ps_partkey.p_type, sum(lineitem_dup.l_extendedprice), sum(lineitem_dup.l_discount) '\
+    #  'FROM lineitem_dup.l_partkey.ps_partkey '\
+    #  'WHERE ps_partkey.p_type = ? AND lineitem_dup.l_shipdate < ? -- Q14-dup'
 
     Q 'SELECT supplier.s_suppkey FROM supplier WHERE supplier.s_comment = ? -- Q16_inner-dup'
     Q 'SELECT ps_partkey.p_brand, ps_partkey.p_type, ps_partkey.p_size, count(supplier.s_suppkey) ' \

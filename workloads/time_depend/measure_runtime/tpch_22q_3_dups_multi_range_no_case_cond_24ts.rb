@@ -11,7 +11,7 @@ NoSE::TimeDependWorkload.new do
     end
   end
 
-  step_width = 3
+  step_width = 6
   step_cyclic = [0.1] * step_width + [0.9] * step_width + [0.1] * step_width + [0.9] * step_width
   step_cyclic_revese = step_cyclic.map{|sc| (1.0 - sc).round(4)}
 
