@@ -530,6 +530,8 @@ module NoSE
           results.map { |row| row.select! { |k, _| select_ids.include? k } }
         end
 
+        puts "final result size is #{results.size} for #{@query.inspect}: #{results.size}"
+
         results
       end
     end

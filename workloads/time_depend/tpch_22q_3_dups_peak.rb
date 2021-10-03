@@ -3,17 +3,19 @@
 NoSE::TimeDependWorkload.new do
   Model 'tpch_card_key_composite_dup_lineitems_order_customer'
 
-  step_width = 3
-  step_cyclic = [0.1] * step_width + [0.9] * step_width + [0.1] * step_width + [0.9] * step_width
-  step_cyclic_revese = step_cyclic.map{|sc| (1.0 - sc).round(4)}
+  peak_type1 = [0.1] * 12
+  peak_type1[3] = peak_type1[4] = 0.9
 
-  TimeSteps step_cyclic.size
+  peak_type2 = [0.1] * 12
+  peak_type2[7] = peak_type2[8] = 0.9
+
+  TimeSteps peak_type1.size
   Interval 7200 # specify interval in minutes
   #Static true
   #FirstTs true
   #LastTs true
 
-  Group 'group-lineitem', default: step_cyclic do
+  Group 'group-lineitem', default: peak_type1 do
     Q 'SELECT ps_suppkey.s_acctbal, ps_suppkey.s_name, s_nationkey.n_name, part.p_partkey, part.p_mfgr, '\
          'ps_suppkey.s_address, ps_suppkey.s_phone, ps_suppkey.s_comment ' \
        'FROM part.from_partsupp.ps_suppkey.s_nationkey.n_regionkey ' \
@@ -137,7 +139,7 @@ NoSE::TimeDependWorkload.new do
       'GROUP BY customer.c_phone -- Q22'
   end
 
-  Group 'group-lineitem-dup', default: step_cyclic_revese do
+  Group 'group-lineitem-dup', default: peak_type2 do
     Q 'SELECT ps_suppkey.s_acctbal, ps_suppkey.s_name, s_nationkey.n_name, part.p_partkey, part.p_mfgr, '\
          'ps_suppkey.s_address, ps_suppkey.s_phone, ps_suppkey.s_comment ' \
        'FROM part.from_partsupp.ps_suppkey.s_nationkey.n_regionkey ' \

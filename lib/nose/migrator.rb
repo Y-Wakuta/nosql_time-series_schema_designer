@@ -228,11 +228,22 @@ module NoSE
           left_values = format_values left_values
           right_values = format_values right_values
 
-          if left_values == right_values
-            STDERR.puts "    #{field_name} in #{index.key} matches"
+          begin
+            compare_field field_name, index.key, left_label, left_values, right_label, right_values
+          rescue => e
+            STDERR.puts "#{e}, #{field_name}, #{index.key}"
+          end
+
+          puts "comparing #{field_name} took: #{Time.now - start_time}"
+        end
+      end
+
+      def compare_field(field_name, index_key, left_label, left_values, right_label, right_values)
+           if left_values == right_values
+            STDERR.puts "    #{field_name} in #{index_key} matches"
           else
             if compare_approximately_values left_values, right_values
-              STDERR.puts "    === #{field_name} in #{index.key} approximately match #{left_values.size} <-> #{right_values.size}==="
+              STDERR.puts "    === #{field_name} in #{index_key} approximately match #{left_values.size} <-> #{right_values.size}==="
 
               if left_values.first.class == Float
                  STDERR.puts "     value size is different for #{field_name} (left_values: #{left_values.size}, right_values: #{right_values.size}): #{
@@ -257,8 +268,6 @@ module NoSE
               STDERR.puts "    ==========================================="
             end
           end
-          puts "comparing #{field_name} took: #{Time.now - start_time}"
-        end
       end
 
       def compare_approximately_values(left_values, right_values)
