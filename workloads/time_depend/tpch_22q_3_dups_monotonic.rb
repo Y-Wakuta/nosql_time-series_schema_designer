@@ -3,31 +3,19 @@
 NoSE::TimeDependWorkload.new do
   Model 'tpch_card_key_composite_dup_lineitems_order_customer'
 
-  def step_freq(start_ratio, end_ratio, timesteps)
-    timesteps -= 1
-    middle_ts = timesteps / 2
-    (0..timesteps).map do |current_ts|
-      current_ts <= middle_ts ? start_ratio : end_ratio
-    end
-  end
+  timesteps = 12
+  p = Proc.new{|t| (0.9 - 0.1) / (timesteps - 1) * t + 0.1}
 
-  #step = step_freq(0.1, 0.9, 8)
-  #step = step_freq(0.1, 0.9, 8)
-  step_width = 3
-  step_cyclic = [0.1] * step_width + [0.9] * step_width + [0.1] * step_width + [0.9] * step_width
-  step_cyclic_revese = step_cyclic.map{|sc| (1.0 - sc).round(4)}
+  monotonic_type1 = (0...12).map{|t| p.call(t)}
+  monotonic_type2 = (0...12).map{|t| 1.0 - p.call(t)}
 
-  #frequencies = step
-
-  #TimeSteps frequencies.size
-  TimeSteps step_cyclic.size
+  TimeSteps timesteps
   Interval 7200 # specify interval in minutes
   #Static true
   #FirstTs true
   #LastTs true
 
-  #Group 'group-lineitem', default: frequencies.reverse do
-  Group 'group-lineitem', default: step_cyclic do
+  Group 'group-lineitem', default: monotonic_type1 do
     Q 'SELECT ps_suppkey.s_acctbal, ps_suppkey.s_name, s_nationkey.n_name, part.p_partkey, part.p_mfgr, '\
          'ps_suppkey.s_address, ps_suppkey.s_phone, ps_suppkey.s_comment ' \
        'FROM part.from_partsupp.ps_suppkey.s_nationkey.n_regionkey ' \
@@ -40,7 +28,7 @@ NoSE::TimeDependWorkload.new do
 
     Q 'SELECT l_orderkey.o_orderkey, sum(lineitem.l_extendedprice), sum(lineitem.l_discount), l_orderkey.o_orderdate, l_orderkey.o_shippriority '\
       'FROM lineitem.l_orderkey.o_custkey '\
-      'WHERE o_custkey.c_mktsegment = ? AND lineitem.l_shipdate > ? '\
+      'WHERE o_custkey.c_mktsegment = ? AND l_orderkey.o_orderdate < ? AND lineitem.l_shipdate > ? '\
       'ORDER BY lineitem.l_extendedprice, lineitem.l_discount, l_orderkey.o_orderdate ' \
       'GROUP BY l_orderkey.o_orderkey, l_orderkey.o_orderdate, l_orderkey.o_shippriority -- Q3'
 
@@ -60,14 +48,14 @@ NoSE::TimeDependWorkload.new do
 
     Q 'SELECT l_orderkey.o_orderdate, sum(from_lineitem.l_extendedprice), sum(from_lineitem.l_discount) '\
       'FROM part.from_partsupp.from_lineitem.l_orderkey.o_custkey.c_nationkey.n_regionkey ' \
-      'WHERE c_nationkey.n_name = ? AND n_regionkey.r_name = ? AND part.p_type = ? AND l_orderkey.o_orderdate < ? ' \
+      'WHERE n_regionkey.r_name = ? AND part.p_type = ? AND l_orderkey.o_orderdate < ? ' \
       'ORDER BY l_orderkey.o_orderdate ' \
       'GROUP BY l_orderkey.o_orderdate -- Q8'
 
     Q 'SELECT c_nationkey.n_name, l_orderkey.o_orderdate, sum(from_lineitem.l_extendedprice), sum(from_lineitem.l_discount), '  \
           'sum(from_partsupp.ps_supplycost), sum(from_lineitem.l_quantity) ' \
       'FROM part.from_partsupp.from_lineitem.l_orderkey.o_custkey.c_nationkey ' \
-      'WHERE part.p_name = ? AND l_orderkey.o_orderkey = ? ' \
+      'WHERE part.p_name = ? ' \
       'ORDER BY c_nationkey.n_name, l_orderkey.o_orderdate ' \
       'GROUP BY c_nationkey.n_name, l_orderkey.o_orderdate -- Q9'
 
@@ -82,7 +70,7 @@ NoSE::TimeDependWorkload.new do
 
     Q 'SELECT sum(partsupp.ps_supplycost), sum(partsupp.ps_availqty) ' \
       'FROM partsupp.ps_suppkey.s_nationkey '\
-      'WHERE s_nationkey.n_name = ? AND partsupp.ps_supplycost = ? AND partsupp.ps_availqty = ? '\
+      'WHERE s_nationkey.n_name = ? AND partsupp.ps_supplycost > ? AND partsupp.ps_availqty > ? '\
       'ORDER BY partsupp.ps_supplycost, partsupp.ps_availqty ' \
       'GROUP BY partsupp.ps_partkey -- Q11_outer'
 
@@ -90,9 +78,10 @@ NoSE::TimeDependWorkload.new do
       'FROM partsupp.ps_suppkey.s_nationkey '\
       'WHERE s_nationkey.n_name = ? -- Q11_inner'
 
-    Q 'SELECT lineitem.l_shipmode, l_orderkey.o_orderpriority '\
+    # case が sum() に包含されていたので，そこで使用されたいた l_orderkey.o_orderpriority をそのまま sum に追加した
+    Q 'SELECT lineitem.l_shipmode, count(l_orderkey.o_orderpriority) '\
       'FROM lineitem.l_orderkey '\
-      'WHERE lineitem.l_shipmode = ? AND l_orderkey.o_orderpriority = ? AND lineitem.l_receiptdate < ? ' \
+      'WHERE lineitem.l_shipmode = ? AND lineitem.l_receiptdate < ? ' \
       'ORDER BY lineitem.l_shipmode ' \
       'GROUP BY lineitem.l_shipmode -- Q12'
 
@@ -101,9 +90,9 @@ NoSE::TimeDependWorkload.new do
       'WHERE orders.o_comment = ? ' \
       'GROUP BY o_custkey.c_custkey, orders.o_orderkey -- Q13'
 
-    Q 'SELECT ps_partkey.p_type, sum(from_lineitem.l_extendedprice), sum(from_lineitem.l_discount) '\
-      'FROM orders.from_lineitem.l_partkey.ps_partkey '\
-      'WHERE orders.o_orderkey = ? AND ps_partkey.p_type = ? AND from_lineitem.l_shipdate < ? -- Q14'
+    #Q 'SELECT ps_partkey.p_type, sum(lineitem.l_extendedprice), sum(lineitem.l_discount) '\
+    #  'FROM lineitem.l_partkey.ps_partkey '\
+    #  'WHERE ps_partkey.p_type = ? AND lineitem.l_shipdate < ? -- Q14'
 
     Q 'SELECT supplier.s_suppkey FROM supplier WHERE supplier.s_comment = ? -- Q16_inner'
     Q 'SELECT ps_partkey.p_brand, ps_partkey.p_type, ps_partkey.p_size, count(supplier.s_suppkey) ' \
@@ -125,8 +114,8 @@ NoSE::TimeDependWorkload.new do
 
     Q 'SELECT sum(lineitem.l_extendedprice), sum(lineitem.l_discount) ' \
       'FROM lineitem.l_partkey.ps_partkey ' \
-      'WHERE ps_partkey.p_brand = ? AND ps_partkey.p_container = ? AND lineitem.l_shipdate = ? AND lineitem.l_shipinstruct = ? ' \
-      'AND ps_partkey.p_size > ? -- Q19'
+      'WHERE ps_partkey.p_brand = ? AND ps_partkey.p_container = ? AND lineitem.l_shipmode = ? AND lineitem.l_shipinstruct = ? ' \
+      'AND ps_partkey.p_size > ? AND lineitem.l_quantity < ? -- Q19'
 
     Q 'SELECT part.p_partkey FROM part WHERE part.p_name = ? -- Q20_inner_inner_1'
     Q 'SELECT partsupp.ps_suppkey FROM partsupp WHERE partsupp.ps_partkey = ? AND partsupp.ps_availqty > ? -- Q20_inner'
@@ -137,8 +126,7 @@ NoSE::TimeDependWorkload.new do
 
     Q 'SELECT ps_suppkey.s_name, count(orders.o_orderkey) ' \
       'FROM orders.from_lineitem.l_partkey.ps_suppkey.s_nationkey ' \
-      'WHERE orders.o_orderstatus = ? AND orders.o_orderkey = ? AND s_nationkey.n_name = ? '\
-      'AND from_lineitem.l_receiptdate > ? ' \
+      'WHERE orders.o_orderstatus = ? AND s_nationkey.n_name = ? '\
       'ORDER BY ps_suppkey.s_name ' \
       'GROUP BY ps_suppkey.s_name -- Q21'
 
@@ -146,12 +134,12 @@ NoSE::TimeDependWorkload.new do
       'WHERE customer.c_phone = ? AND customer.c_acctbal > ? -- Q22_inner_inner'
     Q 'SELECT customer.c_phone, sum(customer.c_acctbal), count(customer.c_custkey) ' \
       'FROM customer ' \
-      'WHERE customer.c_phone = ? AND customer.c_custkey = ? AND customer.c_acctbal > ? ' \
+      'WHERE customer.c_phone = ? AND customer.c_acctbal > ? ' \
       'ORDER BY customer.c_phone ' \
       'GROUP BY customer.c_phone -- Q22'
   end
 
-  Group 'group-lineitem-dup', default: step_cyclic_revese do
+  Group 'group-lineitem-dup', default: monotonic_type2 do
     Q 'SELECT ps_suppkey.s_acctbal, ps_suppkey.s_name, s_nationkey.n_name, part.p_partkey, part.p_mfgr, '\
          'ps_suppkey.s_address, ps_suppkey.s_phone, ps_suppkey.s_comment ' \
        'FROM part.from_partsupp.ps_suppkey.s_nationkey.n_regionkey ' \
@@ -164,7 +152,7 @@ NoSE::TimeDependWorkload.new do
 
     Q 'SELECT l_orderkey.o_orderkey, sum(lineitem_dup.l_extendedprice), sum(lineitem_dup.l_discount), l_orderkey.o_orderdate, l_orderkey.o_shippriority '\
       'FROM lineitem_dup.l_orderkey.o_custkey '\
-      'WHERE o_custkey.c_mktsegment = ? AND lineitem_dup.l_shipdate > ? '\
+      'WHERE o_custkey.c_mktsegment = ? AND l_orderkey.o_orderdate < ? AND lineitem_dup.l_shipdate > ? '\
       'ORDER BY lineitem_dup.l_extendedprice, lineitem_dup.l_discount, l_orderkey.o_orderdate ' \
       'GROUP BY l_orderkey.o_orderkey, l_orderkey.o_orderdate, l_orderkey.o_shippriority -- Q3-dup'
 
@@ -184,14 +172,14 @@ NoSE::TimeDependWorkload.new do
 
     Q 'SELECT l_orderkey.o_orderdate, sum(from_lineitem_dup.l_extendedprice), sum(from_lineitem_dup.l_discount) '\
       'FROM part.from_partsupp.from_lineitem_dup.l_orderkey.o_custkey.c_nationkey.n_regionkey ' \
-      'WHERE c_nationkey.n_name = ? AND n_regionkey.r_name = ? AND part.p_type = ? AND l_orderkey.o_orderdate < ? ' \
+      'WHERE n_regionkey.r_name = ? AND part.p_type = ? AND l_orderkey.o_orderdate < ? ' \
       'ORDER BY l_orderkey.o_orderdate ' \
       'GROUP BY l_orderkey.o_orderdate -- Q8-dup'
 
     Q 'SELECT c_nationkey.n_name, l_orderkey.o_orderdate, sum(from_lineitem_dup.l_extendedprice), sum(from_lineitem_dup.l_discount), '  \
           'sum(from_partsupp.ps_supplycost), sum(from_lineitem_dup.l_quantity) ' \
       'FROM part.from_partsupp.from_lineitem_dup.l_orderkey.o_custkey.c_nationkey ' \
-      'WHERE part.p_name = ? AND l_orderkey.o_orderkey = ? ' \
+      'WHERE part.p_name = ? ' \
       'ORDER BY c_nationkey.n_name, l_orderkey.o_orderdate ' \
       'GROUP BY c_nationkey.n_name, l_orderkey.o_orderdate -- Q9-dup'
 
@@ -206,7 +194,7 @@ NoSE::TimeDependWorkload.new do
 
     Q 'SELECT sum(partsupp.ps_supplycost), sum(partsupp.ps_availqty) ' \
       'FROM partsupp.ps_suppkey.s_nationkey '\
-      'WHERE s_nationkey.n_name = ? AND partsupp.ps_supplycost = ? AND partsupp.ps_availqty = ? '\
+      'WHERE s_nationkey.n_name = ? AND partsupp.ps_supplycost > ? AND partsupp.ps_availqty > ? '\
       'ORDER BY partsupp.ps_supplycost, partsupp.ps_availqty ' \
       'GROUP BY partsupp.ps_partkey -- Q11_outer-dup'
 
@@ -214,9 +202,10 @@ NoSE::TimeDependWorkload.new do
       'FROM partsupp.ps_suppkey.s_nationkey '\
       'WHERE s_nationkey.n_name = ? -- Q11_inner-dup'
 
-    Q 'SELECT lineitem_dup.l_shipmode, l_orderkey.o_orderpriority '\
+    # case が sum() に包含されていたので，そこで使用されたいた l_orderkey.o_orderpriority をそのまま sum に追加した．しかし，sum は string の属性に使えないので，count に変更した
+    Q 'SELECT lineitem_dup.l_shipmode, count(l_orderkey.o_orderpriority) '\
       'FROM lineitem_dup.l_orderkey '\
-      'WHERE lineitem_dup.l_shipmode = ? AND l_orderkey.o_orderpriority = ? AND lineitem_dup.l_receiptdate < ? ' \
+      'WHERE lineitem_dup.l_shipmode = ? AND lineitem_dup.l_receiptdate < ? ' \
       'ORDER BY lineitem_dup.l_shipmode ' \
       'GROUP BY lineitem_dup.l_shipmode -- Q12-dup'
 
@@ -225,9 +214,9 @@ NoSE::TimeDependWorkload.new do
       'WHERE orders_dup.o_comment = ? ' \
       'GROUP BY o_custkey.c_custkey, orders_dup.o_orderkey -- Q13-dup'
 
-    Q 'SELECT ps_partkey.p_type, sum(from_lineitem_dup.l_extendedprice), sum(from_lineitem_dup.l_discount) '\
-      'FROM orders_dup.from_lineitem_dup.l_partkey.ps_partkey '\
-      'WHERE orders_dup.o_orderkey = ? AND ps_partkey.p_type = ? AND from_lineitem_dup.l_shipdate < ? -- Q14-dup'
+    #Q 'SELECT ps_partkey.p_type, sum(lineitem_dup.l_extendedprice), sum(lineitem_dup.l_discount) '\
+    #  'FROM lineitem_dup.l_partkey.ps_partkey '\
+    #  'WHERE ps_partkey.p_type = ? AND lineitem_dup.l_shipdate < ? -- Q14-dup'
 
     Q 'SELECT supplier.s_suppkey FROM supplier WHERE supplier.s_comment = ? -- Q16_inner-dup'
     Q 'SELECT ps_partkey.p_brand, ps_partkey.p_type, ps_partkey.p_size, count(supplier.s_suppkey) ' \
@@ -249,8 +238,8 @@ NoSE::TimeDependWorkload.new do
 
     Q 'SELECT sum(lineitem_dup.l_extendedprice), sum(lineitem_dup.l_discount) ' \
       'FROM lineitem_dup.l_partkey.ps_partkey ' \
-      'WHERE ps_partkey.p_brand = ? AND ps_partkey.p_container = ? AND lineitem_dup.l_shipdate = ? AND lineitem_dup.l_shipinstruct = ? ' \
-      'AND ps_partkey.p_size > ? -- Q19-dup'
+      'WHERE ps_partkey.p_brand = ? AND ps_partkey.p_container = ? AND lineitem_dup.l_shipmode = ? AND lineitem_dup.l_shipinstruct = ? ' \
+      'AND ps_partkey.p_size > ? AND lineitem_dup.l_quantity < ? -- Q19-dup'
 
     Q 'SELECT part.p_partkey FROM part WHERE part.p_name = ? -- Q20_inner_inner_1-dup'
     Q 'SELECT partsupp.ps_suppkey FROM partsupp WHERE partsupp.ps_partkey = ? AND partsupp.ps_availqty > ? -- Q20_inner-dup'
@@ -261,8 +250,7 @@ NoSE::TimeDependWorkload.new do
 
     Q 'SELECT ps_suppkey.s_name, count(orders_dup.o_orderkey) ' \
       'FROM orders_dup.from_lineitem_dup.l_partkey.ps_suppkey.s_nationkey ' \
-      'WHERE orders_dup.o_orderstatus = ? AND orders_dup.o_orderkey = ? AND s_nationkey.n_name = ? '\
-      'AND from_lineitem_dup.l_receiptdate > ? ' \
+      'WHERE orders_dup.o_orderstatus = ? AND s_nationkey.n_name = ? '\
       'ORDER BY ps_suppkey.s_name ' \
       'GROUP BY ps_suppkey.s_name -- Q21-dup'
 
@@ -270,7 +258,7 @@ NoSE::TimeDependWorkload.new do
       'WHERE customer_dup.c_phone = ? AND customer_dup.c_acctbal > ? -- Q22_inner_inner-dup'
     Q 'SELECT customer_dup.c_phone, sum(customer_dup.c_acctbal), count(customer_dup.c_custkey) ' \
       'FROM customer_dup ' \
-      'WHERE customer_dup.c_phone = ? AND customer_dup.c_custkey = ? AND customer_dup.c_acctbal > ? ' \
+      'WHERE customer_dup.c_phone = ? AND customer_dup.c_acctbal > ? ' \
       'ORDER BY customer_dup.c_phone ' \
       'GROUP BY customer_dup.c_phone -- Q22-dup'
   end

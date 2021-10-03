@@ -4,7 +4,7 @@ module NoSE
   module Search
     # A container for results from a schema search
     class Results
-      attr_reader :cost_model
+      attr_reader :cost_model, :query_indexes
       attr_accessor :enumerated_indexes, :indexes, :total_size, :total_cost,
                     :workload, :update_plans, :plans,
                     :revision, :time, :command, :by_id_graph
@@ -83,7 +83,7 @@ module NoSE
         validate_query_plans @plans
 
         validate_update_plans
-        validate_objective
+        validate_objective unless self.instance_of? IdealResults
 
         freeze
       end

@@ -32,16 +32,17 @@ module NoSE
 
         # XXX Assuming backend is thread-safe
         #indexes.each do |index|
-        Parallel.map(indexes, in_processes: Parallel.processor_count / 4) do |index|
-          @backend.initialize_client
+        Parallel.map(indexes, in_processes: Parallel.processor_count / 6) do |index|
           Hash[index, load_index(index, config, show_progress, limit, skip_existing, num_iterations,false)]
         end.inject(&:merge)
       end
 
-      def query_for_indexes(indexes, config)
-        indexes.map do |index|
-          Hash[index, query_for_index(index, config, false)]
-        end.inject(&:merge)
+      def query_for_indexes(indexes, config, does_outer_join: false, limit: nil)
+        index_records = {}
+        Parallel.each(indexes, in_threads: Parallel.processor_count / 5) do |index|
+          index_records[index] = query_for_index(index, config, does_outer_join, limit)
+        end
+        index_records
       end
 
       # Read all tables in the database and construct a workload object
@@ -106,7 +107,7 @@ module NoSE
 
       def choose_sample_records(index, results, num_iterations)
         # reduce the total record size, since choosing inter-quartile records from whole records takes long time.
-        reduced_record_size = [num_iterations * 1_000, results.size / 10].max
+        reduced_record_size = [num_iterations * 500, results.size / 20].max
         results = results.sample(reduced_record_size, random: Object::Random.new(100))
 
         results = Backend::CassandraBackend.remove_any_null_place_holder_row results
@@ -155,6 +156,7 @@ module NoSE
       # Load a single index into the backend
       # @return [void]
       def load_index(index, config, show_progress, limit, skip_existing, num_iterations, does_outer_join = false)
+        @backend.initialize_client
         # Skip this index if it's not empty
         if skip_existing && !@backend.index_empty?(index)
           @logger.info "Skipping index #{index.inspect}" if show_progress
@@ -301,6 +303,14 @@ module NoSE
         # if all field have the same value, the value will distinguished.
         # Therefore reduce the number of records here
         query = "SELECT DISTINCT #{select.join ', '} FROM #{tables}"
+
+        # add ORDER BY to keep record order
+        primary_keys_for_orderby = index.graph.entities.map(&:fields).reduce(&:merge)
+                            .select{|_, v| v.primary_key? or v.instance_of?(Fields::CompositeKeyField)}
+                            .map{|_, v| v.id}
+                            .sort_by{|v| v}
+        query += " ORDER BY #{primary_keys_for_orderby.join(", ")} "
+
         query += " LIMIT #{limit}" unless limit.nil?
 
         @logger.debug query

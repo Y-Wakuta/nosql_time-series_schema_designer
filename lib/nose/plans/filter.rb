@@ -4,11 +4,11 @@ module NoSE
   module Plans
     # A query plan performing a filter without an index
     class FilterPlanStep < PlanStep
-      attr_reader :eq, :range
+      attr_reader :eq, :ranges
 
-      def initialize(eq, range, state = nil)
+      def initialize(eq, ranges, state = nil)
         @eq = eq
-        @range = range
+        @ranges = ranges
         super()
 
         return if state.nil?
@@ -21,16 +21,16 @@ module NoSE
       # @return [Boolean]
       def ==(other)
         other.instance_of?(self.class) && \
-          @eq == other.eq && @range == other.range
+          @eq == other.eq && @ranges == other.ranges
       end
 
       def hash
-        [@eq.map(&:id), @range.nil? ? nil : @range.id].hash
+        [@eq.map(&:id), @ranges.empty? ? nil : @ranges.map(&:id)].hash
       end
 
       # :nocov:
       def to_color
-        "#{super} #{@eq.to_color} #{@range.to_color} " +
+        "#{super} #{@eq.to_color} #{@ranges.to_color} " +
           begin
             "#{@parent.state.cardinality} " \
               "-> #{state.cardinality}"
@@ -63,11 +63,12 @@ module NoSE
       def self.filter_fields(parent, state)
         eq_filter = state.eq.select { |field| parent.fields.include? field }
         filter_fields = eq_filter.dup
-        if state.range && parent.fields.include?(state.range)
-          range_filter = state.range
-          filter_fields << range_filter
+
+        if state.ranges.size > 0 && parent.fields >= state.ranges.to_set
+          range_filter = state.ranges
+          filter_fields += range_filter
         else
-          range_filter = nil
+          range_filter = []
         end
 
         [filter_fields, eq_filter, range_filter]
@@ -98,10 +99,11 @@ module NoSE
         @state.eq -= @eq
         @state.cardinality *= @eq.map { |field| 1.0 / field.cardinality } \
                                  .inject(1.0, &:*)
-        return unless @range
+        return if @ranges.empty?
 
-        @state.range = nil
-        @state.cardinality *= 0.1
+        range_selectivity = 0.1
+        @state.ranges -= @ranges
+        @state.cardinality *= (range_selectivity ** @ranges.count)
       end
     end
   end

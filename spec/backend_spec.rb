@@ -98,7 +98,7 @@ module NoSE
 
         prepared = step_class.new nil, [], {}, step, nil, nil
 
-        expect(prepared).to receive(:validate_all_field_aggregated?).and_return(true).exactly(expected.size).times
+        expect(prepared).to receive(:validate_all_field_aggregated).and_return(true).exactly(1).times
         actual = prepared.process({}, results)
         expect(actual).to eq expected
 
@@ -107,16 +107,21 @@ module NoSE
         # ==================================================================
 
         pre_aggregated_results = [
-          { 'Tweet_TweetId' => 0, 'Tweet_Body' => 'tweet1', 'Tweet_Timestamp' => Time.new('2020-3-01'), 'Tweet_Retweets' => 0},
-          { 'Tweet_TweetId' => 1, 'Tweet_Body' => 'tweet1', 'Tweet_Timestamp' => Time.new('2020-3-02'), 'Tweet_Retweets' => 0},
-          { 'Tweet_TweetId' => 2, 'Tweet_Body' => 'tweet2', 'Tweet_Timestamp' => Time.new('2020-3-03'), 'Tweet_Retweets' => 1},
-          { 'Tweet_TweetId' => 3, 'Tweet_Body' => 'tweet2', 'Tweet_Timestamp' => Time.new('2020-3-04'), 'Tweet_Retweets' => 1},
-          { 'Tweet_TweetId' => 4, 'Tweet_Body' => 'tweet2', 'Tweet_Timestamp' => Time.new('2020-3-05'), 'Tweet_Retweets' => 2},
+          { 'system.count(Tweet_TweetId)' => 0, 'Tweet_Body' => 'tweet1', 'system.max(Tweet_Timestamp)' => Time.new('2020-3-01'), 'system.sum(Tweet_Retweets)' => 0},
+          { 'system.count(Tweet_TweetId)' => 1, 'Tweet_Body' => 'tweet1', 'system.max(Tweet_Timestamp)' => Time.new('2020-3-02'), 'system.sum(Tweet_Retweets)' => 0},
+          { 'system.count(Tweet_TweetId)' => 2, 'Tweet_Body' => 'tweet2', 'system.max(Tweet_Timestamp)' => Time.new('2020-3-03'), 'system.sum(Tweet_Retweets)' => 1},
+          { 'system.count(Tweet_TweetId)' => 3, 'Tweet_Body' => 'tweet2', 'system.max(Tweet_Timestamp)' => Time.new('2020-3-04'), 'system.sum(Tweet_Retweets)' => 1},
+          { 'system.count(Tweet_TweetId)' => 4, 'Tweet_Body' => 'tweet2', 'system.max(Tweet_Timestamp)' => Time.new('2020-3-05'), 'system.sum(Tweet_Retweets)' => 2},
         ]
 
-        expect(prepared).to receive(:validate_all_field_aggregated?).and_return(true).exactly(expected.size).times
+        pre_aggregated_expected = [
+          { 'system.count(Tweet_TweetId)' => 2, 'Tweet_Body' => 'tweet1', 'system.max(Tweet_Timestamp)' => Time.new('2020-3-02').to_f, 'system.sum(Tweet_Retweets)' => 0.0},
+          { 'system.count(Tweet_TweetId)' => 3, 'Tweet_Body' => 'tweet2', 'system.max(Tweet_Timestamp)' => Time.new('2020-3-05').to_f, 'system.sum(Tweet_Retweets)' => 4.0},
+        ]
+
+        expect(prepared).to receive(:validate_all_field_aggregated).and_return(true).exactly(1).times
         actual = prepared.process({}, pre_aggregated_results)
-        expect(actual).to eq expected
+        expect(actual).to eq pre_aggregated_expected
       end
     end
   end

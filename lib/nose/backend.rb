@@ -162,6 +162,10 @@ module NoSE
           end
         end
 
+        def is_already_aggregated?(row)
+          row.keys.any?{|c| c.include? '('}
+        end
+
       end
 
       # Look up data on an index in the backend
@@ -175,7 +179,7 @@ module NoSE
           @next_step = next_step
 
           @eq_fields = step.eq_filter
-          @range_field = step.range_filter
+          @range_fields = step.range_filter
         end
 
         protected
@@ -196,19 +200,22 @@ module NoSE
             end
 
             # modify condition value for each range operator type
-            unless @range_field.nil?
-              operator = conditions.each_value.find(&:range?).operator
-              if operator == :>= or operator == :<= or not result.has_key? @range_field.id
-                result_condition << Condition.new(@range_field, operator,
-                                                  result[@range_field.id])
-              elsif operator == :>
-                result_condition << Condition.new(@range_field, operator,
-                                                  result[@range_field.id] - 1)
-              elsif operator == :<
-                result_condition << Condition.new(@range_field, operator,
-                                                  result[@range_field.id] + 1)
-              else
-                fail
+            unless @range_fields.empty?
+              conditions.select{|_, v| v.range?}.each do |field_name, range_condition|
+                operator = range_condition.operator
+                range_field = @range_fields.find{|rf| rf.id == field_name}
+                if operator == :>= or operator == :<= or not result.has_key? range_field.id
+                  result_condition << Condition.new(range_field, operator,
+                                                    result[range_field.id])
+                elsif operator == :>
+                  result_condition << Condition.new(range_field, operator,
+                                                    result[range_field.id] - 1)
+                elsif operator == :<
+                  result_condition << Condition.new(range_field, operator,
+                                                    result[range_field.id] + 1)
+                else
+                  fail
+                end
               end
             end
 
@@ -273,9 +280,9 @@ module NoSE
 
           # XXX: This assumes that the range filter step is the same as
           #      the one in the query, which is always true for now
-          range = @step.range && conditions.each_value.find(&:range?)
+          ranges = @step.ranges && conditions.each_value.select(&:range?)
 
-          results.select! { |row| include_row?(row, eq_conditions, range) }
+          results.select! { |row| include_row?(row, eq_conditions, ranges) }
 
           results
         end
@@ -284,22 +291,24 @@ module NoSE
 
         # Check if the row should be included in the result
         # @return [Boolean]
-        def include_row?(row, eq_conditions, range)
+        def include_row?(row, eq_conditions, ranges)
           select = eq_conditions.all? do |condition|
             row[condition.field.id] == condition.value
           end
 
-          if range
-            if row[range.field.id].nil?
-              # if range condition field is null, remove the row from the result
-              select = false
-            else
-              range_check = row[range.field.id].method(range.operator)
-              begin
-                select &&= range_check.call range.value
-              rescue Exception => e
-                puts e
-                throw e
+          if ranges
+            ranges.each do |range|
+              if row[range.field.id].nil?
+                # if range condition field is null, remove the row from the result
+                select = false
+              else
+                range_check = row[range.field.id].method(range.operator)
+                begin
+                  select &&= range_check.call range.value
+                rescue Exception => e
+                  puts e
+                  throw e
+                end
               end
             end
           end
@@ -318,9 +327,13 @@ module NoSE
         # Sort results by a list of fields given in the step
         # @return [Array<Hash>]
         def process(_conditions, results, _ = nil)
-          results = remove_aggregation_function_name results
 
-          results.sort_by! {|row| @step.sort_fields.map {|field| row[field.id]}}
+          # if results is already aggregated, use its aggregated column name like system.sum(column_name)
+          sort_fields = @step.sort_fields.map do |sf|
+            results.first.keys.select{|k| k.include? sf.id}.first
+          end
+
+          results.sort_by! {|row| sort_fields.map {|field| row[field]}}
         end
       end
 
@@ -331,40 +344,31 @@ module NoSE
         end
 
         def process(_conditions, results, _ = nil)
-          fail "some group by keys are not provided result keys: #{results.first.keys.map(&:to_s).inspect}, " \
-               "required: #{@step.groupby.map(&:id).inspect}" unless results.first.keys.to_set >= @step.groupby.map(&:id).to_set
+          validate_groupby_keys results.first
+          validate_all_field_aggregated
 
-          results = remove_aggregation_function_name results
+          is_already_aggregated = is_already_aggregated?(results.first)
+          sums_fields =   is_already_aggregated ? @step.sums.map{|f| "system.sum(#{f.id})"} : @step.sums.map(&:id)
+          counts_fields = is_already_aggregated ? @step.counts.map{|f| "system.count(#{f.id})"} : @step.counts.map(&:id)
+          maxes_fields =  is_already_aggregated ? @step.maxes.map{|f| "system.max(#{f.id})"} : @step.maxes.map(&:id)
+          avgs_fields =   is_already_aggregated ? @step.avgs.map{|f| "system.avgs(#{f.id})"} : @step.avgs.map(&:id)
+          groupby_fields = @step.groupby.map{|f| f.id}
+
+          validate_first_record_aggregatable sums_fields + counts_fields + maxes_fields + avgs_fields, results.first unless results.empty?
 
           # execute GROUP BY field first
-          grouped_results = results.group_by{|rr| @step.groupby.map(&:id).map{|r| rr[r].to_s}.join(',') }
+          grouped_results = results.group_by{|rr| groupby_fields.map{|r| rr[r].to_s}.join(',') }
 
-          grouped_results.map do |k, group|
+          grouped_results.map do |_, group|
             row = {}
-            @step.sums.map(&:id).each do |sum_field|
-              values = group.map{|r| r[sum_field]}
-              fail 'some aggregation value is null' if values.any?(&:nil?)
-              row[sum_field] = values.map(&:to_f).sum
+            sums_fields.each {|sf| row[sf] = group.map{|r| r[sf].to_f}.sum}
+            counts_fields.each {|cf| row[cf] = group.size}
+            maxes_fields.each {|mf| row[mf] = group.map{|r| r[mf].to_f}.max}
+            avgs_fields.each do |avg_field|
+              summation = group.map{|r| r[avg_field].to_f}.sum
+              row[avg_field] = summation / group.size
             end
-            @step.counts.map(&:id).each do |count_field|
-              values = group.map{|r| r[count_field]}
-              fail 'some aggregation value is null' if values.any?(&:nil?)
-              row[count_field] = values.count
-            end
-            @step.maxes.map(&:id).each do |max_field|
-              values = group.map{|r| r[max_field]}
-              fail 'some aggregation value is null' if values.any?(&:nil?)
-              row[max_field] = values.map(&:to_f).max
-            end
-            @step.avgs.map(&:id).each do |avg_field|
-              values = group.map{|r| r[avg_field]}
-              fail 'some aggregation value is null' if values.any?(&:nil?)
-              summation = values.map(&:to_f).sum
-              row[avg_field] = summation / group.map{|r| r[avg_field].to_f}.count
-            end
-            @step.groupby.map(&:id).each do |groupby_field|
-              row[groupby_field] = group.map{|r| r[groupby_field]}.first
-            end
+            groupby_fields.each {|gf| row[gf] = group.first[gf]}
             _conditions.each do |field_name, condition|
               next unless condition.operator == "=".to_sym
               condition_field_values = group.map{|g| g[field_name]}
@@ -374,15 +378,29 @@ module NoSE
               row[condition.field.id] = condition_field_values.first
             end
 
-            validate_all_field_aggregated? row
-
             row
           end
         end
 
-        def validate_all_field_aggregated?(row)
-          return if row.keys.to_set >= @step.state.query.select.map(&:id).to_set
-          puts "result fields " + row.keys.inspect
+        private
+
+        def validate_groupby_keys(row)
+          fail "some group by keys are not provided result keys: #{row.keys.map(&:to_s).inspect}, " \
+               "required: #{@step.groupby.map(&:id).inspect}" unless row.keys.to_set >= @step.groupby.map(&:id).to_set
+        end
+
+
+        # More precisely, validating all record is better. However, this would take so long time.
+        # Therefore, validate only the first row.
+        def validate_first_record_aggregatable(aggregation_fields, row)
+          fail "first row does not have column for aggregation" unless aggregation_fields.all?{|af| row.has_key?(af)}
+        end
+
+        def validate_all_field_aggregated
+          aggregated_fields = @step.sums + @step.counts + @step.maxes + @step.avgs + @step.groupby
+          return if aggregated_fields.to_set >= @step.state.query.select.to_set
+
+          puts "result fields " + aggregated_fields.inspect
           puts "selected fields " + @step.state.query.select.map(&:id).inspect
           fail 'all selected fields should be aggregated'
         end
@@ -511,6 +529,8 @@ module NoSE
           select_ids = @query.select.map(&:id).to_set
           results.map { |row| row.select! { |k, _| select_ids.include? k } }
         end
+
+        puts "final result size is #{results.size} for #{@query.inspect}: #{results.size}"
 
         results
       end

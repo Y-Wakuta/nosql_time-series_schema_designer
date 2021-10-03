@@ -11,6 +11,16 @@ module NoSE
         @new_plan = new_plan
         @prepare_plans = []
       end
+
+      # The estimated cost of executing the query using this plan
+      # @return [Numeric]
+      def cost
+        costs = []
+        @prepare_plans.each do |pp|
+          costs += pp.query_plan.steps.map(&:cost)
+        end
+        costs.inject(0, &:+) unless costs.any?(&:nil?)
+      end
     end
 
     class TimeDependPlan

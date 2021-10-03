@@ -174,7 +174,42 @@ module NoSE
         tree = planner.find_plans_for_query(query)
         expect(tree).to have(1).plan
         expect(tree.first.last).to eq FilterPlanStep.new([],
-                                                         tweet['Timestamp'])
+                                                         [tweet['Timestamp']])
+      end
+
+      it 'can deal with multi range conditions' do
+        query = Statement.parse 'SELECT Tweet.Body FROM Tweet WHERE ' \
+                                'Tweet.TweetId = ? AND Tweet.Timestamp > ? AND Tweet.Retweets > ?',
+                                workload.model
+        index = query.materialize_view
+        expect(index.order_fields).to eq [tweet['Timestamp'], tweet['Retweets']]
+
+        planner = QueryPlanner.new workload.model, [index], cost_model
+        tree = planner.find_plans_for_query query
+
+        expect(tree).to have(1).plan
+        plan = tree.first
+        expect(plan).to have(1).step
+        expect(plan.last).to eq IndexLookupPlanStep.new(index)
+        expect(plan.last.range_filter).to eq([tweet['Timestamp'], tweet['Retweets']])
+      end
+
+      it 'can partially apply multi range condition in join plan' do
+        query = Statement.parse 'SELECT Tweet.Body FROM Tweet.User WHERE ' \
+                                'User.Username = ? AND Tweet.Retweets > ? AND User.UserId > ?',
+                                workload.model
+        workload.add_statement query
+        indexes = IndexEnumerator.new(workload).indexes_for_workload
+        planner = QueryPlanner.new workload.model, indexes, cost_model
+
+        plans = planner.find_plans_for_query(query)
+        join_plans = plans.select{|p| p.steps.size > 1}
+
+        join_plans_only_indexlookup = join_plans.select{|p| p.steps.all?{|s| s.instance_of? IndexLookupPlanStep}}
+        expect(join_plans_only_indexlookup.size).to be > 0
+
+        partial_range_condition_join_plans = join_plans_only_indexlookup.select{|p| p.steps.select{|s| not s.range_filter.empty?}.size > 1}
+        expect(partial_range_condition_join_plans.size).to be > 0
       end
 
       it 'can apply an index lookup step that includes count()' do
@@ -462,23 +497,23 @@ module NoSE
         end
 
         it 'can reduce the cardinality to 1 when filtering by ID' do
-          step = FilterPlanStep.new [tweet['TweetId']], nil, @simple_state
+          step = FilterPlanStep.new [tweet['TweetId']], [], @simple_state
           expect(step.state.cardinality).to eq 1
         end
 
         it 'can apply equality predicates when filtering' do
-          step = FilterPlanStep.new [tweet['Body']], nil, @simple_state
+          step = FilterPlanStep.new [tweet['Body']], [], @simple_state
           expect(step.state.cardinality).to eq 200
         end
 
         it 'can apply multiple predicates when filtering' do
-          step = FilterPlanStep.new [tweet['Body']], tweet['Timestamp'],
+          step = FilterPlanStep.new [tweet['Body']], [tweet['Timestamp']],
                                     @simple_state
           expect(step.state.cardinality).to eq 20
         end
 
         it 'can apply range predicates when filtering' do
-          step = FilterPlanStep.new [], tweet['Timestamp'], @simple_state
+          step = FilterPlanStep.new [], [tweet['Timestamp']], @simple_state
           expect(step.state.cardinality).to eq 100
         end
 

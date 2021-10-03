@@ -34,7 +34,7 @@ module NoSE
           "#{super} #{@index.to_color}"
         else
           "#{super} #{@index.to_color} * " \
-            "#{@state.cardinality}/#{@state.hash_cardinality} eq_filter: {#{@eq_filter}}, order by: #{@order_by} "
+            "#{@state.cardinality}/#{@state.hash_cardinality} eq_filter: {#{@eq_filter}}, order by: #{@order_by}, range_filter: #{@range_filter} "
         end
       end
       # :nocov:
@@ -142,14 +142,22 @@ module NoSE
         has_ids = parent_ids.subset? parent_index.all_fields
 
         hash_order_prefix = index.hash_fields + index.order_fields.take((parent_ids - index.hash_fields).size)
-        # If the last step gave an ID, we must use it
-        # XXX This doesn't cover all cases
-        return true if has_ids && hash_order_prefix.to_set != parent_ids
 
-        # If we're looking up from a previous step, only allow lookup by ID
-        return true unless (index.graph.size == 1 &&
-          parent_index.graph != index.graph) ||
-          hash_order_prefix == parent_ids
+        # GROUP BY clause affect the hash_fields.
+        if index.groupby_fields.empty? # if this index is not for GROUP BY,
+          # If the last step gave an ID, we must use it
+          # XXX This doesn't cover all cases
+          return true if has_ids && hash_order_prefix.to_set != parent_ids
+
+          # If we're looking up from a previous step, only allow lookup by ID
+          return true unless (index.graph.size == 1 &&
+            parent_index.graph != index.graph) ||
+            hash_order_prefix == parent_ids
+        else
+          # if this index is for GROUP BY, the hash_fields does not necessary to have ID.
+          return true unless has_ids && (index.hash_fields + index.order_fields) >= parent_ids
+        end
+
 
         return true if is_useless_parent?(state, index, parent_index)
 
@@ -279,7 +287,8 @@ module NoSE
       # @return [Array<Fields::Field>]
       def range_order_prefix
         order_prefix = (@state.eq - @index.hash_fields) & @index.order_fields
-        order_prefix << @state.range unless @state.range.nil?
+        order_prefix += (@state.ranges & @index.order_fields).sort_by{|r| @index.order_fields.index(r)}
+
         order_prefix = order_prefix.zip(@index.order_fields)
         order_prefix.take_while { |x, y| x == y }.map(&:first)
       end
@@ -403,7 +412,7 @@ module NoSE
 
         # the # of returned record depends on the GROUP num of GROUP BY.
         # Even if the SELECT clause has aggregation function, e.g. SUM(), COUNT(), the # of returned record matches the number of GROUP.
-        return update_cardinality_for_groupby(cardinality)
+        return update_cardinality_for_groupby(cardinality) unless @index.groupby_fields.empty?
 
         # Only 1 row returned if the query has aggregation functions and does not have GROUP BY
         return 1 if @index.has_select_aggregation_fields?
@@ -431,7 +440,14 @@ module NoSE
           intermediate_record_size = [intermediate_record_size, entity.count].max
           base_card = [base_card * entity_cardinality, intermediate_record_size].min
         end
-        return [cardinality * (base_card.to_f / @index.entries), 1].max
+        reduced_cardinality = [cardinality * (base_card.to_f / @index.entries), 1].max
+
+        # When many entity has GROUP BY, the returned cardinality gets the same cardinality as non-GROUP BY index lookup step.
+        # This result in un-stable optimization result.
+        # Therefore, slightly reduce the cardinality for MV with GROUP BY for the stability of the result.
+        formality_groupby_reduction_ratio = 0.999 ** (entity_groupby_fields_hash.select{|_, v| not v.empty?}.map{|k, _| k}.size)
+
+        reduced_cardinality * formality_groupby_reduction_ratio
       end
 
       # Modify the state to reflect the fields looked up by the index
@@ -445,12 +461,12 @@ module NoSE
         # composite key should be added only if the keys are used for join.
         # Therefore, the first step of the plan does not have to have composite keys to its eq_filter
         @eq_filter += @eq_filter.select(&:primary_key?).flat_map(&:composite_keys).compact unless parent.instance_of?(Plans::RootPlanStep)
-        if order_prefix.include?(@state.range) \
-          or @index.hash_fields.include?(@state.range) # range_filter also could be adapted to hash_fields
-          @range_filter = @state.range
-          @state.range = nil
+
+        if (order_prefix & @state.ranges.to_set).size > 0
+          @range_filter = ((@index.hash_fields + order_prefix) & @state.ranges.to_set).to_a
+          @state.ranges -= @range_filter
         else
-          @range_filter = nil
+          @range_filter = []
         end
 
         # Remove fields resolved by this index

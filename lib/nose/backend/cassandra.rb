@@ -61,6 +61,7 @@ module NoSE
       end
 
       def create_index(index, execute = false, skip_existing = false)
+        puts "create #{index.key}"
         ddl = index_cql index
         begin
           @client.execute(ddl) if execute
@@ -77,8 +78,17 @@ module NoSE
 
       def recreate_index(index, execute = false, skip_existing = false,
                          drop_existing = false)
-        drop_index(index) if drop_existing && index_exists?(index)
-        create_index(index, execute, skip_existing)
+        try_counter = 0
+        begin
+          drop_index(index) if drop_existing && index_exists?(index)
+          create_index(index, execute, skip_existing)
+        rescue Exception => e
+          sleep 30
+          initialize_client
+          try_counter += 1
+          retry if try_counter < 10
+          throw e
+        end
       end
 
       # Produce the DDL necessary for column families for the given indexes
@@ -145,6 +155,16 @@ module NoSE
       end
 
       # Check if the given index is empty
+      def index_count(index)
+        query = "SELECT count(1) FROM \"#{index.key}\""
+        record_count = -1
+        retry_when_fail do
+          record_count = @client.execute(query, ).first.values.first
+        end
+        record_count
+      end
+
+      # Check if the given index is empty
       def index_empty?(index)
         query = "SELECT count(*) FROM \"#{index.key}\" LIMIT 1"
         is_index_empty = false;
@@ -162,6 +182,7 @@ module NoSE
 
       # Check if a given index exists in the target database
       def drop_index(index)
+        puts "drop #{index.key}"
         @client.execute "DROP TABLE \"#{index.key}\""
       end
 
@@ -211,53 +232,55 @@ module NoSE
         fields = index.all_fields.to_a
         columns = fields.map(&:id)
         columns << "value_hash"
-        hoge_start = Time.now
+        formatting_start = Time.now
         puts "start formatting records #{Time.now}"
         formatted_result = format_result index, results
-        puts "formatting record to load done for #{Time.now - hoge_start}"
+        puts "formatting record to load #{index.key} done for #{Time.now - formatting_start}"
 
         fail 'no data given to load on cassandra' if formatted_result.size == 0
         inserting_try = 0
-        host_name = ""
         begin
-          Parallel.each_with_index(formatted_result.each_slice(1_000_000), in_processes: Parallel.processor_count / 6) do |results_chunk, idx|
+          Parallel.each_with_index(formatted_result.each_slice(1_000_000), in_processes: Parallel.processor_count / 8) do |results_chunk, idx|
             host_name = @hosts.sample(1).first
             Dir.mktmpdir do |dir|
               file_name = "#{dir}/#{index.key}_#{idx}.csv"
               g = File.open(file_name, "w") do |f|
                 f.puts(columns.join('|').to_s)
-                results_chunk.each {|row| f.puts(row.join('|'))}
+
+                # When the beginning of the line is white space, the space is ignored when loaded onto Casandra.
+                # Thus, explicitly add the quotation to keep the space on Cassandra.
+                # Avoid adding double quotations by checking it is already quoted
+                results_chunk.each {|row| f.puts(row.map {|f| (f.instance_of?(String) and f[0] != '"' and f[-1] != '"') ? '"' + f + '"' : f }.join('|'))}
                 f
               end
               STDERR.puts "  insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
               ENV['CQLSH_NO_BUNDLED'] = 'TRUE'
-              ret = system("./cassandra-loader/build/cassandra-loader -badDir /tmp/ -queryTimeout 20 -numRetries 5 -batchSize 200 " \
-                           "-dateFormat \"yyyy-MM-dd\" -skipRows 1 -delim \"|\" -f #{file_name} -host #{host_name} " \
+              ret = system("./cassandra-loader/build/cassandra-loader -badDir /tmp/ -queryTimeout 20 -maxErrors 1 -maxInsertErrors 1 -numRetries 5 -batchSize 200 " \
+                           "-localDateFormat \"yyyy-MM-dd\" -skipRows 1 -delim \"|\" -f #{file_name} -host #{host_name} " \
                            "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\" > /dev/null")
+
+              puts ">>>>>>>>>>>>>>>>>>>>> does current loading success: #{ret}"
 
               fail "  loading error detected: #{index.key}" unless ret
               g.close
             end
           end
-        rescue
+        rescue => e
           STDERR.puts "  loading error detected for #{index.key}"
           sleep 30 if formatted_result.size > 100_000
           all_retries = 10
           if inserting_try < all_retries
-            STDERR.puts "  once truncate record of #{index.key}"
-            ret = system("cqlsh --request-timeout=10000 #{host_name} -k #{@keyspace} -e \"TRUNCATE #{index.key}\"")
-            if ret
-              STDERR.puts "  truncate succeeded"
-              STDERR.puts "  retry inserting #{inserting_try} / #{all_retries}"
-              inserting_try += 1
-              sleep 30
-            end
+            puts "recreate index"
+            recreate_index index, true, false,  true
             retry
           end
+          throw e
         end
+        index_records_count = index_count index
+        fail "not enough records loaded original: #{formatted_result.size}, loaded: #{index_records_count}" unless index_records_count == formatted_result.size
         GC.start
         ending = Time.now.utc
-        STDERR.puts "loading through csv time: #{ending - starting} for #{formatted_result.size.to_s} records on #{index.key}"
+        STDERR.puts "loading through csv time: #{ending - starting} for #{formatted_result.size.to_s} records on #{index.key}, loaded: #{index_records_count}"
       end
 
       def unload_index_by_cassandra_unloader(index)
@@ -268,7 +291,7 @@ module NoSE
         csv_rows = ""
         retry_when_fail do
           start_time = Time.now
-          csv_rows, err, ret = Open3.capture3("./cassandra-loader/build/cassandra-unloader -numThreads 10 -fetchSize 5000 -f stdout -dateFormat \"yyyy-MM-dd\" -delim \"|\" -host #{@hosts.sample(1).first} " \
+          csv_rows, err, ret = Open3.capture3("./cassandra-loader/build/cassandra-unloader -numThreads 10 -fetchSize 5000 -f stdout -localDateFormat \"yyyy-MM-dd\" -delim \"|\" -host #{@hosts.sample(1).first} " \
                        "-schema \"#{@keyspace}.#{index.key}(#{columns.join(',').to_s})\"")
           STDERR.puts "  unloading time for #{index.key} was #{Time.now - start_time}"
           STDERR.puts err
@@ -280,13 +303,11 @@ module NoSE
       end
 
       def cast_records(index, records)
-        s = Time.now
         row_index = 0
         while row_index < records.size
           records[row_index] = cast_record index, records[row_index]
           row_index += 1
         end
-        puts "casting :#{Time.now - s}"
         records
       end
 
@@ -434,12 +455,13 @@ module NoSE
         idx = 0
         while idx < results.size
           r = results[idx]
-          csv_row = index_row(r, fields).map{|s| s.is_a?(String) ? s.dump : s} # escape special characters like newline
+          csv_row = index_row(r, fields)
+          #csv_row = index_row(r, fields).map{|s| s.is_a?(String) ? s.dump : s} # escape special characters like newline
           csv_row << r["value_hash"]
           csv_rows << csv_row
           idx += 1
-          end
-          csv_rows.uniq
+        end
+        csv_rows.uniq
       end
 
       def convert_id_2_uuid(value)
@@ -661,9 +683,14 @@ module NoSE
         # Perform a column family lookup in Cassandra
         def process(conditions, results, query_conditions)
           results = initial_results(conditions) if results.nil?
+
+          # この処理は Q(result.size * row.width) であり，ある程度時間がかかる
+          # この位置に置くことで MV プランの結果に対してこの処理をすることを避けているが，最終的な結果に null_place_holder が含まれることになる
+          # (現在は inner join でロードしているため関係無い)
+          results = CassandraBackend.remove_any_null_place_holder_row(results) unless results.nil?
+
           condition_list = result_conditions conditions, results
           new_result = fetch_all_queries condition_list, results, query_conditions
-          new_result = CassandraBackend.remove_any_null_place_holder_row(new_result)
           fail "no result given" if new_result.size == 0 and not @step.children.empty?
 
           # Limit the size of the results in case we fetched multiple keys
@@ -685,6 +712,9 @@ module NoSE
           # Add an optional limit
           cql += " LIMIT #{@step.limit}" unless @step.limit.nil?
 
+          # Cassandra does not allow multi range condition without this option
+          cql += " ALLOW FILTERING " if @step.range_filter.size > 1
+
           cql
         end
 
@@ -695,10 +725,11 @@ module NoSE
           where = @eq_fields.map do |field|
             "\"#{field.id}\" = ?"
           end.join ' AND '
-          unless @range_field.nil?
-            # TODO: allow several range fields
-            condition = conditions.each_value.find(&:range?)
-            where << " AND \"#{condition.field.id}\" #{condition.operator} ?"
+          unless @range_fields.empty?
+            @range_fields.each do |range_field|
+              condition = conditions.find{|n, _| n == range_field.id}.last
+              where << " AND \"#{condition.field.id}\" #{condition.operator} ?"
+            end
           end
 
           where
@@ -772,6 +803,8 @@ module NoSE
             break if !@step.limit.nil? && new_result.length >= @step.limit
           end
           @logger.debug "Total result size = #{new_result.size}"
+          puts "lookup row size = #{new_result.size}, #{@step.state.query.comment}, #{@step.inspect}, "\
+               "#{@prepared.instance_of?(String) ? @prepared : @prepared.cql}"
 
           new_result
         end

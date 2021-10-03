@@ -53,6 +53,11 @@ class Array
     fail TypeError unless other.is_a? Array
     (prefixes.to_a & other.prefixes.to_a).max_by(&:length) || []
   end
+
+  def diff(other)
+    h = other.each_with_object(Hash.new(0)) { |e,h| h[e] += 1 }
+    reject { |e| h[e] > 0 && h[e] -= 1 }
+  end
 end
 
 # Reopen to present as finite as with Float
@@ -169,8 +174,8 @@ class Cardinality
   # Update the cardinality based on filtering implicit to the index
   # @return [Fixnum]
   def self.filter(cardinality, eq_filter, range_filter)
-    range_selectivity = 2.0
-    filtered = (range_filter.nil? ? 1.0 : (1.0 / range_selectivity)) * cardinality
+    range_selectivity = 10.0
+    filtered = (range_filter.empty? ? 1.0 : (1.0 / range_selectivity) ** range_filter.size) * cardinality
     filtered *= eq_filter.map do |field|
       1.0 / field.cardinality
     end.inject(1.0, &:*)
@@ -359,14 +364,14 @@ module RunningTimeLogger
       Headers::END_CF_ENUMERATION                => "END_CF_ENUMERATION",
       Headers::START_QUERY_PLAN_ENUMERATION      => "START_QUERY_PLAN_ENUMERATION",
       Headers::END_QUERY_PLAN_ENUMERATION        => "END_QUERY_PLAN_ENUMERATION",
-      Headers::START_MIGRATION_PLAN_ENUMERATION  => "START_MIGRATION_PLAN_ENUMERATION",
-      Headers::END_MIGRATION_PLAN_ENUMERATION    => "END_MIGRATION_PLAN_ENUMERATION",
       Headers::START_WHOLE_OPTIMIZATION          => "START_WHOLE_OPTIMIZATION",
       Headers::END_WHOLE_OPTIMIZATION            => "END_WHOLE_OPTIMIZATION",
       Headers::END_RUNNING                       => "END",
     }
 
     COLUMN_HEADERS = BASE_COLUMN_HEADERS.merge({
+      Headers::START_MIGRATION_PLAN_ENUMERATION  => "START_MIGRATION_PLAN_ENUMERATION",
+      Headers::END_MIGRATION_PLAN_ENUMERATION    => "END_MIGRATION_PLAN_ENUMERATION",
       Headers::START_PRUNING                     => "START_PRUNING",
       Headers::END_PRUNING                       => "END_PRUNING",
     })
@@ -388,7 +393,7 @@ module RunningTimeLogger
 
     def write_running_times
       fail "some logging point is not set : #{BASE_COLUMN_HEADERS.values.to_set - @time_array.keys.to_set}" \
-          unless BASE_COLUMN_HEADERS.values.to_set < @time_array.keys.to_set
+          unless BASE_COLUMN_HEADERS.values.to_set <= @time_array.keys.to_set
 
       info COLUMN_HEADERS.values.join(",")
       info COLUMN_HEADERS.keys.map {|k| @time_array[COLUMN_HEADERS[k]]}.join(",")

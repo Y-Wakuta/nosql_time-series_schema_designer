@@ -133,20 +133,20 @@ describe Cardinality do
   include_context 'entities'
 
   it 'estimates one for a simple ID lookup' do
-    cardinality = Cardinality.filter tweet.count, [tweet['TweetId']], nil
+    cardinality = Cardinality.filter tweet.count, [tweet['TweetId']], []
 
     expect(cardinality).to eq(1)
   end
 
   it 'correctly estimates based on field cardinality for equality' do
-    cardinality = Cardinality.filter user.count, [user['City']], nil
+    cardinality = Cardinality.filter user.count, [user['City']], []
 
     expect(cardinality).to eq(2)
   end
 
   it 'uses a static estimate for range filters' do
     cardinality = Cardinality.filter tweet.count, [tweet['Body']],
-                                     tweet['Timestamp']
+                                     [tweet['Timestamp']]
 
     expect(cardinality - (200.0 / 3)).to be < 0.001
   end

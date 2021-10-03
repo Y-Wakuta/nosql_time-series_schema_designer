@@ -54,6 +54,10 @@ module NoSE
       @key ||= "i#{Zlib.crc32 hash_str}"
     end
 
+    def key=(key_suffix)
+      @key += "_" + key_suffix
+    end
+
     def key_fields
       @hash_fields + @order_fields
     end
@@ -132,7 +136,7 @@ module NoSE
     end
 
     def has_aggregation_fields?
-      has_select_aggregation_fields? and not @groupby_fields.empty?
+      has_select_aggregation_fields? or not @groupby_fields.empty?
     end
 
     def has_select_aggregation_fields?
@@ -275,7 +279,6 @@ module NoSE
         groupby_in_eq = eq.to_set & @groupby.to_set
         eq = eq.delete_if { |e| groupby_in_eq.include? e}
       end
-      #order_fields = @groupby.to_a + materialized_view_order(join_order.first) - eq
       order_fields = materialized_view_order(join_order.first) - eq
       order_fields.uniq!
 
@@ -306,7 +309,7 @@ module NoSE
     # @return [Array<Fields::Field>]
     def materialized_view_eq(hash_entity)
       eq = @eq_fields.select { |field| field.parent == hash_entity }
-      eq = [join_order.last.id_field] if eq.empty?
+      eq = [@eq_fields.sort_by{|ef| ef.cardinality}.last] if eq.empty?
 
       eq
     end
@@ -320,11 +323,9 @@ module NoSE
       order_fields = @eq_fields.select do |field|
         field.parent != hash_entity
       end
-      if @range_field && !@order.include?(@range_field)
-        order_fields << @range_field
-      end
+      order_fields += @range_fields.sort_by{|rf| @groupby.include?(rf) ? 0 : 1}
       order_fields += @groupby.select{|g| not order_fields.include? g}
-      order_fields += @order
+      order_fields += @order.select{|g| not order_fields.include? g}
 
       # Ensure we include IDs of the final entity
       order_fields += join_order.map(&:id_field)

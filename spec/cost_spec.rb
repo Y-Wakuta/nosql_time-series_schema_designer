@@ -69,7 +69,7 @@ module NoSE
         index = Index.new [tweet['TweetId']], [tweet['Body']],
                           [tweet['Timestamp'], tweet['Retweets']],
                           QueryGraph::Graph.from_path(
-                              [tweet.id_field]), count_fields: Set.new([tweet['TweetId']])
+                            [tweet.id_field]), count_fields: Set.new([tweet['TweetId']])
         planner = Plans::QueryPlanner.new workload.model, [index], cost_model
         plan = planner.min_plan query
 
@@ -80,6 +80,32 @@ module NoSE
         simple_plan = planner.min_plan query
 
         expect(plan.cost).to be > simple_plan.cost
+      end
+    end
+
+    describe 'CassandraIO' do
+      include_context 'entities'
+      include_context 'dummy cost model'
+
+      it 'aggregation on DB reduce execution cost compared to do the same aggregation on the client' do
+        query = Statement.parse 'SELECT count(Tweet.Retweets), count(Tweet.TweetId) FROM Tweet ' \
+                          'WHERE Tweet.Retweets = ?', workload.model
+
+        options =  {
+          index_cost_low_io: 0.006590624817556526,
+          partition_cost_low_io: 0.001753137438571466,
+          row_cost_low_io: 3.0797103816965713e-06
+        }
+
+        cassandra_io_cost_model = CassandraIoCost.new(options)
+
+        planner = Plans::QueryPlanner.new workload.model, [query.materialize_view], cassandra_io_cost_model
+        plan = planner.min_plan query
+
+        planner = Plans::QueryPlanner.new workload.model, [query.materialize_view_with_aggregation], cassandra_io_cost_model
+        aggregation_plan = planner.min_plan query
+
+        expect(plan.cost).to be > aggregation_plan.cost
       end
     end
   end

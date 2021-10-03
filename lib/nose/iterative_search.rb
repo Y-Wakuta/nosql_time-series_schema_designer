@@ -75,7 +75,7 @@ module NoSE
         ranges << [right_workload, middle_ts, end_ts] unless right_workload.nil?
         return ts_indexes if ranges.empty?
 
-        whole_ts_index_hashes = Parallel.map(ranges, in_processes: 2) do |workload, left, right|
+        whole_ts_index_hashes = Parallel.map(ranges, in_processes: [2, Parallel.processor_count].min) do |workload, left, right|
           data = refresh_solver_params indexes, workload, data
           solve_subset(queries, indexes, data, workload, left, right, ts_indexes)
         end.flatten
@@ -156,6 +156,9 @@ module NoSE
         solver_params[:prepare_update_costs] = prepare_update_costs
 
         if @workload.is_a? TimeDependWorkload and not solver_params[:migrate_prepare_plans].empty?
+          # some CFs in the query plan tree possibly unused after `refresh_query_cost`. No prepare plan required for unused CFs, Therefore, remove the plan here.
+          used_indexes = trees.flat_map{|t| t.flat_map(&:indexes)}.uniq
+          solver_params[:migrate_prepare_plans] = solver_params[:migrate_prepare_plans].select{|k, _| used_indexes.include? k}
           costs.merge!(solver_params[:migrate_prepare_plans].values
                            .flat_map{|v| v.values}
                            .map{|v| v[:costs]}

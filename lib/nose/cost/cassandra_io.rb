@@ -21,10 +21,7 @@ module NoSE
           #puts "fast query cost model"
         #puts "rows: #{rows}, parts: #{parts}, fields_size: #{fields_size}"
         estimated_cost = index_lookup_low_latency fields_size, parts, rows
-        #puts "=: " + estimated_cost.to_s
         estimated_cost
-        #end
-        #index_lookup_low_latency fields_size, parts, rows
       end
 
       private

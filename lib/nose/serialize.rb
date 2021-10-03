@@ -325,7 +325,7 @@ module NoSE
     class IndexLookupStepRepresenter < PlanStepRepresenter
       property :index, decorator: IndexRepresenter
       collection :eq_filter, decorator: FieldRepresenter
-      property :range_filter, decorator: FieldRepresenter
+      collection :range_filter, decorator: FieldRepresenter
       collection :order_by, decorator: FieldRepresenter
       property :limit
     end
@@ -345,7 +345,7 @@ module NoSE
     # Represent the filtered fields in filter plan steps
     class FilterStepRepresenter < PlanStepRepresenter
       collection :eq, decorator: FieldRepresenter
-      property :range, decorator: FieldRepresenter
+      collection :ranges, decorator: FieldRepresenter
     end
 
     # Represent the sorted fields in filter plan steps
@@ -819,8 +819,12 @@ module NoSE
       # @return [Plans::FilterPlanStep]
       def build_filter_step(step_hash, _state, parent, _indexes, f)
         eq = step_hash['eq'].map(&f)
-        range = f.call(step_hash['range']) if step_hash['range']
-        Plans::FilterPlanStep.new eq, range, parent.state
+        if step_hash['ranges']
+          ranges = step_hash['ranges'].map do |r|
+            f.call(r)
+          end
+        end
+        Plans::FilterPlanStep.new eq, ranges, parent.state
       end
 
       def build_aggregation_step(step_hash, _state, parent, _indexes, f)
@@ -870,9 +874,12 @@ module NoSE
         eq_filter = (step_hash['eq_filter'] || []).map(&f)
         step.instance_variable_set(:@eq_filter, eq_filter)
 
-        range_filter = step_hash['range_filter']
-        range_filter = f.call(range_filter) unless range_filter.nil?
-        step.instance_variable_set(:@range_filter, range_filter)
+        range_filters = step_hash['range_filter']
+        decoded_range_filters = []
+        unless range_filters.nil? or range_filters.empty?
+          decoded_range_filters = range_filters.map{|rf| f.call(rf)}
+        end
+        step.instance_variable_set(:@range_filter, decoded_range_filters)
       end
 
       # Rebuild the state of the step from the provided hash

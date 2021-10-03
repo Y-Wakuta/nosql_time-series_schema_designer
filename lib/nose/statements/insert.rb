@@ -83,7 +83,8 @@ module NoSE
 
       # Check if the index crosses all of the connection keys
       keys = @conditions.each_value.map(&:field)
-      index.graph.keys_from_entity(entity).all? { |k| keys.include? k }
+      return true if keys.empty?
+      index.graph.keys_from_entity(entity).any? { |k| keys.include? k }
     end
 
     # Specifies that inserts require insertion
@@ -122,6 +123,7 @@ module NoSE
         end]
 
         split_entity = split_entity graph, index.graph, entity
+        next if conditions.empty? || conditions.values.all?(&:is_range)
         build_support_query split_entity, index, graph, support_fields,
                             conditions
       end.compact

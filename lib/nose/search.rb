@@ -168,11 +168,11 @@ module NoSE
 
         if result.is_a? TimeDependResults
           STDERR.puts "set migration plans"
-          result.calculate_cost_each_timestep
           result.set_time_depend_plans
           result.set_time_depend_indexes
           result.set_time_depend_update_plans
-          result.set_migrate_preparing_plans solver_params[:migrate_prepare_plans]
+          result.set_migrate_preparing_plans solver_params[:migrate_prepare_plans] unless solver_params[:migrate_prepare_plans].nil?
+          result.calculate_cost_each_timestep
         end
         result.validate
         result
@@ -343,7 +343,6 @@ module NoSE
           end
 
           # convert existing other trees into migrate_prepare_tree
-          planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, useable_indexes, @cost_model, 2
           index_related_tree_hash[base_index].each do |rtree|
             simple_query = MigrateSupportSimplifiedQuery.simple_query rtree.query, base_index
             next if simple_query.text == migrate_support_query.text
@@ -478,6 +477,20 @@ module NoSE
 
           if query_costs.key? index_step.index
             current_cost = query_costs[index_step.index].last
+
+            unless is_same_cost current_cost, cost
+              if is_larger_cost current_cost, cost
+                # if the new cost value is bigger than the current value,
+                # delete newly created query plan
+                planner = Plans::QueryPlanner.new(@workload, nil, @cost_model)
+                planner.prune_plan index_step
+              else
+                # if the new cost value is smaller than the current value,
+                # overwrite costly plan and update the cost value
+                query_costs[index_step.index] = [steps, cost]
+              end
+              next
+            end
 
             # We must always have the same cost
             # WARNING: fix this invalid conditions.
