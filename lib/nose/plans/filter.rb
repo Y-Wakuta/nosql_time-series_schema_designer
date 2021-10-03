@@ -101,9 +101,9 @@ module NoSE
                                  .inject(1.0, &:*)
         return if @ranges.empty?
 
-        range_selectivity = 10.0
+        range_selectivity = 0.1
         @state.ranges -= @ranges
-        @state.cardinality *= range_selectivity ** @ranges.count
+        @state.cardinality *= (range_selectivity ** @ranges.count)
       end
     end
   end
