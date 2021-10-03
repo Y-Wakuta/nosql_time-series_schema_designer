@@ -115,7 +115,7 @@ module NoSE
       def calculate_cost_each_timestep
         calculate_workload_cost
 
-        # TODO: まだ，extract, load のコストしか計上していないので，途中更新のコストも含めなければならない
+        # TODO: this method only calculate the cost of extracting and loading cost of migration. Therefore, this should also calculate the cost of update of creating CFs for migration
         migrate_extract_cost = (0...@timesteps).map do |ts|
           @migrate_plans.select{|mp| mp.start_time == ts}.map(&:cost).inject(0, &:+)
         end

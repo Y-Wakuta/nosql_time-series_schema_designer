@@ -36,7 +36,7 @@ Gem::Specification.new do |s|
   # Required for MongoDB backend
   s.add_dependency 'mongo', '~> 2.10.0', '>= 2.4.0'
 
-  s.add_development_dependency 'fakefs', '~> 0.20.0'
+  s.add_development_dependency 'fakefs', '~> 0.14.2'
   s.add_development_dependency 'memory_profiler', '~> 0.9.7'
   s.add_development_dependency 'pry-byebug', '~> 3.7.0', '>= 3.4.0'
   s.add_development_dependency 'pry-doc', '~> 1.0.0'
@@ -52,7 +52,7 @@ Gem::Specification.new do |s|
 
   # Below for MRI only (TODO JRuby gemspec)
   s.add_dependency 'rbtree', '~> 0.4.2' # for more efficient SortedSet implementation
-  s.add_dependency 'mysql2', '~> 0.5.2' # this is used for the loader for performance
+  s.add_dependency 'mysql2', '~> 0.5.3' # this is used for the loader for performance
   s.add_development_dependency 'pry-rescue', '~> 1.5.0', '>= 1.4.0'
   s.add_development_dependency 'binding_of_caller', '~> 0.8.0'
 end

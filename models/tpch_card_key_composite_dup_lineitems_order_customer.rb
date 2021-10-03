@@ -61,7 +61,7 @@ NoSE::Model.new do
 
   (Entity 'lineitem' do
     ID 'l_orderkey', composite: ['l_linenumber']
-    CompositeKey 'l_linenumber', count: 6_000_000
+    CompositeKey 'l_linenumber', count: 7
     #Integer 'l_suppkey'
     #Integer 'l_partkey'
     Float 'l_quantity', count: 50
@@ -171,7 +171,7 @@ NoSE::Model.new do
   HasOne 'o_custkey',       'from_orders_dup',
          'orders_dup'      => 'customer_dup'
 
-  HasOne 'c_nationkey',       'from_customer',
+  HasOne 'c_nationkey',       'from_customer_dup',
          'customer_dup'      => 'nation'
 
   HasOne 'l_partkey', 'from_lineitem_dup',

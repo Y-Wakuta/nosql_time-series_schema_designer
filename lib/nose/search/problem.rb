@@ -48,7 +48,6 @@ module NoSE
       def solve(previous_type = nil)
         return unless @status.nil?
 
-        #outputed_path = log_model 'Model'
         @model.update
         STDERR.puts "model variables: " + @model.variables.size.to_s
         STDERR.puts "model constraints: " + @model.constraints.size.to_s
@@ -209,7 +208,7 @@ module NoSE
         define_objective
         @model.update
 
-        log_model 'Model'
+        #log_model 'Model'
       end
 
       # Set the value of the objective function (workload cost)
