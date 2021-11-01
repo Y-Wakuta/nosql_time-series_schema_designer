@@ -346,6 +346,10 @@ module NoSE
           index_related_tree_hash[base_index].each do |rtree|
             simple_query = MigrateSupportSimplifiedQuery.simple_query rtree.query, base_index
             next if simple_query.text == migrate_support_query.text
+
+            # only use indexes in related tree
+            current_rtree_indexes = (rtree.flat_map{|r| r.indexes}.uniq.to_set & usable_indexes.to_set)
+            planner = Plans::MigrateSupportSimpleQueryPlanner.new @workload, current_rtree_indexes, @cost_model, 2
             begin
               cost_tree = support_query_cost simple_query, planner,
                                              existing_tree: m_plan[base_index].has_key?(migrate_support_query) ?
