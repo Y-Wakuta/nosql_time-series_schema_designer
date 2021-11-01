@@ -34,7 +34,6 @@ module NoSE
           query_var.each do |query, time_var|
             time_var.each do |ts, var|
               next unless var.value
-              STDERR.puts "prepare_vars is 1 for #{index.key}, ms_q: #{query.index.key}, migrate_vars: #{@problem.migrate_vars[query.index][ts + 1].value}, #{ts} -> #{ts + 1}"
 
               # the index of migrate support query is newly created
               next unless problem.migrate_vars[query.index][ts + 1].value
@@ -43,13 +42,6 @@ module NoSE
               @query_indexes[query][ts] = Set.new if @query_indexes[query][ts].nil?
               @query_indexes[query][ts].add index
             end
-          end
-        end
-
-        @problem.migrate_vars.each do |index, m_vars|
-          m_vars.each do |ts, var|
-            next unless var.value
-            STDERR.puts "migrate_vars, index : #{index.key} #{index.size}, ts: #{ts}"
           end
         end
       end
