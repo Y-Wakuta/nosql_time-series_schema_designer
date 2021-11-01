@@ -415,7 +415,7 @@ module NoSE
         return update_cardinality_for_groupby(cardinality) unless @index.groupby_fields.empty?
 
         # Only 1 row returned if the query has aggregation functions and does not have GROUP BY
-        return 1 if @index.has_select_aggregation_fields?
+        return 0.999 if @index.has_select_aggregation_fields?
 
         cardinality
       end
