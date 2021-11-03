@@ -60,9 +60,8 @@ module NoSE
         @status = model.status
         if @status != :optimized
           STDERR.puts @objective_type.to_s
-          STDERR.puts "no solution model is written to #{outputed_path}"
           outputed_path = log_model 'Model'
-          puts "no solution :" + outputed_path.to_s
+          STDERR.puts "no solution model is written to #{outputed_path}"
           fail NoSolutionException, @status
         end
 
