@@ -29,11 +29,11 @@ module NoSE
             1
           end
 
-          def extract_cost(step)
+          def extract_cost(_step)
             1
           end
 
-          def load_cost(index)
+          def load_cost(_index)
             1
           end
         end

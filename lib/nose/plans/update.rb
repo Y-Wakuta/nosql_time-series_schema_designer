@@ -41,14 +41,8 @@ module NoSE
       # updating-creating-cf does not executed for whole interval
       # As long as the creation time is shorter than the interval
       def calculate_update_prepare_cost(cost_model)
-        @prepare_update_cost_with_size =
-            (cost_model.method((subtype_name + '_cost').to_sym).call self) * index_creation_time
-      end
-
-      private
-
-      def index_creation_time
-        @index.size * (ENV['INDEX_CREATION_TIME_COEFF'] || 1.0e-06).to_f # Hyper Parameter
+        index_creation_time = cost_model.method(('load_cost').to_sym).call @index
+        @prepare_update_cost_with_size = (cost_model.method((subtype_name + '_cost').to_sym).call self) * index_creation_time
       end
     end
 
