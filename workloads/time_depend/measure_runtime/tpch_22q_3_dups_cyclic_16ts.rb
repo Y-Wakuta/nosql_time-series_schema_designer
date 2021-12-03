@@ -3,21 +3,10 @@
 NoSE::TimeDependWorkload.new do
   Model 'tpch_card_key_composite_dup_lineitems_order_customer'
 
-  def step_freq(start_ratio, end_ratio, timesteps)
-    timesteps -= 1
-    middle_ts = timesteps / 2
-    (0..timesteps).map do |current_ts|
-      current_ts <= middle_ts ? start_ratio : end_ratio
-    end
-  end
-
   step_width = 4
   step_cyclic = [0.1] * step_width + [0.9] * step_width + [0.1] * step_width + [0.9] * step_width
   step_cyclic_revese = step_cyclic.map{|sc| (1.0 - sc).round(4)}
 
-  #frequencies = step
-
-  #TimeSteps frequencies.size
   TimeSteps step_cyclic.size
   Interval 7200 # specify interval in minutes
   #Static true
