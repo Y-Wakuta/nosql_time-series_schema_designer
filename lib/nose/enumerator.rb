@@ -36,7 +36,7 @@ module NoSE
       range = get_query_range query
       eq = get_query_eq query
 
-      Parallel.flat_map(query.graph.subgraphs, in_processes: 5) do |graph|
+      Parallel.flat_map(query.graph.subgraphs, in_processes: Parallel.processor_count / 4) do |graph|
         indexes_for_graph graph, query.select, eq, range
       end.uniq << query.materialize_view << query.materialize_view_with_aggregation
     end
@@ -168,7 +168,7 @@ module NoSE
               (index + order)
 
           # Partition into the ordering portion
-          indexes += Parallel.flat_map(index.partitions, in_threads: 10) do |index_prefix, order_prefix|
+          indexes += Parallel.flat_map(index.partitions, in_threads: Parallel.processor_count / 2) do |index_prefix, order_prefix|
             hash_fields = index_prefix.take_while do |field|
               field.parent == index.first.parent
             end
