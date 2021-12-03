@@ -180,6 +180,7 @@ module NoSE
         STDERR.puts "validating migration process for #{index.key}"
         results_on_mysql = data_on_mysql index
         results_on_cassandra = data_on_cassandra index
+        compare_two_records_in_rows(index,"mysql", results_on_mysql, "cassandra", results_on_cassandra)
         compare_two_results(index,"mysql", results_on_mysql, "cassandra", results_on_cassandra)
       end
 
@@ -211,6 +212,33 @@ module NoSE
         results_on_backend = @backend.unload_index_by_cassandra_unloader(index)
         results_on_backend.each {|r| r.delete('value_hash')}
         results_on_backend
+      end
+
+      def compare_two_records_in_rows(index, left_label, left_hash, right_label, right_hash)
+        left_hash = @backend.cast_records index, left_hash
+        right_hash = @backend.cast_records index, right_hash
+
+        columns = left_hash.first.keys.sort
+        left_str_rows = left_hash.map do |row_hash|
+          columns.map {|c| c.class == Float ? row_hash[c].round(2) : row_hash[c]}.join(",")
+        end.to_set
+        right_str_rows = right_hash.map do |row_hash|
+          columns.map {|c| row_hash[c]}.join(",")
+        end.to_set
+
+        if left_hash.size > right_hash.size
+          puts "#{left_label} has more records than #{right_label}"
+          puts left_str_rows - right_str_rows
+        elsif right_hash.size > left_hash.size
+          puts "#{right_label} has more records than #{left_label}"
+          puts right_str_rows - left_str_rows
+        else
+          puts "#{right_label} and #{left_label} have the same number of record on #{index.key}"
+          puts "#{right_label} - #{left_label}"
+          puts right_str_rows - left_str_rows
+          puts "#{left_label} - #{right_label}"
+          puts left_str_rows - right_str_rows
+        end
       end
 
       def compare_two_results(index, left_label, left_hash, right_label, right_hash)
@@ -254,7 +282,7 @@ module NoSE
                 if left_values.size != right_values.size
                   STDERR.puts "     value size is different for #{field_name} (left_values: #{left_values.size}," \
                                 " right_values: #{right_values.size}): #{
-                    left_values.size > right_values ?
+                    left_values.size > right_values.size ?
                       left_values.diff(right_values).uniq.map(&:to_s)
                       : right_values.diff(left_values).uniq.map(&:to_s)
                   }"
@@ -262,7 +290,7 @@ module NoSE
               end
             else
               # this possibly happen if there are INSERT or UPDATE
-              STDERR.puts "    === #{field_name} in #{index.key} does not match ==="
+              STDERR.puts "    === #{field_name} in #{index_key} does not match ==="
               STDERR.puts "     #{left_label} #{left_values.size}: #{left_values.take(10).map(&:to_s)}"
               STDERR.puts "     #{right_label} #{right_values.size}: #{right_values.take(10).map(&:to_s)}"
               STDERR.puts "    ==========================================="
@@ -271,10 +299,10 @@ module NoSE
       end
 
       def compare_approximately_values(left_values, right_values)
-        return false if (left_values.size - right_values.size).abs > left_values.size * 0.1
+        return false if (left_values.size - right_values.size).abs > left_values.size * 0.01
 
-        return false if left_values.diff(right_values).size > left_values.size * 0.1 \
-                      or right_values.diff(left_values).size > right_values.size * 0.1
+        return false if left_values.diff(right_values).size > left_values.size * 0.01 \
+                      or right_values.diff(left_values).size > right_values.size * 0.01
         true
       end
 
