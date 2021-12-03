@@ -75,7 +75,7 @@ module NoSE
         ranges << [right_workload, middle_ts, end_ts] unless right_workload.nil?
         return ts_indexes if ranges.empty?
 
-        whole_ts_index_hashes = Parallel.map(ranges, in_processes: [2, Parallel.processor_count].min) do |workload, left, right|
+        whole_ts_index_hashes = Parallel.map(ranges, in_processes: 2) do |workload, left, right|
           data = refresh_solver_params indexes, workload, data
           solve_subset(queries, indexes, data, workload, left, right, ts_indexes)
         end.flatten
