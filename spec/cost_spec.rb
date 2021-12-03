@@ -92,9 +92,9 @@ module NoSE
                           'WHERE Tweet.Retweets = ?', workload.model
 
         options =  {
-          index_cost_low_io: 0.006590624817556526,
-          partition_cost_low_io: 0.001753137438571466,
-          row_cost_low_io: 3.0797103816965713e-06
+          index_cost_io: 0.006590624817556526,
+          partition_cost_io: 0.001753137438571466,
+          row_cost_io: 3.0797103816965713e-06
         }
 
         cassandra_io_cost_model = CassandraIoCost.new(options)
