@@ -20,7 +20,7 @@ module NoSE
       range = get_query_range query
       eq = get_query_eq query
 
-      indexes = Parallel.flat_map(query.graph.subgraphs, in_processes: 5) do |graph|
+      indexes = Parallel.flat_map(query.graph.subgraphs, in_processes: Parallel.processor_count/3) do |graph|
         indexes_for_graph graph, query.select, eq, range
       end.uniq << query.materialize_view << query.materialize_view_with_aggregation
 
@@ -63,13 +63,13 @@ module NoSE
     def get_trees(queries, indexes)
       planner = Plans::PrunedQueryPlanner.new @workload.model, indexes, @cost_model, 2
       #planner = Plans::QueryPlanner.new @workload.model, indexes, @cost_model
-      Parallel.map(queries, in_processes: [Parallel.processor_count - 5, 0].max()) do |query|
+      Parallel.map(queries, in_processes: Parallel.processor_count / 3) do |query|
         planner.find_plans_for_query(query)
       end
     end
 
     def indexes_for_queries(queries, additional_indexes)
-      indexes = Parallel.flat_map(queries, in_processes: [Parallel.processor_count - 5, 0].max()) do |query|
+      indexes = Parallel.flat_map(queries, in_processes: Parallel.processor_count / 3) do |query|
         #indexes = queries.flat_map do |query|
         indexes_for_query(query).to_a
       end.uniq + additional_indexes

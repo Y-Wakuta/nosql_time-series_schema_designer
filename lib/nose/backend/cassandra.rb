@@ -166,10 +166,10 @@ module NoSE
 
       # Check if the given index is empty
       def index_empty?(index)
-        query = "SELECT count(*) FROM \"#{index.key}\" LIMIT 1"
+        query = "SELECT * FROM \"#{index.key}\" LIMIT 1"
         is_index_empty = false;
         retry_when_fail do
-          is_index_empty = @client.execute(query).first.values.first.zero?
+          is_index_empty = @client.execute(query).rows.size == 0
         end
         is_index_empty
       end
