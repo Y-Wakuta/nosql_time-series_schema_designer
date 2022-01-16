@@ -201,18 +201,22 @@ module NoSE
 
             # modify condition value for each range operator type
             unless @range_fields.empty?
-              conditions.select{|_, v| v.range?}.each do |field_name, range_condition|
+              conditions.select{|_, v| v.range? and @range_fields.include? v.field}.each do |field_name, range_condition|
                 operator = range_condition.operator
                 range_field = @range_fields.find{|rf| rf.id == field_name}
                 if operator == :>= or operator == :<= or not result.has_key? range_field.id
                   result_condition << Condition.new(range_field, operator,
                                                     result[range_field.id])
                 elsif operator == :>
-                  result_condition << Condition.new(range_field, operator,
-                                                    result[range_field.id] - 1)
+                  v = result[range_field.id].instance_of?(Date) ?
+                        result[range_field.id] - 1
+                        : [result[range_field.id] - 1, result[range_field.id] * 0.99].max # if the value is float (v < 1), reducing 1 is too large. so multiply 0.99 for float values
+                  result_condition << Condition.new(range_field, operator, v)
                 elsif operator == :<
-                  result_condition << Condition.new(range_field, operator,
-                                                    result[range_field.id] + 1)
+                  v = result[range_field.id].instance_of?(Date) ?
+                        result[range_field.id] + 1
+                        : [result[range_field.id] + 1, result[range_field.id] * 1.01].min # if the value is float (v < 1), adding 1 is too large. so multiply 1.01 for float values
+                  result_condition << Condition.new(range_field, operator, v)
                 else
                   fail
                 end
