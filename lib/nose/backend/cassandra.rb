@@ -831,8 +831,9 @@ module NoSE
         def lookup_values(condition_set,query_conditions)
           condition_set.map do |condition|
             begin
-              value = condition.value ||
-                query_conditions[condition.field.id].value
+              # if the condition value is given in query and the value is not null, we use the value for condition
+              is_condition_given_in_query = query_conditions.has_key?(condition.field.id) and not query_conditions[condition.field.id].value.nil?
+              value = is_condition_given_in_query ? query_conditions[condition.field.id].value : condition.value
               fail "condition not found for #{condition.field.id}" if value.nil?
             rescue => e
               puts e
