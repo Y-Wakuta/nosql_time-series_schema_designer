@@ -17,9 +17,7 @@ module NoSE
       return [] if queries.empty?
 
       indexes = Parallel.flat_map(queries, in_processes: [Parallel.processor_count - 5, 0].max()) do |query|
-        idxs = indexes_for_query(query).to_a
-        puts query.comment + ": " + idxs.size.to_s if query.instance_of? Query
-        idxs
+        indexes_for_query(query).to_a
       end.uniq
       indexes += additional_indexes
 
@@ -73,7 +71,7 @@ module NoSE
       indexes.uniq!
       index_size = indexes.size
       indexes = ignore_cluster_key_order query, indexes
-      STDERR.puts "prune indexes based on clustering key #{index_size} -> #{indexes.size}"
+      puts "prune indexes based on clustering key #{index_size} -> #{indexes.size}"
       indexes << query.materialize_view
       indexes << query.materialize_view_with_aggregation
       puts "#{indexes.size} indexes for #{query.comment}"

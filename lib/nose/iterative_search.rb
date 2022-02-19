@@ -54,7 +54,7 @@ module NoSE
 
       def solve_subset(queries, indexes, data, workload, start_ts, end_ts, ts_indexes)
         middle_ts = ((end_ts - start_ts) / 2).ceil + start_ts
-        STDERR.puts "-=-=start : " + start_ts.to_s + " middle: " + middle_ts.to_s + " end: "  + end_ts.to_s
+        puts "-=-=start : " + start_ts.to_s + " middle: " + middle_ts.to_s + " end: "  + end_ts.to_s
 
         STDERR.puts "start constructing TimeDependIterativeProblem: #{Time.now}"
         problem = TimeDependIterativeProblem.new(queries, workload, data,

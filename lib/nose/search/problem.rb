@@ -49,13 +49,13 @@ module NoSE
         return unless @status.nil?
 
         @model.update
-        STDERR.puts "model variables: " + @model.variables.size.to_s
-        STDERR.puts "model constraints: " + @model.constraints.size.to_s
+        puts "model variables: " + @model.variables.size.to_s
+        puts "model constraints: " + @model.constraints.size.to_s
         # Run the optimization
         starting = Time.now
         STDERR.puts "start solving #{starting}"
         @model.optimize
-        STDERR.puts "optimization time: #{Time.now - starting}"
+        puts "optimization time: #{Time.now - starting}"
 
         @status = model.status
         if @status != :optimized
@@ -68,10 +68,10 @@ module NoSE
         # Store the objective value
         @objective_value = @obj_var.value
 
-        STDERR.puts "current type is " + @objective_type.to_s
-        STDERR.puts "======================="
-        STDERR.puts @objective_value
-        STDERR.puts "======================="
+        puts "current type is " + @objective_type.to_s
+        puts "======================="
+        puts @objective_value
+        puts "======================="
 
         validate_model
 
