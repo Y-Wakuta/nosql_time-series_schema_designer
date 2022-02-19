@@ -174,7 +174,7 @@ class Cardinality
   # Update the cardinality based on filtering implicit to the index
   # @return [Fixnum]
   def self.filter(cardinality, eq_filter, range_filter)
-    range_selectivity = 10.0
+    range_selectivity = 1.0 / 0.504190380952381
     filtered = (range_filter.empty? ? 1.0 : (1.0 / range_selectivity) ** range_filter.size) * cardinality
     filtered *= eq_filter.map do |field|
       1.0 / field.cardinality
