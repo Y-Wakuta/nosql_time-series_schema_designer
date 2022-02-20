@@ -112,7 +112,7 @@ module NoSE
 
       def create_hash_table(index, values, key_fields)
         hash_table = values.reject{|rv| Backend::CassandraBackend.remove_all_null_place_holder_row([rv]).empty? \
-             or Backend::CassandraBackend.remove_all_null_place_holder_row(key_fields.map{|fi| rv.slice(fi.id)}).empty?}.group_by do |right_value|
+             || Backend::CassandraBackend.remove_all_null_place_holder_row(key_fields.map{|fi| rv.slice(fi.id)}).empty?}.group_by do |right_value|
           (key_fields.map{|fi| right_value[fi.id].to_s}.join(',')).hash
         end
         hash_table.default = Backend::CassandraBackend.create_empty_record(index)
@@ -302,7 +302,7 @@ module NoSE
         return false if (left_values.size - right_values.size).abs > left_values.size * 0.01
 
         return false if left_values.diff(right_values).size > left_values.size * 0.01 \
-                      or right_values.diff(left_values).size > right_values.size * 0.01
+                      || right_values.diff(left_values).size > right_values.size * 0.01
         true
       end
 

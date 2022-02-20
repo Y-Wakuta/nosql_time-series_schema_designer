@@ -243,7 +243,7 @@ module NoSE
       end
 
       def get_condition_for_composite_key(cond, key)
-          if not key.composite_keys.nil? and not key.composite_keys.empty?
+          if !key.composite_keys.nil? && !key.composite_keys.empty?
             key.composite_keys.each do |composite_key|
               cond += " AND #{composite_key["name"].parent.name}.#{composite_key["name"].name} =" \
                       " #{composite_key["related_key"].parent.name}.#{composite_key["related_key"].name}"
@@ -306,7 +306,7 @@ module NoSE
 
         # add ORDER BY to keep record order
         primary_keys_for_orderby = index.graph.entities.map(&:fields).reduce(&:merge)
-                            .select{|_, v| v.primary_key? or v.instance_of?(Fields::CompositeKeyField)}
+                            .select{|_, v| v.primary_key? || v.instance_of?(Fields::CompositeKeyField)}
                             .map{|_, v| v.id}
                             .sort_by{|v| v}
         query += " ORDER BY #{primary_keys_for_orderby.join(", ")} "

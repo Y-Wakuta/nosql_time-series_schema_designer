@@ -72,7 +72,7 @@ module NoSE
 
       def self.any_parent_does_sort?(parent)
         return false if parent.is_a? Plans::RootPlanStep
-        return true if parent.instance_of?(Plans::IndexLookupPlanStep) and not parent.order_by.empty?
+        return true if parent.instance_of?(Plans::IndexLookupPlanStep) && !parent.order_by.empty?
         return any_parent_does_sort?(parent.parent)
       end
 
@@ -80,13 +80,13 @@ module NoSE
       # Not at both of these steps
       def self.any_parent_does_aggregation?(parent)
         return false if parent.is_a? Plans::RootPlanStep
-        return true if parent.instance_of?(Plans::IndexLookupPlanStep) and parent.index.has_aggregation_fields?
+        return true if parent.instance_of?(Plans::IndexLookupPlanStep) && parent.index.has_aggregation_fields?
         return any_parent_does_aggregation?(parent.parent)
       end
 
       def self.parent_aggregations(parent)
         return nil if parent.is_a? Plans::RootPlanStep
-        if parent.instance_of?(Plans::IndexLookupPlanStep) and parent.index.has_aggregation_fields?
+        if parent.instance_of?(Plans::IndexLookupPlanStep) && parent.index.has_aggregation_fields?
           return {counts: parent.index.count_fields || Set.new, sums: parent.index.sum_fields || Set.new,
                   avgs: parent.index.avg_fields || Set.new,
                   maxes: parent.index.max_fields || Set.new, groupby: parent.index.groupby_fields || Set.new}

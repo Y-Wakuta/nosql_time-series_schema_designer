@@ -293,7 +293,7 @@ module NoSE
         prune_step.children.delete prev_step
 
         # If we reached the root, we have no plan
-        return true if prune_step.is_a? RootPlanStep and prune_step.children.empty?
+        return true if prune_step.is_a?(RootPlanStep) && prune_step.children.empty?
 
         false
       end
@@ -309,7 +309,7 @@ module NoSE
 
       def validate_query_plan_has_required_field_for_groupby(plan)
         required_groupby_fields = plan.query.groupby.to_set
-        last_aggregatable_step = plan.steps.select{|s| s.is_a?(Plans::IndexLookupPlanStep) or s.is_a?(Plans::AggregationPlanStep)}.last
+        last_aggregatable_step = plan.steps.select{|s| s.is_a?(Plans::IndexLookupPlanStep) || s.is_a?(Plans::AggregationPlanStep)}.last
         if last_aggregatable_step.is_a?(Plans::IndexLookupPlanStep)
           given_groupby_fields = last_aggregatable_step.index.groupby_fields
         elsif last_aggregatable_step.is_a?(Plans::AggregationPlanStep)
@@ -330,8 +330,8 @@ module NoSE
 
         fail "any filtering should be done before aggregation #{plan.query.comment}: #{plan.inspect}" \
           if plan.steps[0...last_filter_step_idx].any? do |s|
-            s.instance_of?(Plans::AggregationPlanStep) or \
-                  (s.instance_of?(Plans::IndexLookupPlanStep) and s.index.has_aggregation_fields?)
+            s.instance_of?(Plans::AggregationPlanStep) || \
+                  (s.instance_of?(Plans::IndexLookupPlanStep) && s.index.has_aggregation_fields?)
           end
       end
 
@@ -467,7 +467,7 @@ module NoSE
           end
           current = current.parent
         end
-        indexPlanStepCount >= @index_step_size_threshold and child_step.is_a? IndexLookupPlanStep # threshold
+        indexPlanStepCount >= @index_step_size_threshold && child_step.is_a?(IndexLookupPlanStep) # threshold
       end
     end
 

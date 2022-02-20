@@ -74,8 +74,8 @@ module NoSE
       end
 
       def self.check_has_only_required_aggregations(index, state)
-        fail InvalidIndex if state.groupby.empty? and not index.groupby_fields.empty?
-        fail InvalidIndex if (not state.groupby.empty? and not index.groupby_fields.empty?) and not state.groupby <= index.groupby_fields
+        fail InvalidIndex if state.groupby.empty? && !index.groupby_fields.empty?
+        fail InvalidIndex if (!state.groupby.empty? && !index.groupby_fields.empty?) && !(state.groupby <= index.groupby_fields)
       end
 
       def self.check_parent_groupby(parent)
@@ -185,22 +185,22 @@ module NoSE
         #SELECT * FROM entity WHERE A = ? AND B = ?
         # parent: [A][B]->[C,D]
         # index:  [B][A]->[C,D,E]
-        return true if index.extra >= parent_index.extra and \
-                          state.query.eq_fields >= (parent_index.hash_fields + parent_index.order_fields.to_set) and \
-                          parent_index.hash_fields == index.order_fields.to_set and \
+        return true if index.extra >= parent_index.extra && \
+                          state.query.eq_fields >= (parent_index.hash_fields + parent_index.order_fields.to_set) && \
+                          parent_index.hash_fields == index.order_fields.to_set && \
                           parent_index.order_fields.to_set == index.hash_fields
 
         #SELECT * FROM entity WHERE A = ? AND B = ?
         # parent: [A][B]->[C,D]
         # index:  [A,B][F]->[C,D,E]
-        return true if index.hash_fields >= state.query.eq_fields and \
+        return true if index.hash_fields >= state.query.eq_fields && \
                        index.all_fields >= parent_index.all_fields
 
         #SELECT E FROM entity WHERE A = ? AND B = ?
         # parent: [A,B][]->[C,D] or [A][B]->[C,D]
         # index:  [A][B]->[E]
-        return true if state.query.eq_fields >= index.hash_fields and \
-                      (index.hash_fields + index.order_fields.to_set) >= state.query.eq_fields and \
+        return true if state.query.eq_fields >= index.hash_fields && \
+                      (index.hash_fields + index.order_fields.to_set) >= state.query.eq_fields && \
                       index.all_fields >= state.fields
 
         false
@@ -213,7 +213,7 @@ module NoSE
         return false unless parent_index.key_fields.to_set >= current_composite_keys
 
         join_keys = overlapped_key_fields + current_composite_keys
-        return true if index.hash_fields.to_set >= current_composite_keys or \
+        return true if index.hash_fields.to_set >= current_composite_keys || \
                             index.order_fields.drop_while{|of| state.eq.include? of}
                                  .take((join_keys - index.hash_fields - state.eq).size)
                                  .to_set == (join_keys - index.hash_fields - state.eq).to_set

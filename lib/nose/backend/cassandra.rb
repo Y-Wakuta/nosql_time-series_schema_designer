@@ -51,7 +51,7 @@ module NoSE
         return @@value_place_holder[:numeric].to_i if field.is_a?(NoSE::Fields::IntegerField)
         return @@value_place_holder[:numeric].to_f if field.is_a?(NoSE::Fields::FloatField)
         return @@value_place_holder[:date] if field.instance_of?(NoSE::Fields::DateField)
-        return @@value_place_holder[:uuid] if field.instance_of?(NoSE::Fields::IDField) or field.instance_of?(NoSE::Fields::ForeignKeyField) or field.instance_of?(NoSE::Fields::CompositeKeyField)
+        return @@value_place_holder[:uuid] if field.instance_of?(NoSE::Fields::IDField) || field.instance_of?(NoSE::Fields::ForeignKeyField) || field.instance_of?(NoSE::Fields::CompositeKeyField)
         fail "#{field.inspect}, #{field.class} is still not supported"
       end
 
@@ -250,7 +250,7 @@ module NoSE
                 # When the beginning of the line is white space, the space is ignored when loaded onto Casandra.
                 # Thus, explicitly add the quotation to keep the space on Cassandra.
                 # Avoid adding double quotations by checking it is already quoted
-                results_chunk.each {|row| f.puts(row.map {|f| (f.instance_of?(String) and f[0] != '"' and f[-1] != '"') ? '"' + f + '"' : f }.join('|'))}
+                results_chunk.each {|row| f.puts(row.map {|f| (f.instance_of?(String) && f[0] != '"' && f[-1] != '"') ? '"' + f + '"' : f }.join('|'))}
                 f
               end
               STDERR.puts "  insert through csv: #{index.key}, #{file_name}, #{results_chunk.size.to_s}"
@@ -392,7 +392,7 @@ module NoSE
           when Fields::FloatField
             row[field_id] = row[field_id].to_f
           when Fields::DateField
-            row[field_id] = Date.strptime(row[field_id], "%Y-%m-%d") unless row[field_id].nil? or row[field_id].instance_of?(Date) or row[field_id].instance_of?(DateTime)
+            row[field_id] = Date.strptime(row[field_id], "%Y-%m-%d") unless row[field_id].nil? || row[field_id].instance_of?(Date) || row[field_id].instance_of?(DateTime)
             row[field_id] = @@value_place_holder[:date] if row[field_id].nil?
           when Fields::IDField || Fields::ForeignKeyField || Fields::CompositeKeyField
             row[field_id] = convert_id_2_uuid row[field_id] unless row[field_id].instance_of?(Cassandra::Uuid)
@@ -450,7 +450,7 @@ module NoSE
       def format_result(index, results)
         results = add_value_hash index, results
         fields = index.all_fields.to_a
-        fail 'all record has empty field' if not results.empty? and CassandraBackend.remove_all_null_place_holder_row(results).empty?
+        fail 'all record has empty field' if not results.empty? && CassandraBackend.remove_all_null_place_holder_row(results).empty?
         csv_rows = []
         idx = 0
         while idx < results.size
@@ -691,7 +691,7 @@ module NoSE
 
           condition_list = result_conditions conditions, results
           new_result = fetch_all_queries condition_list, results, query_conditions
-          fail "no result given" if new_result.size == 0 and not @step.children.empty?
+          fail "no result given" if new_result.size == 0 && !@step.children.empty?
 
           # Limit the size of the results in case we fetched multiple keys
           new_result[0..(@step.limit.nil? ? -1 : @step.limit)]
@@ -832,7 +832,7 @@ module NoSE
           condition_set.map do |condition|
             begin
               # if the condition value is given in query and the value is not null, we use the value for condition
-              is_condition_given_in_query = query_conditions.has_key?(condition.field.id) and not query_conditions[condition.field.id].value.nil?
+              is_condition_given_in_query = query_conditions.has_key?(condition.field.id) && !query_conditions[condition.field.id].value.nil?
               value = is_condition_given_in_query ? query_conditions[condition.field.id].value : condition.value
               fail "condition not found for #{condition.field.id}" if value.nil?
             rescue => e

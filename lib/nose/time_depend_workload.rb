@@ -43,11 +43,11 @@ module NoSE
       if @definition_type == DEFINITION_TYPE::FLOAT_ARRAY
         mixes.each do |mix, weight|
           @time_depend_statement_weights[mix] = {} unless @time_depend_statement_weights.key? mix
-          fail "Frequency is required for #{statement.text}" if weight.nil? and frequency.nil?
+          fail "Frequency is required for #{statement.text}" if weight.nil? && frequency.nil?
 
           fail "number of Frequency should be same as timesteps for #{statement.text}" \
-            unless weight.size == @timesteps or frequency&.size == @timestep
-          fail "Frequency cannot become 0 for #{statement.text}" if weight.include?(0) or frequency&.include?(0)
+            unless weight.size == @timesteps || frequency&.size == @timestep
+          fail "Frequency cannot become 0 for #{statement.text}" if weight.include?(0) || frequency&.include?(0)
           # ensure that all query has the same # of timesteps
           fail if @time_depend_statement_weights[mix].map{|_, weights| weights.size}.uniq.size > 1
           frequencies = (frequency.nil? ? weight : frequency).map{|f| f * @interval}
@@ -56,8 +56,8 @@ module NoSE
 
         end
       elsif @definition_type == DEFINITION_TYPE::WORKLOAD_SET_RATIO
-        fail "required field is not given" if @start_workload_ratio.nil? or @end_workload_ratio.nil? \
-                                              or @start_workload_set.nil? or @end_workload_set.nil?
+        fail "required field is not given" if @start_workload_ratio.nil? || @end_workload_ratio.nil? \
+                                              || @start_workload_set.nil? || @end_workload_set.nil?
         mixes[@start_workload_set] = 0 if mixes[@start_workload_set].nil?
         mixes[@end_workload_set] = 0 if mixes[@end_workload_set].nil?
 
@@ -78,8 +78,8 @@ module NoSE
       # deep copy the weight hash
       @statement_weights = Marshal.load(Marshal.dump(@time_depend_statement_weights))
       fail 'the workload cannot be static, first ts and last ts at the same time' \
-          if (@is_static and @is_first_ts) or (@is_first_ts and @is_last_ts) \
-            or (@is_last_ts and @is_static)
+          if (@is_static && @is_first_ts) || (@is_first_ts && @is_last_ts) \
+            || (@is_last_ts && @is_static)
 
       if @is_static # if this workload is static workload, overwrite the value of frequency by the average frequency
         @time_depend_statement_weights.each do |mix, statements|
@@ -134,7 +134,7 @@ module NoSE
     end
 
     def set_frequency_type(frequencyType)
-      fail "frequency type is already set" if @is_static or @is_first_ts or @is_last_ts
+      fail "frequency type is already set" if @is_static || @is_first_ts || @is_last_ts
 
       case FrequencyType.status(frequencyType)
       when FrequencyType::TimeDepend

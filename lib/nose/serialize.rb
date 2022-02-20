@@ -238,7 +238,7 @@ module NoSE
 
       def composite_keys
         represented.composite_keys \
-          if represented.instance_of?(Fields::IDField) or represented.instance_of?(Fields::ForeignKeyField)
+          if represented.instance_of?(Fields::IDField) || represented.instance_of?(Fields::ForeignKeyField)
       end
       collection :composite_keys, exec_context: :decorator, deserialize: FieldBuilder
     end
@@ -876,7 +876,7 @@ module NoSE
 
         range_filters = step_hash['range_filter']
         decoded_range_filters = []
-        unless range_filters.nil? or range_filters.empty?
+        unless range_filters.nil? || range_filters.empty?
           decoded_range_filters = range_filters.map{|rf| f.call(rf)}
         end
         step.instance_variable_set(:@range_filter, decoded_range_filters)

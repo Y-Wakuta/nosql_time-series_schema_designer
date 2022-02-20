@@ -368,7 +368,7 @@ module NoSE
       path.each do |key|
         # Search through foreign keys
         last_entity = longest_entity_path.last
-        if last_entity[key].instance_of?(NoSE::Fields::IDField) and not last_entity.foreign_keys[key].nil?
+        if last_entity[key].instance_of?(NoSE::Fields::IDField) && !last_entity.foreign_keys[key].nil?
           longest_entity_path << last_entity.foreign_keys[key].entity
           keys << last_entity.foreign_keys[key]
         else

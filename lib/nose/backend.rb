@@ -155,7 +155,7 @@ module NoSE
             end.inject({}) do |l_hash, r_hash|
               l_hash.merge(r_hash) do |_, l_v, r_v|
                 fail 'value must be the same' \
-                  if (l_v.instance_of?(Integer) || l_v.instance_of?(Float)) and (l_v - r_v).abs > 0.001
+                  if (l_v.instance_of?(Integer) || l_v.instance_of?(Float)) && (l_v - r_v).abs > 0.001
                 l_v
               end
             end
@@ -201,10 +201,10 @@ module NoSE
 
             # modify condition value for each range operator type
             unless @range_fields.empty?
-              conditions.select{|_, v| v.range? and @range_fields.include? v.field}.each do |field_name, range_condition|
+              conditions.select{|_, v| v.range? && @range_fields.include?(v.field)}.each do |field_name, range_condition|
                 operator = range_condition.operator
                 range_field = @range_fields.find{|rf| rf.id == field_name}
-                if operator == :>= or operator == :<= or not result.has_key? range_field.id
+                if operator == :>= || operator == :<= || !result.has_key?(range_field.id)
                   result_condition << Condition.new(range_field, operator,
                                                     result[range_field.id])
                 elsif operator == :>
@@ -238,7 +238,7 @@ module NoSE
             unless @next_step.nil? || !@next_step.is_a?(Plans::IndexLookupPlanStep)
 
           if !@next_step.is_a?(Plans::IndexLookupPlanStep) \
-              and !later_indexlookup_steps.nil?
+              && !later_indexlookup_steps.nil?
             later_indexlookup_steps.each do |later_indexlookup_step|
               select += later_indexlookup_step.index.hash_fields
               select += later_indexlookup_step.eq_filter
@@ -376,8 +376,8 @@ module NoSE
             _conditions.each do |field_name, condition|
               next unless condition.operator == "=".to_sym
               condition_field_values = group.map{|g| g[field_name]}
-              fail "condition value must be uniq" if condition.operator == "=".to_sym and \
-                                                     condition_field_values.size > 1 and \
+              fail "condition value must be uniq" if condition.operator == "=".to_sym && \
+                                                     condition_field_values.size > 1 && \
                                                      condition_field_values.uniq.size > 1
               row[condition.field.id] = condition_field_values.first
             end

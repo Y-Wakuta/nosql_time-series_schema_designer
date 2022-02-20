@@ -141,7 +141,7 @@ module NoSE
           field = add_field_with_prefix tree[:path], field, params
 
           fail InvalidStatementException, 'Foreign keys cannot be selected' \
-            if self.instance_of?(Query) and field.is_a? Fields::ForeignKeyField
+            if self.instance_of?(Query) && field.is_a?(Fields::ForeignKeyField)
 
           [field]
         end

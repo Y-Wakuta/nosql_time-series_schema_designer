@@ -27,7 +27,7 @@ module NoSE
         queries += migrate_support_queries
         @include_migration_cost = workload.include_migration_cost
         @MIGRATE_COST_DUMMY_CONST = 0.00001 # multiple migrate cost by this value to ignore
-        @is_static = workload.is_static or workload.is_first_ts or workload.is_last_ts
+        @is_static = workload.is_static || workload.is_first_ts || workload.is_last_ts
 
         super(queries, workload.updates, data, objective)
       end

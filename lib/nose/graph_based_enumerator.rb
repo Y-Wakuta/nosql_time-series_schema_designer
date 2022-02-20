@@ -58,7 +58,7 @@ module NoSE
         prefix_idxes = indexes_for_graph(subgraph_pair[:prefix], query.select, eq, range, orderby,
                                          overlapping_entities, is_prefix_graph: true)
 
-        if subgraph_pair[:prefix].entities.size == 1 and subgraph_pair[:suffix].entities == query.graph.entities
+        if subgraph_pair[:prefix].entities.size == 1 && subgraph_pair[:suffix].entities == query.graph.entities
           suffix_idxes = indexes_for_full_suffix_graph(subgraph_pair[:prefix], subgraph_pair[:suffix],
                                                        query.materialize_view, eq)
         else
@@ -120,17 +120,17 @@ module NoSE
         subgraphs[(idx + 1)..-1].each do |other_subgraph|
           next unless (subgraph.entities & other_subgraph.entities).size == 1
           next unless (subgraph.entities | other_subgraph.entities) == parent_graph.entities
-          next if subgraph.entities.size == 1 and \
-                  not (other_subgraph.join_order(eq).take(1) == subgraph.join_order(eq) or \
+          next if subgraph.entities.size == 1 && \
+                  !(other_subgraph.join_order(eq).take(1) == subgraph.join_order(eq) || \
                   other_subgraph.join_order(eq).reverse.take(1) == subgraph.join_order(eq))
-          next if other_subgraph.entities.size == 1 and \
-                  not (subgraph.join_order(eq).take(1) == other_subgraph.join_order(eq) or \
+          next if other_subgraph.entities.size == 1 && \
+                  !(subgraph.join_order(eq).take(1) == other_subgraph.join_order(eq) || \
                   subgraph.join_order(eq).reverse.take(1) == other_subgraph.join_order(eq))
-          next if (subgraph.entities.size == 1 and not eq.map(&:parent).include? subgraph.entities.first) or \
-                  (other_subgraph.entities.size == 1 and not eq.map(&:parent).include? other_subgraph.entities.first)
+          next if (subgraph.entities.size == 1 && !eq.map(&:parent).include?(subgraph.entities.first)) || \
+                  (other_subgraph.entities.size == 1 && !eq.map(&:parent).include?(other_subgraph.entities.first))
 
           prefix_subgraph, suffix_subgraph = subgraph, other_subgraph
-          if suffix_subgraph.entities.size == 1 and prefix_subgraph.entities.size > 1
+          if suffix_subgraph.entities.size == 1 && prefix_subgraph.entities.size > 1
             prefix_subgraph, suffix_subgraph = suffix_subgraph, prefix_subgraph
           end
           # choose prefix subgraph. this works only when parent_graph == query.graph
@@ -166,7 +166,7 @@ module NoSE
     private
 
     def limit_choices(choices)
-      return choices if @choice_limit_size.nil? or choices.size < @choice_limit_size
+      return choices if @choice_limit_size.nil? || choices.size < @choice_limit_size
 
       base_size = choices.size
       # sort choices to always get the same reduced-choices
@@ -218,11 +218,11 @@ module NoSE
 
         # Since this CF does not have aggregation, we don't care groupby below
         non_query_specified_id_fields = eq_choice.select(&:primary_key)
-                                                 .reject{|f| eq.values.flatten.include?(f) or
-                                                   range.values.flatten.include?(f) or
+                                                 .reject{|f| eq.values.flatten.include?(f) ||
+                                                   range.values.flatten.include?(f) ||
                                                    orderby.values.flatten.include?(f)}
         query_specified_fields = eq_choice.to_set - non_query_specified_id_fields.to_set
-        next true if non_query_specified_id_fields.empty? or query_specified_fields.empty?
+        next true if non_query_specified_id_fields.empty? || query_specified_fields.empty?
         query_specified_fields.map{|qsf| eq_choice.index(qsf)}.max < non_query_specified_id_fields.map{|nqsif| eq_choice.index(nqsif)}.min
       end
 

@@ -54,7 +54,7 @@ module NoSE
       # Filtering should be done before IndexLookupStep with aggregations.
       def self.any_parent_does_aggregation?(parent)
         return false if parent.is_a? Plans::RootPlanStep
-        return true if parent.instance_of?(Plans::IndexLookupPlanStep) and parent.index.has_aggregation_fields?
+        return true if parent.instance_of?(Plans::IndexLookupPlanStep) && parent.index.has_aggregation_fields?
         return any_parent_does_aggregation?(parent.parent)
       end
 
