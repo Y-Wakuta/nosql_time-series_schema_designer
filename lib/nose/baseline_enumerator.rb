@@ -22,9 +22,12 @@ module NoSE
 
       indexes = Parallel.flat_map(query.graph.subgraphs, in_processes: Parallel.processor_count/3) do |graph|
         indexes_for_graph graph, query.select, eq, range
-      end.uniq << query.materialize_view << query.materialize_view_with_aggregation
+      end.uniq
 
-      ignore_cluster_key_order query, indexes
+      indexes = ignore_cluster_key_order query, indexes
+      indexes << query.materialize_view
+      indexes << query.materialize_view_with_aggregation
+      indexes
     end
 
     def ignore_cluster_key_order(query, indexes)
