@@ -29,12 +29,8 @@ module NoSE
 
     def get_graph_choices(graph, select, eq, range, orderby, overlapping_entities, is_prefix_graph: true)
       eq_choices = eq_choices graph, eq
-
-      # order by is not executed partially.
-      # Thus, This enumerator only enumerates order fields for graph that has all of required entity
       order_choices = order_choices(graph, range)
       extra_choices = extra_choices(graph, select, eq, range)
-
       [eq_choices, order_choices, extra_choices]
     end
   end
