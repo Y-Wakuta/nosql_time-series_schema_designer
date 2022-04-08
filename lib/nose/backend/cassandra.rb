@@ -450,7 +450,7 @@ module NoSE
       def format_result(index, results)
         results = add_value_hash index, results
         fields = index.all_fields.to_a
-        fail 'all record has empty field' if not results.empty? && CassandraBackend.remove_all_null_place_holder_row(results).empty?
+        fail 'all record has empty field' if !results.empty? && CassandraBackend.remove_all_null_place_holder_row(results).empty?
         csv_rows = []
         idx = 0
         while idx < results.size
