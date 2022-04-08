@@ -1,34 +1,12 @@
-# NoSQL Schema Evaluator (NoSE)
+# NoSQL Time-Series Schema Designer
 
-[![Build Status](https://travis-ci.org/Y-Wakuta/td_NoSE.svg?branch=master)](https://travis-ci.org/Y-Wakuta/td_NoSE)
-[![Code Coverage](https://scrutinizer-ci.com/g/Y-Wakuta/td_NoSE/badges/coverage.png?b=master)](https://scrutinizer-ci.com/g/Y-Wakuta/td_NoSE/?branch=master)
+NoSQL Time-Series Schema Designer is physical shema design tool for time dependend workload in NoSQL databases.
+This repository is licensed under the [GPLv3 license](LICENSE.md).
 
-This is a work in progress tool to provide automated physical schema design for NoSQL data stores.
-NoSE is licensed under the [GPLv3 license](LICENSE.md).
+## How to use
 
-## Getting Started
-
-If you want to quickly try NoSE, you can get a shell with all necessary dependencies using [Docker](https://www.docker.com/) as follows
-
-    docker run --interactive --tty --rm michaelmior/nose /bin/bash
-
-For continued use, installing a development version of the NoSE CLI is more flexible.
-Instructions can be found in the [nose-cli](https://github.com/michaelmior/nose-cli) repository.
-
-## Publications
-
-Mior, M.J.; Kenneth Salem; Ashraf Aboulnaga; Rui Liu, [NoSE: Schema Design for NoSQL Applications](https://www.researchgate.net/publication/296485511_NoSE_Schema_Design_for_NoSQL_Applications), in Data Engineering (ICDE), July 2017.
-
-Mior, M.J.; Kenneth Salem; Ashraf Aboulnaga; Rui Liu, [NoSE: Schema Design for NoSQL Applications](https://www.researchgate.net/publication/318126769_NoSE_Schema_Design_for_NoSQL_Applications), Transactions on Knowledge and Data Engineering, 16-20 May 2016.
-
-![ACM DL Author-ize service](http://dl.acm.org/images/oa.gif) Michael J. Mior. 2014. [Automated schema design for NoSQL databases](http://dl.acm.org/authorize?N71145). In Proceedings of the 2014 SIGMOD PhD symposium (SIGMOD'14 PhD Symposium). ACM, New York, NY, USA, 41-45.
+We provide [cli tool](https://github.com/Y-Wakuta/td_nose-cli) to run this system for given workload.
 
 ## Acknowledgements
 
-This work was supported by the Natural Sciences and Engineering Research Council of Canada ([NSERC](http://nserc.gc.ca)).
-
-[![NSERC](assets/NSERC-logo.png)](http://nserc.gc.ca)
-
-Hosting of [Coin-OR packages](https://packagecloud.io/michaelmior/coinor/) is generously provided by packagecloud.
-
-[![packagecloud](assets/packagecloud-logo.png)](https://packagecloud.io)
+This repository is implemented based on the fork of [NoSE](https://github.com/michaelmior/NoSE)
