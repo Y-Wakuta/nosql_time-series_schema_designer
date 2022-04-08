@@ -146,7 +146,7 @@ module NoSE
         end
 
         # support query possibly does not have plans for all timesteps
-        fail InvalidResultsException if plan_all_times.any?{|plan| plan.nil?} and not query.is_a?(SupportQuery)
+        fail InvalidResultsException if plan_all_times.any?{|plan| plan.nil?} && !query.is_a?(SupportQuery)
 
         plan_all_times.compact.each {|plan| plan.instance_variable_set :@workload, @workload}
 

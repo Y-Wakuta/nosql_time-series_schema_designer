@@ -136,7 +136,7 @@ module NoSE
     end
 
     def has_aggregation_fields?
-      has_select_aggregation_fields? or not @groupby_fields.empty?
+      has_select_aggregation_fields? || !@groupby_fields.empty?
     end
 
     def has_select_aggregation_fields?
@@ -176,7 +176,7 @@ module NoSE
       fail InvalidIndexException, 'AVG fields need to be exist in index fields' \
         unless @all_fields >= @avg_fields
       fail InvalidIndexException, 'GROUP BY fields should be exist in key fields' \
-        unless @groupby_fields.empty? or (@hash_fields + @order_fields) >= @groupby_fields
+        unless @groupby_fields.empty? || (@hash_fields + @order_fields) >= @groupby_fields
     end
 
     # Ensure an index is nonempty
@@ -297,7 +297,7 @@ module NoSE
 
     def self.get_composed_keys(key_fields)
        composite_key_fields = key_fields
-                               .select{|i| i.instance_of?(Fields::IDField) and not i.composite_keys.nil?}
+                               .select{|i| i.instance_of?(Fields::IDField) && !i.composite_keys.nil?}
                                .flat_map(&:composite_keys)
        composite_key_fields unless key_fields.to_set >= composite_key_fields.to_set
     end

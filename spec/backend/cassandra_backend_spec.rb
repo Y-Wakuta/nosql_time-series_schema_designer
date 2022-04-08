@@ -102,7 +102,7 @@ module NoSE
         step_class = CassandraBackend::IndexLookupStatementStep
         prepared = step_class.new client, query.all_fields, query.conditions,
                                   step, nil, step.parent
-        prepared.process query.conditions, nil, nil
+        prepared.process query.conditions, nil, {}
       end
 
       it 'produce query with composite key for each step' do
@@ -146,7 +146,7 @@ module NoSE
         end
         expect(client).to receive(:execute) \
           .with(backend_query, arguments: ['Bob']).and_return(results)
-        res = prepared.process query.conditions, nil, nil
+        res = prepared.process query.conditions, nil, {}
 
         #===============================================================
         # check last step
@@ -162,7 +162,7 @@ module NoSE
         expect(client).to receive(:execute) \
           .with(backend_query, arguments: [kind_of(Cassandra::Uuid), kind_of(Cassandra::Uuid)]) \
           .and_return(results).exactly(results.size).times
-        prepared.process query.conditions, res, nil
+        prepared.process query.conditions, res, {}
       end
 
       it 'generates query for aggregation on database' do

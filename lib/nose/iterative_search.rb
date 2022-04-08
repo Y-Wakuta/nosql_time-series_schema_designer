@@ -54,7 +54,7 @@ module NoSE
 
       def solve_subset(queries, indexes, data, workload, start_ts, end_ts, ts_indexes)
         middle_ts = ((end_ts - start_ts) / 2).ceil + start_ts
-        STDERR.puts "-=-=start : " + start_ts.to_s + " middle: " + middle_ts.to_s + " end: "  + end_ts.to_s
+        puts "-=-=start : " + start_ts.to_s + " middle: " + middle_ts.to_s + " end: "  + end_ts.to_s
 
         STDERR.puts "start constructing TimeDependIterativeProblem: #{Time.now}"
         problem = TimeDependIterativeProblem.new(queries, workload, data,
@@ -155,7 +155,7 @@ module NoSE
         solver_params[:update_costs] = update_costs
         solver_params[:prepare_update_costs] = prepare_update_costs
 
-        if @workload.is_a? TimeDependWorkload and not solver_params[:migrate_prepare_plans].empty?
+        if @workload.is_a?(TimeDependWorkload) && !solver_params[:migrate_prepare_plans].empty?
           # some CFs in the query plan tree possibly unused after `refresh_query_cost`. No prepare plan required for unused CFs, Therefore, remove the plan here.
           used_indexes = trees.flat_map{|t| t.flat_map(&:indexes)}.uniq
           solver_params[:migrate_prepare_plans] = solver_params[:migrate_prepare_plans].select{|k, _| used_indexes.include? k}
@@ -182,7 +182,7 @@ module NoSE
 
       def get_subset_workload(workload, start_ts, end_ts)
         middle_ts = ((end_ts - start_ts)/ 2).ceil + start_ts
-        return if start_ts == middle_ts or middle_ts == end_ts
+        return if start_ts == middle_ts || middle_ts == end_ts
         sub_workload = TimeDependWorkload.new(model = workload.model) do
           Interval workload.interval * ((middle_ts - start_ts) + (end_ts - middle_ts)) / 2
           TimeSteps 3

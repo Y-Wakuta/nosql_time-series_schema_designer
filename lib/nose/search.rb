@@ -68,14 +68,14 @@ module NoSE
           RunningTimeLogger.info(RunningTimeLogger::Headers::START_MIGRATION_PLAN_ENUMERATION)
           STDERR.puts("set migration query plans")
 
-          if @workload.is_static or @workload.is_first_ts or @workload.is_last_ts
+          if @workload.is_static || @workload.is_first_ts || @workload.is_last_ts
             STDERR.puts "Since the workload is static, not enumerating the migrate prepare plans"
             migrate_prepare_plans = {}
           else
             starting = Time.now.utc
             migrate_prepare_plans = get_migrate_preparing_plans(trees, indexes)
             STDERR.puts "prepare plan enumeration time: " + (Time.now.utc - starting).to_s
-            migrate_prepare_plans = {} if migrate_prepare_plans.values.size == 1 and migrate_prepare_plans.values.first.empty?
+            migrate_prepare_plans = {} if migrate_prepare_plans.values.size == 1 && migrate_prepare_plans.values.first.empty?
 
             costs.merge!(migrate_prepare_plans.values.flat_map{|v| v.values}.map{|v| v[:costs]}.reduce(&:merge) || {})
           end
@@ -377,12 +377,12 @@ module NoSE
         # e.g. index `[f1, f2][f3, f4] -> [f5, f6]`
 
         # in the case that hash_fields are same and all fields in the column family is also same
-        return true if other_index.hash_fields == index.hash_fields and other_index.all_fields.to_set == index.all_fields.to_set
+        return true if other_index.hash_fields == index.hash_fields && other_index.all_fields.to_set == index.all_fields.to_set
 
         # if the key fields are same, small field difference can be allowed
-        return true if other_index.hash_fields == index.hash_fields and \
-                       other_index.order_fields == index.order_fields and \
-                       other_index.extra >= index.extra and \
+        return true if other_index.hash_fields == index.hash_fields && \
+                       other_index.order_fields == index.order_fields && \
+                       other_index.extra >= index.extra && \
                        (other_index.extra - index.extra).size < 2
 
         # #return true if index.hash_fields > other_index.hash_fields and \
@@ -499,9 +499,9 @@ module NoSE
             # We must always have the same cost
             # WARNING: fix this invalid conditions.
             # Ignoring steps that have filtering steps just overwrites the cost value of step in another query plan.
-            if not is_same_cost(current_cost, cost) \
-              and not has_parent_filter_step(steps.last) \
-              and not has_parent_filter_step(query_costs[index_step.index].first.last)
+            if !is_same_cost(current_cost, cost) \
+              && !has_parent_filter_step(steps.last) \
+              && !has_parent_filter_step(query_costs[index_step.index].first.last)
               index = index_step.index
               p query.class
               p query
@@ -549,7 +549,7 @@ module NoSE
       end
 
       def is_same_cost(cost1, cost2)
-        if cost1.is_a?(Array) and cost2.is_a?(Array)
+        if cost1.is_a?(Array) && cost2.is_a?(Array)
           cost1.each_with_index do |c1,i|
             return false unless (cost2[i] - c1).abs < 0.001
           end
@@ -560,7 +560,7 @@ module NoSE
       end
 
       def is_larger_cost(cost1, cost2)
-        if cost1.is_a?(Array) and cost2.is_a?(Array)
+        if cost1.is_a?(Array) && cost2.is_a?(Array)
           cost1.each_with_index do |c1,i|
             return false unless c1 < cost2[i]
           end

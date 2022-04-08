@@ -4,7 +4,7 @@ module NoSE
   module Search
     class TimeDependIndexFixConstraints < Constraint
       def self.apply(problem)
-        return unless (problem.ts_indexes.has_key?(problem.start_ts) and problem.ts_indexes.has_key?(problem.end_ts))
+        return unless (problem.ts_indexes.has_key?(problem.start_ts) && problem.ts_indexes.has_key?(problem.end_ts))
 
         target_tss = [problem.start_ts, problem.middle_ts, problem.end_ts]
         fixed_tss = [problem.start_ts, problem.end_ts]

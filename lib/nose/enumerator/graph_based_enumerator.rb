@@ -17,25 +17,22 @@ module NoSE
       return [] if queries.empty?
 
       indexes = Parallel.flat_map(queries, in_processes: [Parallel.processor_count - 5, 0].max()) do |query|
-        idxs = indexes_for_query(query).to_a
-        puts query.comment + ": " + idxs.size.to_s if query.instance_of? Query
-        idxs
+        indexes_for_query(query).to_a
       end.uniq
       indexes += additional_indexes
 
-      puts "index size before pruning: " + indexes.size.to_s
       indexes = get_used_indexes(queries, indexes)
-      puts "index size after pruning: " + indexes.size.to_s
-
       indexes.uniq
     end
 
     # remove CFs that are not used in query plans
     def get_used_indexes(queries, indexes)
-      puts "whole indexes : " + indexes.size.to_s
-      get_trees(queries, indexes).flat_map do |tree|
+      indexes_size = indexes.size
+      pruned_indexes = get_trees(queries, indexes).flat_map do |tree|
         tree.flat_map(&:indexes).uniq
       end.uniq
+      puts "usage based pruning: #{indexes_size} -> #{pruned_indexes.size}"
+      pruned_indexes
     end
 
     def get_trees(queries, indexes)
@@ -55,12 +52,22 @@ module NoSE
       orderby = get_query_orderby query
 
       indexes = group_subgraph(query.eq_fields, query.graph).flat_map do |subgraph_pair|
-        overlapping_entities = subgraph_pair[:prefix].entities & subgraph_pair[:suffix].entities
+        indexes_for_subgraph_pair subgraph_pair, query, range, eq, orderby
+      end.uniq
+      indexes = ignore_cluster_key_order query, indexes
+      indexes << query.materialize_view
+      indexes << query.materialize_view_with_aggregation
+      puts "#{indexes.size} indexes for #{query.comment}"
+      indexes
+    end
+
+    def indexes_for_subgraph_pair(subgraph_pair, query, range, eq, orderby)
+         overlapping_entities = subgraph_pair[:prefix].entities & subgraph_pair[:suffix].entities
 
         prefix_idxes = indexes_for_graph(subgraph_pair[:prefix], query.select, eq, range, orderby,
                                          overlapping_entities, is_prefix_graph: true)
 
-        if subgraph_pair[:prefix].entities.size == 1 and subgraph_pair[:suffix].entities == query.graph.entities
+        if subgraph_pair[:prefix].entities.size == 1 && subgraph_pair[:suffix].entities == query.graph.entities
           suffix_idxes = indexes_for_full_suffix_graph(subgraph_pair[:prefix], subgraph_pair[:suffix],
                                                        query.materialize_view, eq)
         else
@@ -69,18 +76,10 @@ module NoSE
         end
 
         [prefix_idxes + suffix_idxes].flatten
-      end
-      indexes.uniq!
-      index_size = indexes.size
-      indexes = ignore_cluster_key_order query, indexes
-      STDERR.puts "prune indexes based on clustering key #{index_size} -> #{indexes.size}"
-      indexes << query.materialize_view
-      indexes << query.materialize_view_with_aggregation
-      puts "#{indexes.size} indexes for #{query.comment}"
-      indexes
     end
 
     def ignore_cluster_key_order(query, indexes)
+      index_size = indexes.size
       overlapping_index_keys = []
       condition_fields = (query.eq_fields + query.order.to_set + query.range_fields.to_set).reject(&:nil?)
       indexes.sort_by!(&:hash_str)
@@ -102,7 +101,9 @@ module NoSE
                             .reject{|i| overlapping_index_keys.include? i.key}
         overlapping_index_keys += similar_indexes.map(&:key)
       end
-      indexes.reject { |i| overlapping_index_keys.include? i.key}
+      pruned_indexes = indexes.reject { |i| overlapping_index_keys.include? i.key}
+      puts "prune indexes based on clustering key #{index_size} -> #{pruned_indexes.size}"
+      pruned_indexes
     end
 
     # enumerate CFs by changing the field order of the first entity of MV
@@ -122,17 +123,17 @@ module NoSE
         subgraphs[(idx + 1)..-1].each do |other_subgraph|
           next unless (subgraph.entities & other_subgraph.entities).size == 1
           next unless (subgraph.entities | other_subgraph.entities) == parent_graph.entities
-          next if subgraph.entities.size == 1 and \
-                  not (other_subgraph.join_order(eq).take(1) == subgraph.join_order(eq) or \
+          next if subgraph.entities.size == 1 && \
+                  !(other_subgraph.join_order(eq).take(1) == subgraph.join_order(eq) || \
                   other_subgraph.join_order(eq).reverse.take(1) == subgraph.join_order(eq))
-          next if other_subgraph.entities.size == 1 and \
-                  not (subgraph.join_order(eq).take(1) == other_subgraph.join_order(eq) or \
+          next if other_subgraph.entities.size == 1 && \
+                  !(subgraph.join_order(eq).take(1) == other_subgraph.join_order(eq) || \
                   subgraph.join_order(eq).reverse.take(1) == other_subgraph.join_order(eq))
-          next if (subgraph.entities.size == 1 and not eq.map(&:parent).include? subgraph.entities.first) or \
-                  (other_subgraph.entities.size == 1 and not eq.map(&:parent).include? other_subgraph.entities.first)
+          next if (subgraph.entities.size == 1 && !eq.map(&:parent).include?(subgraph.entities.first)) || \
+                  (other_subgraph.entities.size == 1 && !eq.map(&:parent).include?(other_subgraph.entities.first))
 
           prefix_subgraph, suffix_subgraph = subgraph, other_subgraph
-          if suffix_subgraph.entities.size == 1 and prefix_subgraph.entities.size > 1
+          if suffix_subgraph.entities.size == 1 && prefix_subgraph.entities.size > 1
             prefix_subgraph, suffix_subgraph = suffix_subgraph, prefix_subgraph
           end
           # choose prefix subgraph. this works only when parent_graph == query.graph
@@ -168,7 +169,7 @@ module NoSE
     private
 
     def limit_choices(choices)
-      return choices if @choice_limit_size.nil? or choices.size < @choice_limit_size
+      return choices if @choice_limit_size.nil? || choices.size < @choice_limit_size
 
       base_size = choices.size
       # sort choices to always get the same reduced-choices
@@ -181,20 +182,23 @@ module NoSE
 
     def get_graph_choices(graph, select, eq, range, orderby, overlapping_entities, is_prefix_graph: true)
       eq_choices = eq_choices graph, eq
-      eq_choices = is_prefix_graph ?
-                     prune_eq_choices_for_prefix_graph(eq_choices, eq, range, orderby)
-                     : prune_eq_choices_for_suffix_graph(eq_choices, overlapping_entities)
+      eq_choices = prune_eq_choices eq_choices, eq, range, orderby, overlapping_entities, is_prefix_graph
 
-      order_choices = order_choices(graph, range, is_prefix_graph)
+      # order by is not executed partially.
+      # Thus, This enumerator only enumerates order fields for graph that has all of required entity
+      is_prefix_or_not_all_entity_included = is_prefix_graph || !(range.keys.to_set < graph.entities)
+      order_choices = is_prefix_or_not_all_entity_included ? [[]] : order_choices(graph, range)
       extra_choices = extra_choices(graph, select, eq, range)
 
       [eq_choices, order_choices, extra_choices]
     end
 
-    def order_choices(graph, range, is_prefix_graph)
-      return [[]] if is_prefix_graph or range.keys.to_set < graph.entities
-      # order by is not executed partially.
-      # Thus, This enumerator only enumerates order fields for graph that has all of required entity
+    def prune_eq_choices(eq_choices, eq, range, orderby, overlapping_entities, is_prefix_graph)
+      return prune_eq_choices_for_prefix_graph(eq_choices, eq, range, orderby) if is_prefix_graph
+      prune_eq_choices_for_suffix_graph(eq_choices, overlapping_entities)
+    end
+
+    def order_choices(graph, range)
       range_fields = graph.entities.map { |entity| range[entity] }.reduce(&:+).uniq
       order_choices = range_fields.permutation.to_a << []
       order_choices
@@ -220,11 +224,11 @@ module NoSE
 
         # Since this CF does not have aggregation, we don't care groupby below
         non_query_specified_id_fields = eq_choice.select(&:primary_key)
-                                                 .reject{|f| eq.values.flatten.include?(f) or
-                                                   range.values.flatten.include?(f) or
+                                                 .reject{|f| eq.values.flatten.include?(f) ||
+                                                   range.values.flatten.include?(f) ||
                                                    orderby.values.flatten.include?(f)}
         query_specified_fields = eq_choice.to_set - non_query_specified_id_fields.to_set
-        next true if non_query_specified_id_fields.empty? or query_specified_fields.empty?
+        next true if non_query_specified_id_fields.empty? || query_specified_fields.empty?
         query_specified_fields.map{|qsf| eq_choice.index(qsf)}.max < non_query_specified_id_fields.map{|nqsif| eq_choice.index(nqsif)}.min
       end
 
