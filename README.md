@@ -5,7 +5,7 @@ This repository is licensed under the [GPLv3 license](LICENSE.md).
 
 ## How to use
 
-We provide [cli tool](https://github.com/Y-Wakuta/nosql_time-series_schema_designer_cli) to run this system for given workload.
+We provide [cli tool](https://github.com/Y-Wakuta/nosql_time-series_schema_designer_cli) to run this system for given workload. Please check the description in cli tool repository.
 
 ## Acknowledgements
 
