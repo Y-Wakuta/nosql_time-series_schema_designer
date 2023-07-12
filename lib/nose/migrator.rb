@@ -130,6 +130,10 @@ module NoSE
           [right_index_hash[related_key]].flatten.map {|rv| rv.merge(left_value)}
         end.uniq
 
+        if result.empty?
+          raise "The join result was empty. There might be unexpected behavior in the program."
+        end
+
         puts "hash join results #{results.size} records:  #{Time.now - starting}, #{left_index.key} <-> #{right_index.key}"
         results
       end
